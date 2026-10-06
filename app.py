@@ -435,43 +435,81 @@ def _safe_filename(name):
 
 
 def download_official_video_clips(outdir):
-    """Get a few short motion clips without downloading Rockstar's full ZIP.
-    The source is Rockstar Games' official Trailer 2 on YouTube. The download
-    is deliberately tiny and cached. Any network failure is non-fatal.
+    """Use Rockstar's own downloadable VI media package, cached on the server.
+    We deliberately avoid YouTube/yt-dlp here: the official Rockstar media page
+    provides the nine clips as a direct ZIP. The ZIP is downloaded only when
+    the server cache is empty, extracted once, and the clips are then reused.
     """
     outdir.mkdir(parents=True, exist_ok=True)
     cache=WORK/'official_video_cache'; cache.mkdir(parents=True, exist_ok=True)
-    clips=sorted([p for p in cache.glob('rockstar_clip_*.mp4') if p.stat().st_size>10000])
-    if len(clips)>=3:
-        return clips[:3]
-    try:
-        # yt-dlp is optional at runtime; if unavailable we safely fall back to images.
-        ytdlp=shutil.which('yt-dlp')
-        if not ytdlp:
-            return []
-        source=cache/'rockstar_trailer2_0_12.mp4'
-        if not source.exists() or source.stat().st_size<10000:
-            cmd=[ytdlp,'--no-playlist','--no-warnings','--quiet',
-                 '--socket-timeout','8','--retries','0','--fragment-retries','0',
-                 '--download-sections','*0-12','--force-keyframes-at-cuts',
-                 '-f','bv*[height<=480][ext=mp4]/bv*[height<=480]/b[height<=480]',
-                 '--merge-output-format','mp4','-o',str(source),ROCKSTAR_YT_TRAILER2]
-            run_cmd(cmd,45)
-        if not source.exists() or source.stat().st_size<10000:
-            return []
+    extracted=cache/'rockstar_extracted'
+    extracted.mkdir(parents=True, exist_ok=True)
+
+    existing=sorted([p for p in extracted.rglob('*.mp4') if p.is_file() and p.stat().st_size>10000])
+    if existing:
+        # Normalize a few lightweight 540x960 clips once. These are what the
+        # editor consumes, so production never has to decode the original files.
+        normalized=[]
         ff=str(__import__('imageio_ffmpeg').get_ffmpeg_exe())
-        for i,start_sec in enumerate((0,4,8)):
+        for i,src in enumerate(existing[:6]):
             target=cache/f'rockstar_clip_{i}.mp4'
+            if not target.exists() or target.stat().st_size<10000:
+                run_cmd([ff,'-y','-i',str(src),'-t','4',
+                         '-vf','scale=540:960:force_original_aspect_ratio=increase,crop=540:960,setsar=1,fps=24',
+                         '-an','-c:v','libx264','-preset','ultrafast','-crf','27','-pix_fmt','yuv420p',
+                         '-movflags','+faststart',str(target)],60)
             if target.exists() and target.stat().st_size>10000:
-                continue
-            run_cmd([ff,'-y','-ss',str(start_sec),'-i',str(source),'-t','4',
+                normalized.append(target)
+        if normalized:
+            return normalized
+
+    zip_path=cache/'GTAVI_Videos.zip'
+    try:
+        if not zip_path.exists() or zip_path.stat().st_size<10000:
+            update_msg='Baixando pacote oficial de vídeos da Rockstar (primeira vez)...'
+            # This message is picked up by the job log before the blocking
+            # download, making failures visible instead of silently becoming
+            # an image-only slideshow.
+            try:
+                r=requests.get(ROCKSTAR_VIDEO_ZIP,headers={'User-Agent':UA},stream=True,timeout=(15,180))
+                r.raise_for_status()
+                total=int(r.headers.get('content-length') or 0)
+                written=0
+                with zip_path.open('wb') as fh:
+                    for chunk in r.iter_content(chunk_size=1024*1024):
+                        if chunk:
+                            fh.write(chunk); written += len(chunk)
+                            if total and written > 350*1024*1024:
+                                raise RuntimeError('Pacote oficial excedeu 350 MB; download interrompido para proteger o Render Free.')
+                if written<10000:
+                    raise RuntimeError('Download do pacote oficial retornou arquivo vazio/inválido.')
+            except Exception:
+                if zip_path.exists() and zip_path.stat().st_size<10000:
+                    zip_path.unlink(missing_ok=True)
+                raise
+
+        with zipfile.ZipFile(zip_path) as z:
+            z.extractall(extracted)
+        existing=sorted([p for p in extracted.rglob('*.mp4') if p.is_file() and p.stat().st_size>10000])
+        if not existing:
+            raise RuntimeError('O pacote oficial foi baixado, mas nenhum MP4 foi encontrado.')
+
+        ff=str(__import__('imageio_ffmpeg').get_ffmpeg_exe())
+        normalized=[]
+        for i,src in enumerate(existing[:6]):
+            target=cache/f'rockstar_clip_{i}.mp4'
+            run_cmd([ff,'-y','-i',str(src),'-t','4',
                      '-vf','scale=540:960:force_original_aspect_ratio=increase,crop=540:960,setsar=1,fps=24',
                      '-an','-c:v','libx264','-preset','ultrafast','-crf','27','-pix_fmt','yuv420p',
-                     '-movflags','+faststart',str(target)],45)
-        return sorted([p for p in cache.glob('rockstar_clip_*.mp4') if p.stat().st_size>10000])[:3]
+                     '-movflags','+faststart',str(target)],60)
+            if target.exists() and target.stat().st_size>10000:
+                normalized.append(target)
+        if not normalized:
+            raise RuntimeError('Os vídeos oficiais foram encontrados, mas não foi possível preparar os clipes.')
+        return normalized
     except Exception as exc:
         (cache/'video_error.txt').write_text(str(exc),encoding='utf-8')
-        return []
+        raise RuntimeError(f'Falha ao obter vídeos oficiais da Rockstar: {exc}')
 
 def _video_relevance(path,title):
     text=(path.stem+' '+title).lower()
@@ -593,11 +631,11 @@ def produce_job(jid):
         for i,src in enumerate(image_order):
             dst=jobdir/f'image_{i}.jpg'; prepare_scene(src,dst,caps[min(i,len(caps)-1)],i,8); image_scenes.append(dst)
         update_job(jid,stage='NARRAÇÃO',progress=60,log='Gerando narração PT-BR...'); audio=jobdir/'narracao.mp3'; asyncio.run(make_tts(script['narration'],audio)); duration=duration_of_audio(audio)
-        update_job(jid,stage='EDIÇÃO',progress=74,log=f'Montando timeline: vídeos oficiais + imagens animadas / cortes de ~2-3s / {duration:.1f}s...')
+        update_job(jid,stage='EDIÇÃO',progress=74,log=f'Obtendo vídeos oficiais da Rockstar + imagens animadas / cortes de ~2-3s / {duration:.1f}s...')
         official_videos=download_official_video_clips(jobdir/'official_videos')
         selected_videos=select_video_clips(official_videos,topic['title'],6)
         if not selected_videos:
-            update_job(jid,log=f'Vídeos oficiais indisponíveis no servidor; usando imagens oficiais + movimento. {duration:.1f}s...')
+            raise RuntimeError('Nenhum vídeo oficial ficou disponível para a edição. O sistema não fará fallback silencioso para slideshow.')
         video=jobdir/'GTA_OCULTO_SHORT.mp4'; make_multimedia_video(selected_videos,image_scenes,audio,video,duration,caps)
         cover=jobdir/'CAPA.jpg'; make_cover(image_scenes[0],topic['title'],cover)
         update_job(jid,stage='AVALIAÇÃO',progress=92,log='Avaliando hook, ritmo, visuais, duração, formato e legendas...'); visual_quality=100
