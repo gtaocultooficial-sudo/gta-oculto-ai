@@ -1,19 +1,17 @@
-# GTA Oculto AI — V4
+# GTA Oculto AI — Cloud Final
 
-Arquitetura: Render hospeda somente painel/fila/API. O PC local executa pesquisa, visuais, narração e FFmpeg.
+Versão cloud-only. O painel e a produção rodam no servidor; **não depende do seu PC**.
+
+## Pipeline
+CRIAR SHORT → pesquisa oficial → decisão editorial → roteiro → visuais → narração PT-BR → edição 1080x1920 → avaliação → MP4 + capa + metadata.
 
 ## Render
-Crie a variável de ambiente `WORKER_TOKEN` com uma senha forte sua.
+Build: `pip install -r requirements.txt`
+Start: `gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 2 --timeout 180`
 
-## PC produtor
-Instale Python 3.11+ e rode:
+Não é necessário WORKER_TOKEN.
 
-Windows CMD:
-```
-set GTA_OCULTO_SERVER=https://gta-oculto-ai.onrender.com
-set GTA_OCULTO_TOKEN=COLE_A_MESMA_SENHA_DO_RENDER
-python -m pip install -r worker_requirements.txt
-python worker.py
-```
+## Importante
+O Render Free pode dormir por inatividade e o filesystem local não é armazenamento permanente após reinícios/deploys. Esta versão resolve a produção cloud, mas armazenamento permanente e publicação automática no YouTube são etapas separadas.
 
-O worker fica aguardando tarefas. Se o PC estiver desligado, a tarefa fica na fila até ele voltar.
+O conteúdo usa prioritariamente fontes oficiais da Rockstar. Copyright não é garantido; revise antes de publicar.
