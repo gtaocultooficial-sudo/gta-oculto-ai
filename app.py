@@ -1,4 +1,4 @@
-import os, json, uuid, threading, time, asyncio, subprocess, shutil, re, sys, struct, zlib
+import os, json, uuid, threading, time, asyncio, subprocess, shutil, re, sys
 from pathlib import Path
 from datetime import datetime, timezone
 from urllib.parse import urljoin
@@ -508,42 +508,78 @@ def _remote_zip_extract(url,entry,target):
 
 
 def download_official_video_clips(outdir, jid=None):
-    """Obtain real Rockstar motion without YouTube and without downloading the full ZIP.
-    The official ZIP is accessed with HTTP Range requests: only its directory and the
-    three selected video members are downloaded. This is designed for Render Free.
+    """Download Rockstar's official 9-clip ZIP once, extract three real clips, cache them.
+    This deliberately avoids the fragile HTTP-Range ZIP parser. The ZIP is streamed to
+    disk (never loaded into RAM) and deleted after the three normalized clips are cached.
     """
+    import zipfile
     outdir.mkdir(parents=True, exist_ok=True)
     cache=WORK/'official_video_cache'; cache.mkdir(parents=True, exist_ok=True)
     clips=sorted([p for p in cache.glob('rockstar_real_*.mp4') if p.stat().st_size>20000])
-    if len(clips)>=3: return clips[:3]
+    if len(clips)>=3:
+        return clips[:3]
+
+    zip_path=cache/'GTAVI_Videos_full.zip'
+    part=cache/'GTAVI_Videos_full.zip.part'
     try:
-        if jid: update_job(jid,log='Lendo a mídia oficial da Rockstar sem baixar o ZIP inteiro...')
-        total,entries=_remote_zip_entries(ROCKSTAR_VIDEO_ZIP)
-        if jid: update_job(jid,log=f'Catálogo oficial encontrado ({total/1048576:.1f} MB). Selecionando 3 clipes por Range HTTP...')
-        videos=[e for e in entries if e['name'].lower().endswith(('.mp4','.mov','.m4v'))]
-        preferred=[]
-        for key in ('Jason','Lucia','Cal','Boobie','Raul','Brian','Real','Dre'):
-            preferred += [e for e in videos if key.lower() in Path(e['name']).stem.lower() and e not in preferred]
-        chosen=(preferred+[e for e in videos if e not in preferred])[:3]
-        if len(chosen)<3: raise RuntimeError(f'A mídia oficial possui apenas {len(chosen)} vídeos utilizáveis.')
-        ff=str(__import__('imageio_ffmpeg').get_ffmpeg_exe())
-        for i,e in enumerate(chosen):
-            target=cache/f'rockstar_real_{i}.mp4'
-            if target.exists() and target.stat().st_size>20000: continue
-            raw=cache/f'raw_{i}.source'
-            if jid: update_job(jid,log=f'Baixando clipe oficial {i+1}/3: {Path(e["name"]).stem} ({e["compressed"]/1048576:.1f} MB)...')
-            _remote_zip_extract(ROCKSTAR_VIDEO_ZIP,e,raw)
-            run_cmd([ff,'-y','-i',str(raw),'-t','5',
-                     '-vf','scale=360:640:force_original_aspect_ratio=increase,crop=360:640,setsar=1,fps=24',
-                     '-an','-c:v','libx264','-preset','ultrafast','-crf','28','-threads','1',
-                     '-pix_fmt','yuv420p','-movflags','+faststart',str(target)],90)
-            try: raw.unlink()
-            except Exception: pass
+        if not zip_path.exists() or zip_path.stat().st_size<100000:
+            if jid: update_job(jid,log='Baixando o pacote oficial de vídeos da Rockstar (1 vez, em cache)...')
+            if part.exists():
+                try: part.unlink()
+                except Exception: pass
+            total=0; done=0
+            with requests.get(ROCKSTAR_VIDEO_ZIP, stream=True, timeout=(20,120), headers={'User-Agent':UA,'Accept-Encoding':'identity'}) as r:
+                r.raise_for_status()
+                total=int(r.headers.get('content-length','0') or 0)
+                with part.open('wb') as f:
+                    for chunk in r.iter_content(chunk_size=1024*1024):
+                        if not chunk: continue
+                        f.write(chunk); done += len(chunk)
+                        if jid and total and (done % (20*1024*1024) < len(chunk)):
+                            update_job(jid,log=f'Mídia oficial: {done/1048576:.0f}/{total/1048576:.0f} MB baixados...')
+            if not part.exists() or part.stat().st_size<100000:
+                raise RuntimeError('Download do pacote oficial terminou vazio ou incompleto.')
+            part.replace(zip_path)
+
+        if jid: update_job(jid,log='Lendo os 9 clipes oficiais da Rockstar...')
+        with zipfile.ZipFile(zip_path,'r') as zf:
+            names=[n for n in zf.namelist() if n.lower().endswith(('.mp4','.mov','.m4v'))]
+            if len(names)<3:
+                raise RuntimeError(f'O pacote oficial retornou apenas {len(names)} vídeos.')
+            preferred=[]
+            for key in ('Jason','Lucia','Cal','Boobie','Raul','Brian','Real','Dre'):
+                preferred += [n for n in names if key.lower() in Path(n).stem.lower() and n not in preferred]
+            chosen=(preferred+[n for n in names if n not in preferred])[:3]
+            if len(chosen)<3:
+                raise RuntimeError(f'A mídia oficial possui apenas {len(chosen)} vídeos utilizáveis.')
+            ff=str(__import__('imageio_ffmpeg').get_ffmpeg_exe())
+            for i,name in enumerate(chosen):
+                target=cache/f'rockstar_real_{i}.mp4'
+                if target.exists() and target.stat().st_size>20000: continue
+                raw=cache/f'raw_{i}.mp4'
+                if jid: update_job(jid,log=f'Preparando clipe oficial {i+1}/3: {Path(name).stem}...')
+                with zf.open(name) as src, raw.open('wb') as dst:
+                    while True:
+                        chunk=src.read(1024*1024)
+                        if not chunk: break
+                        dst.write(chunk)
+                run_cmd([ff,'-y','-i',str(raw),'-t','5',
+                         '-vf','scale=360:640:force_original_aspect_ratio=increase,crop=360:640,setsar=1,fps=24',
+                         '-an','-c:v','libx264','-preset','ultrafast','-crf','28','-threads','1',
+                         '-pix_fmt','yuv420p','-movflags','+faststart',str(target)],90)
+                try: raw.unlink()
+                except Exception: pass
         clips=sorted([p for p in cache.glob('rockstar_real_*.mp4') if p.stat().st_size>20000])
-        if len(clips)<3: raise RuntimeError(f'Apenas {len(clips)} clipes reais foram preparados.')
+        if len(clips)<3:
+            raise RuntimeError(f'Apenas {len(clips)} clipes reais foram preparados.')
+        try: zip_path.unlink()
+        except Exception: pass
         return clips[:3]
     except Exception as e:
-        raise RuntimeError('Não foi possível obter os vídeos oficiais da Rockstar por Range HTTP: '+str(e)[:1500])
+        try:
+            if part.exists(): part.unlink()
+        except Exception: pass
+        raise RuntimeError('Não foi possível obter os vídeos oficiais da Rockstar: '+str(e)[:1800])
 
 def _video_relevance(path,title):
     text=(path.stem+' '+title).lower()
