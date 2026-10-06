@@ -1,3 +1,19 @@
-# GTA Oculto AI — Web Producer V2
+# GTA Oculto AI — V4
 
-Primeira versão funcional do produtor web: pesquisa fonte oficial Rockstar, cria roteiro, prepara visuais, gera narração PT-BR quando disponível e renderiza um Short vertical para revisão. O Render gratuito pode dormir e possui recursos limitados; o motor pesado será migrado para o PC local/RTX 4060.
+Arquitetura: Render hospeda somente painel/fila/API. O PC local executa pesquisa, visuais, narração e FFmpeg.
+
+## Render
+Crie a variável de ambiente `WORKER_TOKEN` com uma senha forte sua.
+
+## PC produtor
+Instale Python 3.11+ e rode:
+
+Windows CMD:
+```
+set GTA_OCULTO_SERVER=https://gta-oculto-ai.onrender.com
+set GTA_OCULTO_TOKEN=COLE_A_MESMA_SENHA_DO_RENDER
+python -m pip install -r worker_requirements.txt
+python worker.py
+```
+
+O worker fica aguardando tarefas. Se o PC estiver desligado, a tarefa fica na fila até ele voltar.
