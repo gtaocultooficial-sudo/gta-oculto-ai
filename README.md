@@ -1,4 +1,4 @@
-# GTA Oculto AI — Cloud Video Real
+# GTA Oculto AI — Cloud Video Real — RAM 512 MB
 
 Versão limpa do produtor cloud do GTA Oculto AI.
 
@@ -33,3 +33,12 @@ Start:
 - `requirements.txt`
 - `Procfile`
 - `README.md`
+
+
+### Otimização Render Free
+- FFmpeg limitado a 1 thread e filtros limitados a 1 thread.
+- Saída intermediária dos clipes reais em 320x568.
+- Cenas de imagem preparadas em 720x1280 e upscale final para 1080x1920.
+- Logs do FFmpeg não são acumulados na memória do Python.
+- Downloads de imagens são feitos em streaming com limite por ativo.
+- O objetivo é manter a produção dentro do limite de 512 MB do Render Free.
