@@ -434,36 +434,32 @@ def _safe_filename(name):
 
 
 def download_official_video_clips(outdir):
-    """Best-effort cache of Rockstar's official clip bundle.
-    The download is streamed to disk (never kept in RAM) and is treated as optional.
-    If the free Render instance cannot fetch/extract it quickly, the editor falls back
-    to the official screenshots instead of getting stuck in EDIÇÃO.
+    """Optional video layer that NEVER blocks production on the Render Free instance.
+    First uses clips already cached from an earlier run. If none exist, it makes one
+    short best-effort download from Rockstar Games' verified official YouTube Trailer 2.
+    Any network/yt-dlp failure returns [] immediately so the image editor continues.
     """
     outdir.mkdir(parents=True, exist_ok=True)
-    cache=WORK/'official_video_cache'
-    cache.mkdir(parents=True, exist_ok=True)
+    cache=WORK/'official_video_cache'; cache.mkdir(parents=True, exist_ok=True)
     existing=[p for p in cache.iterdir() if p.suffix.lower() in ('.mp4','.mov','.m4v','.webm') and p.stat().st_size>10000]
     if existing:
-        return existing
-    zpath=cache/'GTAVI_Videos.zip'
+        return existing[:2]
+    target=cache/'rockstar_trailer2_clip.mp4'
     try:
-        if not zpath.exists() or zpath.stat().st_size < 100000:
-            with requests.get(ROCKSTAR_VIDEO_ZIP,headers={'User-Agent':UA},stream=True,timeout=(10,35)) as r:
-                r.raise_for_status()
-                with zpath.open('wb') as dst:
-                    for chunk in r.iter_content(chunk_size=1024*1024):
-                        if chunk: dst.write(chunk)
-        with zipfile.ZipFile(zpath) as z:
-            names=[n for n in z.namelist() if Path(n).suffix.lower() in ('.mp4','.mov','.m4v','.webm') and not n.endswith('/')]
-            # Only extract a small number of clips; there is no reason to unpack all 9.
-            for n in names[:5]:
-                target=cache/_safe_filename(Path(n).name)
-                if target.exists() and target.stat().st_size>10000: continue
-                with z.open(n) as src, target.open('wb') as dst:
-                    shutil.copyfileobj(src,dst,1024*1024)
-        return [p for p in cache.iterdir() if p.suffix.lower() in ('.mp4','.mov','.m4v','.webm') and p.stat().st_size>10000]
+        if shutil.which('yt-dlp') is None:
+            return []
+        # Official Rockstar Games upload, verified externally. Only a short segment is fetched.
+        url='https://www.youtube.com/watch?v=VQRLujxTm3c'
+        cmd=['yt-dlp','--no-playlist','--no-warnings','--quiet','--socket-timeout','6','--retries','0',
+             '--download-sections','*0-8','--force-keyframes-at-cuts','-f','bv*[height<=720]+ba/b[height<=720]',
+             '--merge-output-format','mp4','-o',str(target),url]
+        run_cmd(cmd,45)
+        if target.exists() and target.stat().st_size>10000:
+            return [target]
     except Exception:
-        return []
+        pass
+    return []
+
 
 def _video_relevance(path,title):
     text=(path.stem+' '+title).lower()
@@ -580,7 +576,7 @@ def produce_job(jid):
         for i,src in enumerate(image_order):
             dst=jobdir/f'image_{i}.jpg'; prepare_scene(src,dst,caps[min(i,len(caps)-1)],i,8); image_scenes.append(dst)
         update_job(jid,stage='NARRAÇÃO',progress=60,log='Gerando narração PT-BR...'); audio=jobdir/'narracao.mp3'; asyncio.run(make_tts(script['narration'],audio)); duration=duration_of_audio(audio)
-        update_job(jid,stage='EDIÇÃO',progress=74,log=f'Montando multimídia: vídeos oficiais + imagens + transições cinematográficas / {duration:.1f}s...')
+        update_job(jid,stage='EDIÇÃO',progress=74,log=f'Montando multimídia cloud: vídeo oficial opcional + imagens + transições / {duration:.1f}s...')
         official_videos=download_official_video_clips(jobdir/'official_videos')
         selected_videos=select_video_clips(official_videos,topic['title'],3)
         if not selected_videos:
