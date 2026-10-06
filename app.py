@@ -14,6 +14,7 @@ except Exception:
     edge_tts = None
 
 APP = Flask(__name__)
+app = APP  # compatibilidade com Gunicorn configurado como app:app
 BASE = Path(__file__).resolve().parent
 WORK = BASE / "workspace"; WORK.mkdir(exist_ok=True)
 JOBS = {}; LOCK = threading.Lock()
