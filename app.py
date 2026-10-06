@@ -477,7 +477,7 @@ def _remote_zip_entries(url):
     while p+46<=len(cd):
         if cd[p:p+4] != b'PK\x01\x02': break
         vals=struct.unpack('<4s6H3L5H2L',cd[p:p+46])
-        comp=vals[8]; csize=vals[10]; usize=vals[11]; fn=vals[12]; extra=vals[13]; comm=vals[14]; local=vals[16]
+        comp=vals[8]; csize=vals[8]; usize=vals[9]; fn=vals[10]; extra=vals[11]; comm=vals[12]; local=vals[16]
         nameb=cd[p+46:p+46+fn]
         try: name=nameb.decode('utf-8')
         except Exception: name=nameb.decode('cp437','replace')
