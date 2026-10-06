@@ -1,4 +1,4 @@
-import os, json, uuid, threading, time, asyncio, subprocess, shutil, zipfile, re
+import os, json, uuid, threading, time, asyncio, subprocess, shutil
 from pathlib import Path
 from datetime import datetime, timezone
 from urllib.parse import urljoin
@@ -24,7 +24,6 @@ PROCESSING = False
 UA = 'GTA-Oculto-AI/Cloud-Final/1.0'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
-ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
 
 FALLBACK_TOPICS = [
     {'id':'leonida','score':96,'priority':'ALTA','title':'GTA 6: o detalhe de Leonida que pode mudar a história','source':'Rockstar Games','url':ROCKSTAR_VI},
@@ -429,121 +428,6 @@ async def make_tts(text,path):
     raise RuntimeError(f'falha na narração: {last}')
 
 
-def _safe_filename(name):
-    return re.sub(r'[^a-zA-Z0-9._-]+','_',name).strip('_')[:100]
-
-
-def download_official_video_clips(outdir):
-    """Download/cache Rockstar's official 9-clip video ZIP and extract only video files.
-    The site currently exposes the official clip bundle at the URL below. If it is
-    unavailable, the editor simply falls back to images instead of failing the job.
-    """
-    outdir.mkdir(parents=True, exist_ok=True)
-    cache=WORK/'official_video_cache'
-    cache.mkdir(parents=True, exist_ok=True)
-    marker=cache/'READY.json'
-    existing=[p for p in cache.iterdir() if p.suffix.lower() in ('.mp4','.mov','.m4v','.webm') and p.stat().st_size>10000]
-    if existing:
-        return existing
-    zpath=cache/'GTAVI_Videos.zip'
-    try:
-        if not zpath.exists() or zpath.stat().st_size < 100000:
-            r=fetch(ROCKSTAR_VIDEO_ZIP,timeout=90); r.raise_for_status()
-            zpath.write_bytes(r.content)
-        with zipfile.ZipFile(zpath) as z:
-            names=[n for n in z.namelist() if Path(n).suffix.lower() in ('.mp4','.mov','.m4v','.webm') and not n.endswith('/')]
-            for n in names:
-                target=cache/_safe_filename(Path(n).name)
-                if target.exists() and target.stat().st_size>10000: continue
-                with z.open(n) as src, target.open('wb') as dst: shutil.copyfileobj(src,dst,1024*1024)
-        marker.write_text(json.dumps({'source':ROCKSTAR_VIDEO_ZIP,'count':len(names)}),encoding='utf-8')
-        return [p for p in cache.iterdir() if p.suffix.lower() in ('.mp4','.mov','.m4v','.webm') and p.stat().st_size>10000]
-    except Exception:
-        return []
-
-
-def _video_relevance(path,title):
-    text=(path.stem+' '+title).lower()
-    score=0
-    groups=[('jason',12),('lucia',12),('vice',8),('leonida',8),('cal',4),('boobie',4),('raul',4),('brian',4),('real',4),('dre',4),('cover',1)]
-    for k,v in groups:
-        if k in text: score+=v
-    return score
-
-
-def select_video_clips(videos,title,count=5):
-    ranked=sorted(videos,key=lambda p:_video_relevance(p,title),reverse=True)
-    return ranked[:count]
-
-
-def _caption_overlay(path,caption,idx,total,W=720,H=1280):
-    im=Image.new('RGBA',(W,H),(0,0,0,0)); d=ImageDraw.Draw(im)
-    d.rectangle((0,0,W,95),fill=(0,0,0,125))
-    d.text((30,25),'GTA OCULTO',font=font(26,True),fill='white')
-    d.text((W-85,27),f'{idx+1:02d}/{total:02d}',font=font(20,True),fill=(225,35,50))
-    f=font(30,True); lines=wrap_text(d,caption,f,W-100)[:3]; box_h=70+len(lines)*39; y=H-box_h-40
-    d.rounded_rectangle((28,y,W-28,H-40),radius=18,fill=(7,9,13,215),outline=(215,28,45),width=2)
-    yy=y+22
-    for line in lines:
-        d.text((52,yy),line,font=f,fill='white'); yy+=39
-    im.save(path)
-
-
-def _ffmpeg_text(s):
-    return s.replace('\\','\\\\').replace(':','\\:').replace("'","\\'").replace('%','\\%').replace('\n',' ')
-
-
-def make_multimedia_video(video_clips, image_paths, audio, out, duration, captions):
-    """Create a real mixed-media Short: official video snippets + images + subtle xfade transitions."""
-    ff=str(__import__('imageio_ffmpeg').get_ffmpeg_exe())
-    work=out.parent/'timeline'; work.mkdir(exist_ok=True)
-    total=8
-    # Prefer 5 official video clips and use 3 images; if fewer clips are available,
-    # fill the missing slots with images.
-    assets=[]
-    for v in video_clips[:5]: assets.append(('video',v))
-    for im in image_paths: 
-        if len(assets)>=total: break
-        assets.append(('image',im))
-    while len(assets)<total and image_paths:
-        assets.append(('image',image_paths[len(assets)%len(image_paths)]))
-    assets=assets[:total]
-    per=max(2.25,duration/total); trans=0.22
-    scene_files=[]
-    for i,(kind,src) in enumerate(assets):
-        scene=work/f'scene_{i:02d}.mp4'; overlay=work/f'overlay_{i:02d}.png'
-        _caption_overlay(overlay,captions[i],i,total)
-        if kind=='video':
-            # Use a short moving segment from the official clip. -ss is deterministic;
-            # videos shorter than the requested segment are looped by the trim logic.
-            cmd=[ff,'-y','-stream_loop','-1','-i',str(src),'-loop','1','-i',str(overlay),
-                 '-t',f'{per:.3f}','-filter_complex',
-                 "[0:v]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,setsar=1,fps=24,eq=contrast=1.05:saturation=1.03[v];[1:v]format=rgba[o];[v][o]overlay=0:0:shortest=1[outv]",
-                 '-map','[outv]','-an','-c:v','libx264','-preset','ultrafast','-crf','24','-threads','2','-pix_fmt','yuv420p',str(scene)]
-        else:
-            # Turn still into moving footage with a very subtle zoom.
-            cmd=[ff,'-y','-loop','1','-i',str(src),'-i',str(overlay),'-t',f'{per:.3f}','-filter_complex',
-                 "[0:v]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,zoompan=z='min(zoom+0.0012,1.035)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=720x1280:fps=24,eq=contrast=1.06[v];[1:v]format=rgba[o];[v][o]overlay=0:0:shortest=1[outv]",
-                 '-map','[outv]','-an','-c:v','libx264','-preset','ultrafast','-crf','24','-threads','2','-pix_fmt','yuv420p',str(scene)]
-        run_cmd(cmd,180); scene_files.append(scene)
-    # Chain short crossfades at 720x1280. This is intentionally kept to 8 scenes so
-    # the Render Free instance can complete it without the old 9-scene 1080p burden.
-    inputs=[]
-    for sfile in scene_files: inputs += ['-i',str(sfile)]
-    filt=[]
-    for i in range(total): filt.append(f'[{i}:v]setpts=PTS-STARTPTS[v{i}]')
-    prev='v0'; offset=per-trans
-    for i in range(1,total):
-        outv=f'x{i}'
-        filt.append(f'[{prev}][v{i}]xfade=transition=fade:duration={trans}:offset={offset:.3f}[{outv}]')
-        prev=outv; offset += per-trans
-    filt.append(f'[{prev}]scale=1080:1920:flags=lanczos,format=yuv420p[vout]')
-    graph=';'.join(filt)
-    run_cmd([ff,'-y',*inputs,'-i',str(audio),'-filter_complex',graph,'-map','[vout]','-map',f'{total}:a',
-             '-t',f'{duration:.2f}','-r','24','-c:v','libx264','-preset','ultrafast','-crf','23','-threads','2',
-             '-pix_fmt','yuv420p','-c:a','aac','-b:a','128k','-movflags','+faststart','-shortest',str(out)],300)
-
-
 def make_video(scenes,audio,out,duration):
     # Corte mais rápido: 12 cenas em ~2–3 s cada. A troca de enquadramento já foi
     # preparada nas imagens; o concat continua leve o bastante para o Render Free.
@@ -584,22 +468,18 @@ def produce_job(jid):
         update_job(jid,stage='ROTEIRO',progress=28,log='Montando roteiro original em português brasileiro...'); script=make_script(topic)
         jobdir=WORK/jid; jobdir.mkdir(parents=True,exist_ok=True)
         update_job(jid,script=script,stage='VISUAIS',progress=40,log='Baixando visuais oficiais e montando cenas verticais...')
-        paths=download_visuals(urls,jobdir/'visuals',topic['title'])
-        caps=['A ROCKSTAR PODE TER ESCONDIDO ISSO.','JASON E LUCIA SÃO O CENTRO DA HISTÓRIA.','MAS NÃO É SÓ VICE CITY.','A CONSPIRAÇÃO SE ESPALHA POR LEONIDA.','O MAPA PODE ESCONDER OUTRAS HISTÓRIAS.','CADA REGIÃO PODE TER UMA PISTA.','E A ROCKSTAR JÁ MOSTROU ALGUMAS.','QUAL DETALHE VOCÊ PERCEBEU?']
-        image_order=select_visuals(paths,topic['title'],5)
-        image_scenes=[]
-        for i,src in enumerate(image_order):
-            dst=jobdir/f'image_{i}.jpg'; prepare_scene(src,dst,caps[min(i,len(caps)-1)],i,8); image_scenes.append(dst)
+        paths=download_visuals(urls,jobdir/'visuals',topic['title']); caps=['A ROCKSTAR PODE TER ESCONDIDO ISSO.','JASON E LUCIA SÃO O CENTRO DA HISTÓRIA.','MAS NÃO É SÓ VICE CITY.','A CONSPIRAÇÃO SE ESPALHA POR LEONIDA.','O MAPA PODE ESCONDER OUTRAS HISTÓRIAS.','CADA REGIÃO PODE TER UMA PISTA.','E A ROCKSTAR JÁ MOSTROU ALGUMAS.','OS DETALHES PODEM ESTAR NAS CENAS.','O QUE AINDA NÃO FOI REVELADO?','TALVEZ A PISTA ESTEJA NO MAPA.','SERÁ QUE ESSES SINAIS SÃO INTENCIONAIS?','QUAL DETALHE VOCÊ PERCEBEU?']; scenes=[]
+        target_scenes=12
+        order=select_visuals(paths,topic['title'],target_scenes)
+        for i,src in enumerate(order):
+            dst=jobdir/f'scene_{i}.jpg'; prepare_scene(src,dst,caps[i],i,target_scenes); scenes.append(dst)
         update_job(jid,stage='NARRAÇÃO',progress=60,log='Gerando narração PT-BR...'); audio=jobdir/'narracao.mp3'; asyncio.run(make_tts(script['narration'],audio)); duration=duration_of_audio(audio)
-        update_job(jid,stage='EDIÇÃO',progress=74,log=f'Montando multimídia: vídeos oficiais + imagens + transições cinematográficas / {duration:.1f}s...')
-        official_videos=download_official_video_clips(jobdir/'official_videos')
-        selected_videos=select_video_clips(official_videos,topic['title'],5)
-        video=jobdir/'GTA_OCULTO_SHORT.mp4'; make_multimedia_video(selected_videos,image_scenes,audio,video,duration,caps)
-        cover=jobdir/'CAPA.jpg'; make_cover(image_scenes[0],topic['title'],cover)
+        update_job(jid,stage='EDIÇÃO',progress=74,log=f'Editando 1080x1920 / 24 FPS / modo cloud otimizado / {duration:.1f}s...'); video=jobdir/'GTA_OCULTO_SHORT.mp4'; make_video(scenes,audio,video,duration)
+        cover=jobdir/'CAPA.jpg'; make_cover(scenes[0],topic['title'],cover)
         update_job(jid,stage='AVALIAÇÃO',progress=92,log='Avaliando hook, ritmo, visuais, duração, formato e legendas...'); visual_quality=100
-        for sp in image_scenes:
+        for sp in scenes:
             q=_image_quality(sp); visual_quality=min(visual_quality, max(0,q))
-        score=evaluate(script,duration,8,visual_quality)
+        score=evaluate(script,duration,len(scenes),visual_quality)
         meta={'title':topic['title'].upper()+' 👀','description':script['narration']+'\n\n🔎 GTA Oculto — onde os segredos vêm à tona.','hashtags':['#GTA6','#GTAVI','#GTAOculto','#RockstarGames','#GTA'],'tags':['GTA 6','GTA VI','GTA 6 Brasil','GTA 6 teorias','GTA 6 segredos','Rockstar Games','GTA Oculto'],'score':score}
         (jobdir/'metadata.json').write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding='utf-8')
         update_job(jid,status='DONE',stage='PRONTO',progress=100,log=f'PRONTO — Short gerado e avaliado em {score}/100.',video=f'{jid}/GTA_OCULTO_SHORT.mp4',cover=f'{jid}/CAPA.jpg',score=score,metadata=meta)
