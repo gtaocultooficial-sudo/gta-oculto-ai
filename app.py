@@ -1,10 +1,4 @@
 import os, json, uuid, threading, time, asyncio, subprocess, shutil, re, sys
-# Render Free: keep native workers/allocators conservative so FFmpeg stays under 512 MB.
-os.environ.setdefault('OMP_NUM_THREADS','1')
-os.environ.setdefault('OPENBLAS_NUM_THREADS','1')
-os.environ.setdefault('MKL_NUM_THREADS','1')
-os.environ.setdefault('NUMEXPR_NUM_THREADS','1')
-os.environ.setdefault('MALLOC_ARENA_MAX','2')
 from pathlib import Path
 from datetime import datetime, timezone
 from urllib.parse import urljoin
@@ -334,40 +328,36 @@ def make_fallback(path,idx,title):
 
 
 def download_visuals(urls,outdir,title):
+    """Download images in streaming chunks so a single large response cannot consume Render RAM."""
     outdir.mkdir(parents=True,exist_ok=True); candidates=[]; seen=set()
-    for i,item in enumerate(urls[:32]):
+    for i,item in enumerate(urls[:24]):
         u=item.get('url') if isinstance(item,dict) else item
         label=item.get('label','') if isinstance(item,dict) else ''
         raw=None
         try:
-            r=requests.get(u,headers={'User-Agent':UA},timeout=(10,25),stream=True)
-            r.raise_for_status()
-            ctype=(r.headers.get('content-type') or '').lower()
-            if 'image' not in ctype and not u.lower().split('?')[0].endswith(('.jpg','.jpeg','.png','.webp','.avif')):
-                r.close(); continue
-            declared=int(r.headers.get('content-length','0') or 0)
-            if declared and declared>12*1024*1024:
-                r.close(); continue
             raw=outdir/f'raw_{i}'
-            total=0
-            with raw.open('wb') as rf:
-                for chunk in r.iter_content(chunk_size=256*1024):
-                    if not chunk: continue
-                    total += len(chunk)
-                    if total>12*1024*1024:
-                        raise RuntimeError('imagem excede o limite de memória por ativo')
-                    rf.write(chunk)
-            r.close()
-            if total<15000:
-                raw.unlink(missing_ok=True); continue
+            with requests.get(u,headers={'User-Agent':UA,'Accept-Encoding':'identity'},timeout=(10,25),stream=True) as r:
+                r.raise_for_status()
+                ctype=(r.headers.get('content-type') or '').lower()
+                if 'image' not in ctype and not u.lower().split('?')[0].endswith(('.jpg','.jpeg','.png','.webp','.avif')):
+                    continue
+                total=0
+                with raw.open('wb') as f:
+                    for chunk in r.iter_content(256*1024):
+                        if not chunk: continue
+                        total += len(chunk)
+                        if total > 8*1024*1024:
+                            raise RuntimeError('imagem excede 8 MB')
+                        f.write(chunk)
+            if raw.stat().st_size<15000: raw.unlink(missing_ok=True); continue
             score=_image_quality(raw)
             if score < 0: raw.unlink(missing_ok=True); continue
             im=Image.open(raw).convert('RGB')
             if max(im.size)<900: raw.unlink(missing_ok=True); continue
-            im.thumbnail((2200,2200),Image.Resampling.LANCZOS)
-            p=outdir/f'good_{len(candidates):02d}.jpg'; im.save(p,quality=92)
-            raw.unlink(missing_ok=True)
-            key=(im.size,round(score,1),label[:80])
+            im.thumbnail((1600,1600),Image.Resampling.BILINEAR)
+            p=outdir/f'good_{len(candidates):02d}.jpg'; im.save(p,quality=88)
+            im.close(); raw.unlink(missing_ok=True)
+            key=(p.stat().st_size,label[:80])
             if key in seen: p.unlink(missing_ok=True); continue
             seen.add(key); candidates.append({'score':score,'path':p,'label':label,'url':u})
         except Exception:
@@ -375,7 +365,7 @@ def download_visuals(urls,outdir,title):
                 try: raw.unlink(missing_ok=True)
                 except Exception: pass
     candidates.sort(key=lambda x:x['score'],reverse=True)
-    paths=candidates[:16]
+    paths=candidates[:12]
     if len(paths)<3:
         while len(paths)<3:
             p=outdir/f'fallback_{len(paths)}.jpg'; make_fallback(p,len(paths),title); paths.append({'score':60,'path':p,'label':title,'url':''})
@@ -404,27 +394,213 @@ def _smart_crop(im,W,H,variant=0):
 
 
 def prepare_scene(src,dst,caption,idx,total):
-    # Render Free memory optimization: prepare scene assets at 720x1280; final MP4 is still 1080x1920.
     W,H=720,1280
     im=Image.open(src).convert('RGB')
     im=_smart_crop(im,W,H,idx)
     zooms=[1.00,1.035,1.065,1.02,1.055,1.085,1.015,1.045,1.075,1.025,1.06,1.09]
     z=zooms[idx % len(zooms)]
     nw,nh=int(W*z),int(H*z)
-    im=im.resize((nw,nh),Image.Resampling.LANCZOS)
+    im=im.resize((nw,nh),Image.Resampling.BILINEAR)
     max_l=max(0,nw-W); max_t=max(0,nh-H)
     x=int(max_l*((idx*0.23)%1.0)); y=int(max_t*(0.28+0.44*((idx*0.37)%1.0)))
     im=im.crop((x,y,x+W,y+H))
-    im=ImageEnhance.Contrast(im).enhance(1.06)
     ov=Image.new('RGBA',(W,H),(0,0,0,0)); od=ImageDraw.Draw(ov)
-    od.rectangle((0,0,W,115),fill=(0,0,0,105)); od.rectangle((0,H-355,W,H),fill=(0,0,0,170))
-    im=Image.alpha_composite(im.convert('RGBA'),ov); d=ImageDraw.Draw(im)
-    d.text((35,34),'GTA OCULTO',font=font(26,True),fill='white')
-    d.text((W-105,36),f'{idx+1:02d}/{total:02d}',font=font(20,True),fill=(225,35,50))
-    f=font(30,True); lines=wrap_text(d,caption,f,W-100); box_h=70+len(lines)*39; y=H-box_h-48
-    d.rounded_rectangle((35,y,W-35,H-48),radius=18,fill=(7,9,13,220),outline=(215,28,45),width=2); yy=y+24
-    for line in lines[:4]: d.text((58,yy),line,font=f,fill='white'); yy+=39
-    im.convert('RGB').save(dst,quality=88)
+    od.rectangle((0,0,W,115),fill=(0,0,0,105)); od.rectangle((0,H-350,W,H),fill=(0,0,0,170))
+    od.text((30,30),'GTA OCULTO',font=font(26,True),fill='white')
+    od.text((W-105,32),f'{idx+1:02d}/{total:02d}',font=font(20,True),fill=(225,35,50))
+    f=font(30,True); lines=wrap_text(od,caption,f,W-70); box_h=65+len(lines[:3])*40; y=H-box_h-35
+    od.rounded_rectangle((24,y,W-24,H-35),radius=18,fill=(7,9,13,220),outline=(215,28,45),width=2)
+    yy=y+20
+    for line in lines[:3]: od.text((45,yy),line,font=f,fill='white'); yy+=40
+    im=Image.alpha_composite(im.convert('RGBA'),ov).convert('RGB')
+    im.save(dst,quality=84,optimize=True)
+    im.close(); ov.close()
+
+
+def run_cmd(cmd,timeout=240):
+    p=subprocess.run(cmd,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,text=True,timeout=timeout)
+    if p.returncode: raise RuntimeError(p.stderr[-3500:])
+    return ''
+
+
+def duration_of_audio(path):
+    try:
+        out=run_cmd(['ffprobe','-v','error','-show_entries','format=duration','-of','default=nw=1:nk=1',str(path)],30); return max(20,min(42,float(out.strip())))
+    except Exception: return 30.0
+
+async def make_tts(text,path):
+    if edge_tts is None: raise RuntimeError('edge-tts não disponível no servidor')
+    last=None
+    for voice in ['pt-BR-AntonioNeural','pt-BR-FranciscaNeural']:
+        try: await edge_tts.Communicate(text,voice,rate='+3%',pitch='-2Hz').save(str(path)); return
+        except Exception as e: last=e
+    raise RuntimeError(f'falha na narração: {last}')
+
+
+def _safe_filename(name):
+    return re.sub(r'[^a-zA-Z0-9._-]+','_',name).strip('_')[:100]
+
+
+def _http_total_size(url):
+    headers={'User-Agent':UA,'Accept-Encoding':'identity'}
+    try:
+        r=requests.head(url,headers=headers,timeout=20,allow_redirects=True)
+        n=int(r.headers.get('content-length','0') or 0)
+        if n: return n
+    except Exception:
+        pass
+    try:
+        r=requests.get(url,headers={**headers,'Range':'bytes=0-0'},timeout=(15,30),stream=True)
+        cr=r.headers.get('content-range','')
+        m=re.search(r'/([0-9]+)$',cr)
+        if r.status_code==206 and m: return int(m.group(1))
+    except Exception:
+        pass
+    return 0
+
+
+def _http_range(url,start,end):
+    if end < start: return b''
+    headers={'User-Agent':UA,'Accept-Encoding':'identity','Range':f'bytes={start}-{end}'}
+    r=requests.get(url,headers=headers,timeout=(20,90))
+    if r.status_code != 206:
+        raise RuntimeError(f'CDN não aceitou Range HTTP (status {r.status_code}).')
+    return r.content
+
+
+def _remote_zip_entries(url):
+    """Read only the ZIP directory from Rockstar CDN; never download the whole ZIP."""
+    total=_http_total_size(url)
+    if total <= 0: raise RuntimeError('Não foi possível descobrir o tamanho da mídia oficial.')
+    tail_start=max(0,total-131072)
+    tail=_http_range(url,tail_start,total-1)
+    pos=tail.rfind(b'PK\x05\x06')
+    if pos<0: raise RuntimeError('Assinatura ZIP oficial não encontrada.')
+    eocd=tail[pos:pos+22]
+    if len(eocd)<22: raise RuntimeError('Cabeçalho ZIP incompleto.')
+    _,disk,cd_disk,n_disk,n_total,cd_size,cd_offset,comment=struct.unpack('<4s4H2LH',eocd)
+    if cd_size<=0 or n_total<=0: raise RuntimeError('ZIP oficial sem arquivos utilizáveis.')
+    cd=_http_range(url,cd_offset,cd_offset+cd_size-1)
+    entries=[]; p=0
+    while p+46<=len(cd):
+        if cd[p:p+4] != b'PK\x01\x02': break
+        vals=struct.unpack('<4s6H3L5H2L',cd[p:p+46])
+        comp=vals[8]; csize=vals[8]; usize=vals[9]; fn=vals[10]; extra=vals[11]; comm=vals[12]; local=vals[16]
+        nameb=cd[p+46:p+46+fn]
+        try: name=nameb.decode('utf-8')
+        except Exception: name=nameb.decode('cp437','replace')
+        entries.append({'name':name,'compression':comp,'compressed':csize,'size':usize,'local':local})
+        p += 46+fn+extra+comm
+    if len(entries)<3: raise RuntimeError(f'ZIP oficial expôs apenas {len(entries)} arquivos.')
+    return total,entries
+
+
+def _remote_zip_extract(url,entry,target):
+    """Download one selected ZIP member by byte ranges and decompress locally."""
+    local=_http_range(url,entry['local'],entry['local']+29)
+    if local[:4] != b'PK\x03\x04': raise RuntimeError(f'Cabeçalho local inválido: {entry["name"]}')
+    _,ver,flags,method,mtime,mdate,crc,csize,usize,fn,extra=struct.unpack('<4s5H3L2H',local)
+    data_start=entry['local']+30+fn+extra
+    data_end=data_start+entry['compressed']-1
+    comp=_http_range(url,data_start,data_end)
+    if method==0:
+        raw=comp
+    elif method==8:
+        try: raw=zlib.decompress(comp,-15)
+        except Exception as e: raise RuntimeError(f'Falha ao descompactar {entry["name"]}: {e}')
+    else:
+        raise RuntimeError(f'Compressão ZIP não suportada em {entry["name"]}: {method}')
+    if entry['size'] and len(raw)!=entry['size']:
+        raise RuntimeError(f'Tamanho inesperado em {entry["name"]}: {len(raw)} de {entry["size"]} bytes.')
+    target.write_bytes(raw)
+
+
+def download_official_video_clips(outdir, jid=None):
+    """Download Rockstar's official 9-clip ZIP once, extract three real clips, cache them.
+    This deliberately avoids the fragile HTTP-Range ZIP parser. The ZIP is streamed to
+    disk (never loaded into RAM) and deleted after the three normalized clips are cached.
+    """
+    import zipfile
+    outdir.mkdir(parents=True, exist_ok=True)
+    cache=WORK/'official_video_cache'; cache.mkdir(parents=True, exist_ok=True)
+    clips=sorted([p for p in cache.glob('rockstar_real_*.mp4') if p.stat().st_size>20000])
+    if len(clips)>=3:
+        return clips[:3]
+
+    zip_path=cache/'GTAVI_Videos_full.zip'
+    part=cache/'GTAVI_Videos_full.zip.part'
+    try:
+        if not zip_path.exists() or zip_path.stat().st_size<100000:
+            if jid: update_job(jid,log='Baixando o pacote oficial de vídeos da Rockstar (1 vez, em cache)...')
+            if part.exists():
+                try: part.unlink()
+                except Exception: pass
+            total=0; done=0
+            with requests.get(ROCKSTAR_VIDEO_ZIP, stream=True, timeout=(20,120), headers={'User-Agent':UA,'Accept-Encoding':'identity'}) as r:
+                r.raise_for_status()
+                total=int(r.headers.get('content-length','0') or 0)
+                with part.open('wb') as f:
+                    for chunk in r.iter_content(chunk_size=1024*1024):
+                        if not chunk: continue
+                        f.write(chunk); done += len(chunk)
+                        if jid and total and (done % (20*1024*1024) < len(chunk)):
+                            update_job(jid,log=f'Mídia oficial: {done/1048576:.0f}/{total/1048576:.0f} MB baixados...')
+            if not part.exists() or part.stat().st_size<100000:
+                raise RuntimeError('Download do pacote oficial terminou vazio ou incompleto.')
+            part.replace(zip_path)
+
+        if jid: update_job(jid,log='Lendo os 9 clipes oficiais da Rockstar...')
+        with zipfile.ZipFile(zip_path,'r') as zf:
+            names=[n for n in zf.namelist() if n.lower().endswith(('.mp4','.mov','.m4v'))]
+            if len(names)<3:
+                raise RuntimeError(f'O pacote oficial retornou apenas {len(names)} vídeos.')
+            preferred=[]
+            for key in ('Jason','Lucia','Cal','Boobie','Raul','Brian','Real','Dre'):
+                preferred += [n for n in names if key.lower() in Path(n).stem.lower() and n not in preferred]
+            chosen=(preferred+[n for n in names if n not in preferred])[:3]
+            if len(chosen)<3:
+                raise RuntimeError(f'A mídia oficial possui apenas {len(chosen)} vídeos utilizáveis.')
+            ff=str(__import__('imageio_ffmpeg').get_ffmpeg_exe())
+            for i,name in enumerate(chosen):
+                target=cache/f'rockstar_real_{i}.mp4'
+                if target.exists() and target.stat().st_size>20000: continue
+                raw=cache/f'raw_{i}.mp4'
+                if jid: update_job(jid,log=f'Preparando clipe oficial {i+1}/3: {Path(name).stem}...')
+                with zf.open(name) as src, raw.open('wb') as dst:
+                    while True:
+                        chunk=src.read(1024*1024)
+                        if not chunk: break
+                        dst.write(chunk)
+                run_cmd([ff,'-y','-i',str(raw),'-t','5',
+                         '-vf','scale=360:640:force_original_aspect_ratio=increase,crop=360:640,setsar=1,fps=24',
+                         '-an','-c:v','libx264','-preset','ultrafast','-crf','28','-threads','1',
+                         '-pix_fmt','yuv420p','-movflags','+faststart',str(target)],90)
+                try: raw.unlink()
+                except Exception: pass
+        clips=sorted([p for p in cache.glob('rockstar_real_*.mp4') if p.stat().st_size>20000])
+        if len(clips)<3:
+            raise RuntimeError(f'Apenas {len(clips)} clipes reais foram preparados.')
+        try: zip_path.unlink()
+        except Exception: pass
+        return clips[:3]
+    except Exception as e:
+        try:
+            if part.exists(): part.unlink()
+        except Exception: pass
+        raise RuntimeError('Não foi possível obter os vídeos oficiais da Rockstar: '+str(e)[:1800])
+
+def _video_relevance(path,title):
+    text=(path.stem+' '+title).lower()
+    score=0
+    groups=[('jason',12),('lucia',12),('vice',8),('leonida',8),('cal',4),('boobie',4),('raul',4),('brian',4),('real',4),('dre',4),('cover',1)]
+    for k,v in groups:
+        if k in text: score+=v
+    return score
+
+
+def select_video_clips(videos,title,count=5):
+    ranked=sorted(videos,key=lambda p:_video_relevance(p,title),reverse=True)
+    return ranked[:count]
 
 
 def _caption_overlay(path,caption,idx,total,W=720,H=1280):
@@ -445,40 +621,41 @@ def _ffmpeg_text(s):
 
 
 def make_multimedia_video(video_clips, image_paths, audio, out, duration, captions):
-    """Fast 6-scene timeline: 3 real motion clips + 3 animated images.
-    Real clips are mandatory; this function never silently becomes a slideshow.
-    """
+    """Low-memory editor for Render Free: one scene at a time, 320x568 intermediates, then one final encode."""
     ff=str(__import__('imageio_ffmpeg').get_ffmpeg_exe())
     work=out.parent/'timeline'; work.mkdir(exist_ok=True)
-    if len(video_clips)<3:
-        raise RuntimeError('A edição precisa de pelo menos 3 vídeos reais.')
+    if len(video_clips)<3: raise RuntimeError('A edição precisa de pelo menos 3 vídeos reais.')
     assets=[]
     for i in range(3):
         assets.append(('video',video_clips[i]))
         if i < len(image_paths): assets.append(('image',image_paths[i]))
-    per=max(2.7,duration/len(assets))
-    scene_files=[]
+    per=max(2.7,duration/len(assets)); scene_files=[]
     for i,(kind,src) in enumerate(assets):
         scene=work/f'scene_{i:02d}.mp4'; overlay=work/f'overlay_{i:02d}.png'
         _caption_overlay(overlay,captions[i % len(captions)],i,len(assets),320,568)
         if kind=='video':
-            vf="scale=320:568:force_original_aspect_ratio=increase,crop=320:568,setsar=1,fps=24,eq=contrast=1.05:saturation=1.06"
+            vf='scale=320:568:force_original_aspect_ratio=increase,crop=320:568,setsar=1,fps=24'
+            inp=['-stream_loop','-1','-i',str(src)]
         else:
-            vf="scale=320:568:force_original_aspect_ratio=increase,crop=320:568,setsar=1,zoompan=z='min(zoom+0.002,1.045)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=320x568:fps=24,eq=contrast=1.06"
-        cmd=[ff,'-y']
-        cmd += ['-stream_loop','-1','-i',str(src)] if kind=='video' else ['-loop','1','-i',str(src)]
-        cmd += ['-loop','1','-i',str(overlay),'-t',f'{per:.3f}','-filter_complex',
-                f"[0:v]{vf}[v];[1:v]format=rgba[o];[v][o]overlay=0:0:shortest=1[outv]",
-                '-map','[outv]','-an','-c:v','libx264','-preset','ultrafast','-crf','30','-threads','1','-filter_threads','1','-filter_complex_threads','1','-pix_fmt','yuv420p',str(scene)]
-        run_cmd(cmd,60)
+            vf="scale=320:568:force_original_aspect_ratio=increase,crop=320:568,setsar=1,zoompan=z='min(zoom+0.002,1.045)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=320x568:fps=24"
+            inp=['-loop','1','-i',str(src)]
+        cmd=[ff,'-y']+inp+['-loop','1','-i',str(overlay),'-t',f'{per:.3f}','-filter_complex',
+             f'[0:v]{vf}[v];[1:v]format=rgba[o];[v][o]overlay=0:0:shortest=1[outv]',
+             '-map','[outv]','-an','-c:v','libx264','-preset','ultrafast','-crf','30','-threads','1','-filter_threads','1','-filter_complex_threads','1','-pix_fmt','yuv420p',str(scene)]
+        run_cmd(cmd,75)
         scene_files.append(scene)
     listfile=work/'timeline.txt'
     with listfile.open('w',encoding='utf-8') as f:
         for sf in scene_files: f.write(f"file '{sf.as_posix()}'\n")
-    run_cmd([ff,'-y','-f','concat','-safe','0','-i',str(listfile),'-i',str(audio),
-             '-t',f'{duration:.2f}','-vf','scale=1080:1920:flags=fast_bilinear,format=yuv420p',
-             '-r','24','-c:v','libx264','-preset','ultrafast','-crf','28','-threads','1','-filter_threads','1','-filter_complex_threads','1',
-             '-c:a','aac','-b:a','128k','-movflags','+faststart','-shortest',str(out)],120)
+    run_cmd([ff,'-y','-f','concat','-safe','0','-i',str(listfile),'-i',str(audio),'-t',f'{duration:.2f}',
+             '-vf','scale=1080:1920:flags=fast_bilinear,format=yuv420p','-r','24','-c:v','libx264','-preset','ultrafast','-crf','30',
+             '-threads','1','-filter_threads','1','-filter_complex_threads','1','-c:a','aac','-b:a','96k','-movflags','+faststart','-shortest',str(out)],180)
+    # Free disk immediately; do not retain the six intermediate MP4s for this job.
+    for p in scene_files:
+        try: p.unlink()
+        except Exception: pass
+    try: listfile.unlink()
+    except Exception: pass
 
 
 def make_video(scenes,audio,out,duration):
@@ -492,14 +669,11 @@ def make_video(scenes,audio,out,duration):
     ff=str(__import__('imageio_ffmpeg').get_ffmpeg_exe())
     run_cmd([ff,'-y','-f','concat','-safe','0','-i',str(listfile),'-i',str(audio),
              '-t',f'{duration:.2f}','-r','24','-c:v','libx264','-preset','ultrafast',
-             '-crf','26','-threads','1','-filter_threads','1','-filter_complex_threads','1','-profile:v','main','-pix_fmt','yuv420p',
+             '-crf','22','-threads','2','-profile:v','high','-pix_fmt','yuv420p',
              '-c:a','aac','-b:a','128k','-movflags','+faststart','-shortest',str(out)],300)
 
 def make_cover(scene,title,out):
-    im=Image.open(scene).convert('RGB')
-    if im.size != (1080,1920):
-        im=im.resize((1080,1920),Image.Resampling.BILINEAR)
-    d=ImageDraw.Draw(im,'RGBA'); d.rectangle((45,500,1035,1330),fill=(0,0,0,165),outline=(225,25,45),width=5); f=font(72,True); y=610
+    im=Image.open(scene).convert('RGB'); d=ImageDraw.Draw(im,'RGBA'); d.rectangle((45,500,1035,1330),fill=(0,0,0,165),outline=(225,25,45),width=5); f=font(72,True); y=610
     for line in wrap_text(d,title,f,880)[:6]: d.text((100,y),line,font=f,fill='white',stroke_width=2,stroke_fill='black'); y+=88
     d.text((100,120),'GTA OCULTO',font=font(42,True),fill='white'); im.save(out,quality=92)
 
@@ -526,12 +700,12 @@ def produce_job(jid):
         update_job(jid,script=script,stage='VISUAIS',progress=40,log='Baixando visuais oficiais e montando cenas verticais...')
         paths=download_visuals(urls,jobdir/'visuals',topic['title'])
         caps=['A ROCKSTAR PODE TER ESCONDIDO ISSO.','JASON E LUCIA SÃO O CENTRO DA HISTÓRIA.','MAS NÃO É SÓ VICE CITY.','A CONSPIRAÇÃO SE ESPALHA POR LEONIDA.','O MAPA PODE ESCONDER OUTRAS HISTÓRIAS.','CADA REGIÃO PODE TER UMA PISTA.','E A ROCKSTAR JÁ MOSTROU ALGUMAS.','QUAL DETALHE VOCÊ PERCEBEU?']
-        image_order=select_visuals(paths,topic['title'],5)
+        image_order=select_visuals(paths,topic['title'],3)
         image_scenes=[]
         for i,src in enumerate(image_order):
             dst=jobdir/f'image_{i}.jpg'; prepare_scene(src,dst,caps[min(i,len(caps)-1)],i,8); image_scenes.append(dst)
         update_job(jid,stage='NARRAÇÃO',progress=60,log='Gerando narração PT-BR...'); audio=jobdir/'narracao.mp3'; asyncio.run(make_tts(script['narration'],audio)); duration=duration_of_audio(audio)
-        update_job(jid,stage='EDIÇÃO',progress=74,log=f'EDIÇÃO econômica: vídeos oficiais + timeline 9:16 em baixa memória / {duration:.1f}s...')
+        update_job(jid,stage='EDIÇÃO',progress=74,log=f'Obtendo vídeos oficiais da Rockstar e montando timeline com movimento real / {duration:.1f}s...')
         official_videos=download_official_video_clips(jobdir/'official_videos', jid)
         selected_videos=select_video_clips(official_videos,topic['title'],3)
         update_job(jid,log=f'{len(selected_videos)} vídeos oficiais disponíveis. Editando cortes reais em 9:16 / {duration:.1f}s...')
