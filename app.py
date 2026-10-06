@@ -87,6 +87,16 @@ def research_official():
                 u=tag.get('content') if tag.name=='meta' else tag.get('src')
                 if u and (tag.get('property')=='og:image' or tag.name=='img'): images.append(urljoin(url,u))
         except Exception: pass
+    # Também coleta a galeria oficial de downloads da Rockstar para aumentar a variedade visual.
+    try:
+        r=fetch('https://www.rockstargames.com/VI/downloads/videos'); r.raise_for_status()
+        soup=BeautifulSoup(r.text,'html.parser')
+        for tag in soup.find_all(['meta','img']):
+            u=tag.get('content') if tag.name=='meta' else tag.get('src')
+            if u and (tag.get('property')=='og:image' or tag.name=='img'):
+                images.append(urljoin('https://www.rockstargames.com/VI/downloads/videos',u))
+    except Exception:
+        pass
     blob=' '.join(facts); topics=[]
     def add(t,score,url,key): topics.append({'id':key,'score':score,'priority':'ALTA' if score>=88 else 'MÉDIA','title':t,'source':'Rockstar Games','url':url})
     if 'Leonida' in blob or 'leonida' in blob.lower(): add('GTA 6: o detalhe de Leonida que pode mudar a história',96,ROCKSTAR_VI,'leonida')
@@ -206,6 +216,16 @@ def research_official():
             facts.append(text[:16000])
             images.extend(_candidate_urls(url,soup))
         except Exception: pass
+    # Também coleta a galeria oficial de downloads da Rockstar para aumentar a variedade visual.
+    try:
+        r=fetch('https://www.rockstargames.com/VI/downloads/videos'); r.raise_for_status()
+        soup=BeautifulSoup(r.text,'html.parser')
+        for tag in soup.find_all(['meta','img']):
+            u=tag.get('content') if tag.name=='meta' else tag.get('src')
+            if u and (tag.get('property')=='og:image' or tag.name=='img'):
+                images.append(urljoin('https://www.rockstargames.com/VI/downloads/videos',u))
+    except Exception:
+        pass
     blob=' '.join(facts); topics=[]
     def add(t,score,url,key): topics.append({'id':key,'score':score,'priority':'ALTA' if score>=88 else 'MÉDIA','title':t,'source':'Rockstar Games','url':url})
     if 'Leonida' in blob or 'leonida' in blob.lower(): add('GTA 6: o detalhe de Leonida que pode mudar a história',96,ROCKSTAR_VI,'leonida')
@@ -285,7 +305,7 @@ def download_visuals(urls,outdir,title):
             try: raw.unlink(missing_ok=True)
             except Exception: pass
     candidates.sort(key=lambda x:x[0],reverse=True)
-    paths=[p for _,p in candidates[:8]]
+    paths=[p for _,p in candidates[:12]]
     # If the site supplied fewer than 3 valid assets, create clean branded assets rather than
     # ever placing a blank/white web page in the Short.
     if len(paths)<3:
@@ -317,23 +337,29 @@ def _smart_crop(im,W,H,variant=0):
 
 def prepare_scene(src,dst,caption,idx,total):
     W,H=1080,1920
-    im=_smart_crop(Image.open(src),W,H,idx)
-    # Alternate crop and scale to simulate movement between consecutive cuts.
-    if idx%3==1:
-        im=im.resize((1120,1991),Image.Resampling.LANCZOS)
-        im=im.crop((20,35,1100,1955))
-    elif idx%3==2:
-        im=im.resize((1160,2062),Image.Resampling.LANCZOS)
-        im=im.crop((40,70,1120,1990))
+    im=Image.open(src).convert('RGB')
+    # Cada cena recebe um enquadramento diferente. Isso reduz a sensação de slideshow
+    # mesmo quando a Rockstar fornece menos imagens únicas que o número de cortes.
+    im=_smart_crop(im,W,H,idx)
+    zooms=[1.00,1.035,1.065,1.02,1.055,1.085,1.015,1.045,1.075,1.025,1.06,1.09]
+    z=zooms[idx % len(zooms)]
+    nw,nh=int(W*z),int(H*z)
+    im=im.resize((nw,nh),Image.Resampling.LANCZOS)
+    # Alterna o ponto de enquadramento para dar sensação de câmera em movimento.
+    max_l=max(0,nw-W); max_t=max(0,nh-H)
+    x=int(max_l*((idx*0.23)%1.0)); y=int(max_t*(0.28+0.44*((idx*0.37)%1.0)))
+    im=im.crop((x,y,x+W,y+H))
     im=ImageEnhance.Contrast(im).enhance(1.06)
     ov=Image.new('RGBA',(W,H),(0,0,0,0)); od=ImageDraw.Draw(ov)
     od.rectangle((0,0,W,170),fill=(0,0,0,105)); od.rectangle((0,H-530,W,H),fill=(0,0,0,170))
     im=Image.alpha_composite(im.convert('RGBA'),ov); d=ImageDraw.Draw(im)
-    d.text((52,48),'GTA OCULTO',font=font(38,True),fill='white'); d.text((W-145,50),f'{idx+1:02d}/{total:02d}',font=font(28,True),fill=(225,35,50))
-    f=font(48,True); lines=wrap_text(d,caption,f,900); box_h=105+len(lines)*62; y=H-box_h-72
-    d.rounded_rectangle((55,y,1025,H-72),radius=26,fill=(7,9,13,220),outline=(215,28,45),width=3); yy=y+42
-    for line in lines[:4]: d.text((90,yy),line,font=f,fill='white'); yy+=62
+    d.text((52,48),'GTA OCULTO',font=font(38,True),fill='white')
+    d.text((W-145,50),f'{idx+1:02d}/{total:02d}',font=font(28,True),fill=(225,35,50))
+    f=font(46,True); lines=wrap_text(d,caption,f,900); box_h=100+len(lines)*59; y=H-box_h-72
+    d.rounded_rectangle((55,y,1025,H-72),radius=26,fill=(7,9,13,220),outline=(215,28,45),width=3); yy=y+39
+    for line in lines[:4]: d.text((90,yy),line,font=f,fill='white'); yy+=59
     im.convert('RGB').save(dst,quality=92)
+
 
 def run_cmd(cmd,timeout=240):
     p=subprocess.run(cmd,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,timeout=timeout)
@@ -349,19 +375,24 @@ async def make_tts(text,path):
     if edge_tts is None: raise RuntimeError('edge-tts não disponível no servidor')
     last=None
     for voice in ['pt-BR-AntonioNeural','pt-BR-FranciscaNeural']:
-        try:
-            await edge_tts.Communicate(text,voice,rate='+3%',pitch='-2Hz').save(str(path)); return
+        try: await edge_tts.Communicate(text,voice,rate='+3%',pitch='-2Hz').save(str(path)); return
         except Exception as e: last=e
     raise RuntimeError(f'falha na narração: {last}')
 
+
 def make_video(scenes,audio,out,duration):
+    # Corte mais rápido: 12 cenas em ~2–3 s cada. A troca de enquadramento já foi
+    # preparada nas imagens; o concat continua leve o bastante para o Render Free.
     listfile=out.parent/'scenes.txt'; per=duration/len(scenes)
     with listfile.open('w',encoding='utf-8') as f:
         for p in scenes:
             f.write(f"file '{p.as_posix()}'\nduration {per:.3f}\n")
         f.write(f"file '{scenes[-1].as_posix()}'\n")
     ff=str(__import__('imageio_ffmpeg').get_ffmpeg_exe())
-    run_cmd([ff,'-y','-f','concat','-safe','0','-i',str(listfile),'-i',str(audio),'-t',f'{duration:.2f}','-r','24','-c:v','libx264','-preset','ultrafast','-crf','22','-threads','2','-profile:v','high','-pix_fmt','yuv420p','-c:a','aac','-b:a','128k','-movflags','+faststart','-shortest',str(out)],300)
+    run_cmd([ff,'-y','-f','concat','-safe','0','-i',str(listfile),'-i',str(audio),
+             '-t',f'{duration:.2f}','-r','24','-c:v','libx264','-preset','ultrafast',
+             '-crf','22','-threads','2','-profile:v','high','-pix_fmt','yuv420p',
+             '-c:a','aac','-b:a','128k','-movflags','+faststart','-shortest',str(out)],300)
 
 def make_cover(scene,title,out):
     im=Image.open(scene).convert('RGB'); d=ImageDraw.Draw(im,'RGBA'); d.rectangle((45,500,1035,1330),fill=(0,0,0,165),outline=(225,25,45),width=5); f=font(72,True); y=610
@@ -389,10 +420,15 @@ def produce_job(jid):
         update_job(jid,stage='ROTEIRO',progress=28,log='Montando roteiro original em português brasileiro...'); script=make_script(topic)
         jobdir=WORK/jid; jobdir.mkdir(parents=True,exist_ok=True)
         update_job(jid,script=script,stage='VISUAIS',progress=40,log='Baixando visuais oficiais e montando cenas verticais...')
-        paths=download_visuals(urls,jobdir/'visuals',topic['title']); caps=['VOCÊ PERCEBEU ISSO EM GTA 6?','JASON E LUCIA ESTÃO NO CENTRO DA HISTÓRIA.','MAS A TRAMA NÃO FICA PRESA EM VICE CITY.','A CONSPIRAÇÃO SE ESTENDE POR LEONIDA.','O MAPA PODE ESCONDER MUITO MAIS.','CADA REGIÃO PODE TER UMA PISTA.','A ROCKSTAR JÁ MOSTROU PARTE DISSO.','MAS O QUE AINDA NÃO FOI REVELADO?','QUAL DETALHE VOCÊ PERCEBEU?']; scenes=[]
-        target_scenes=9
-        for i in range(target_scenes):
-            src=paths[i % len(paths)]; dst=jobdir/f'scene_{i}.jpg'; prepare_scene(src,dst,caps[i],i,target_scenes); scenes.append(dst)
+        paths=download_visuals(urls,jobdir/'visuals',topic['title']); caps=['VOCÊ PERCEBEU ISSO EM GTA 6?','JASON E LUCIA ESTÃO NO CENTRO DA HISTÓRIA.','MAS A TRAMA NÃO FICA PRESA EM VICE CITY.','A CONSPIRAÇÃO SE ESTENDE POR LEONIDA.','O MAPA PODE ESCONDER MUITO MAIS.','CADA REGIÃO PODE TER UMA PISTA.','A ROCKSTAR JÁ MOSTROU PARTE DISSO.','E ALGUNS DETALHES JÁ FORAM MOSTRADOS.','MAS O QUE AINDA NÃO FOI REVELADO?','TALVEZ A PISTA ESTEJA NO PRÓPRIO MAPA.','A ROCKSTAR ESTÁ DEIXANDO SINAIS?','QUAL DETALHE VOCÊ PERCEBEU?']; scenes=[]
+        target_scenes=12
+        # Usa imagens únicas primeiro; só repete depois de esgotar os arquivos válidos.
+        order=list(range(len(paths)))
+        while len(order)<target_scenes:
+            order += [i for i in range(len(paths)) if not order or i != order[-1]]
+        order=order[:target_scenes]
+        for i,pi in enumerate(order):
+            src=paths[pi]; dst=jobdir/f'scene_{i}.jpg'; prepare_scene(src,dst,caps[i],i,target_scenes); scenes.append(dst)
         update_job(jid,stage='NARRAÇÃO',progress=60,log='Gerando narração PT-BR...'); audio=jobdir/'narracao.mp3'; asyncio.run(make_tts(script['narration'],audio)); duration=duration_of_audio(audio)
         update_job(jid,stage='EDIÇÃO',progress=74,log=f'Editando 1080x1920 / 24 FPS / modo cloud otimizado / {duration:.1f}s...'); video=jobdir/'GTA_OCULTO_SHORT.mp4'; make_video(scenes,audio,video,duration)
         cover=jobdir/'CAPA.jpg'; make_cover(scenes[0],topic['title'],cover)
