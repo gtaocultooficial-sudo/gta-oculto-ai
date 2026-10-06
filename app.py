@@ -434,33 +434,36 @@ def _safe_filename(name):
 
 
 def download_official_video_clips(outdir):
-    """Download/cache Rockstar's official 9-clip video ZIP and extract only video files.
-    The site currently exposes the official clip bundle at the URL below. If it is
-    unavailable, the editor simply falls back to images instead of failing the job.
+    """Best-effort cache of Rockstar's official clip bundle.
+    The download is streamed to disk (never kept in RAM) and is treated as optional.
+    If the free Render instance cannot fetch/extract it quickly, the editor falls back
+    to the official screenshots instead of getting stuck in EDIÇÃO.
     """
     outdir.mkdir(parents=True, exist_ok=True)
     cache=WORK/'official_video_cache'
     cache.mkdir(parents=True, exist_ok=True)
-    marker=cache/'READY.json'
     existing=[p for p in cache.iterdir() if p.suffix.lower() in ('.mp4','.mov','.m4v','.webm') and p.stat().st_size>10000]
     if existing:
         return existing
     zpath=cache/'GTAVI_Videos.zip'
     try:
         if not zpath.exists() or zpath.stat().st_size < 100000:
-            r=fetch(ROCKSTAR_VIDEO_ZIP,timeout=90); r.raise_for_status()
-            zpath.write_bytes(r.content)
+            with requests.get(ROCKSTAR_VIDEO_ZIP,headers={'User-Agent':UA},stream=True,timeout=(10,35)) as r:
+                r.raise_for_status()
+                with zpath.open('wb') as dst:
+                    for chunk in r.iter_content(chunk_size=1024*1024):
+                        if chunk: dst.write(chunk)
         with zipfile.ZipFile(zpath) as z:
             names=[n for n in z.namelist() if Path(n).suffix.lower() in ('.mp4','.mov','.m4v','.webm') and not n.endswith('/')]
-            for n in names:
+            # Only extract a small number of clips; there is no reason to unpack all 9.
+            for n in names[:5]:
                 target=cache/_safe_filename(Path(n).name)
                 if target.exists() and target.stat().st_size>10000: continue
-                with z.open(n) as src, target.open('wb') as dst: shutil.copyfileobj(src,dst,1024*1024)
-        marker.write_text(json.dumps({'source':ROCKSTAR_VIDEO_ZIP,'count':len(names)}),encoding='utf-8')
+                with z.open(n) as src, target.open('wb') as dst:
+                    shutil.copyfileobj(src,dst,1024*1024)
         return [p for p in cache.iterdir() if p.suffix.lower() in ('.mp4','.mov','.m4v','.webm') and p.stat().st_size>10000]
     except Exception:
         return []
-
 
 def _video_relevance(path,title):
     text=(path.stem+' '+title).lower()
@@ -494,55 +497,41 @@ def _ffmpeg_text(s):
 
 
 def make_multimedia_video(video_clips, image_paths, audio, out, duration, captions):
-    """Create a real mixed-media Short: official video snippets + images + subtle xfade transitions."""
+    """Cloud-safe mixed-media editor.
+    Uses up to 3 official video clips + 3 images, renders each scene at 540x960,
+    applies short fade transitions, concatenates once, then performs one final
+    upscale to 1080x1920. This avoids the previous 8-way xfade/1080p bottleneck.
+    """
     ff=str(__import__('imageio_ffmpeg').get_ffmpeg_exe())
     work=out.parent/'timeline'; work.mkdir(exist_ok=True)
-    total=8
-    # Prefer 5 official video clips and use 3 images; if fewer clips are available,
-    # fill the missing slots with images.
     assets=[]
-    for v in video_clips[:5]: assets.append(('video',v))
-    for im in image_paths: 
-        if len(assets)>=total: break
-        assets.append(('image',im))
-    while len(assets)<total and image_paths:
-        assets.append(('image',image_paths[len(assets)%len(image_paths)]))
-    assets=assets[:total]
-    per=max(2.25,duration/total); trans=0.22
+    for v in video_clips[:3]: assets.append(('video',v))
+    for im in image_paths[:3]: assets.append(('image',im))
+    if not assets: raise RuntimeError('Nenhum visual disponível para edição')
+    total=len(assets); per=duration/total
     scene_files=[]
     for i,(kind,src) in enumerate(assets):
         scene=work/f'scene_{i:02d}.mp4'; overlay=work/f'overlay_{i:02d}.png'
-        _caption_overlay(overlay,captions[i],i,total)
+        _caption_overlay(overlay,captions[i % len(captions)],i,total,540,960)
+        fade='fade=t=in:st=0:d=0.16,fade=t=out:st={:.3f}:d=0.16'.format(max(0.2,per-0.16))
         if kind=='video':
-            # Use a short moving segment from the official clip. -ss is deterministic;
-            # videos shorter than the requested segment are looped by the trim logic.
             cmd=[ff,'-y','-stream_loop','-1','-i',str(src),'-loop','1','-i',str(overlay),
                  '-t',f'{per:.3f}','-filter_complex',
-                 "[0:v]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,setsar=1,fps=24,eq=contrast=1.05:saturation=1.03[v];[1:v]format=rgba[o];[v][o]overlay=0:0:shortest=1[outv]",
-                 '-map','[outv]','-an','-c:v','libx264','-preset','ultrafast','-crf','24','-threads','2','-pix_fmt','yuv420p',str(scene)]
+                 "[0:v]scale=540:960:force_original_aspect_ratio=increase,crop=540:960,setsar=1,fps=24,eq=contrast=1.05:saturation=1.03,"+fade+"[v];[1:v]format=rgba[o];[v][o]overlay=0:0:shortest=1[outv]",
+                 '-map','[outv]','-an','-c:v','libx264','-preset','ultrafast','-crf','26','-threads','2','-pix_fmt','yuv420p',str(scene)]
         else:
-            # Turn still into moving footage with a very subtle zoom.
-            cmd=[ff,'-y','-loop','1','-i',str(src),'-i',str(overlay),'-t',f'{per:.3f}','-filter_complex',
-                 "[0:v]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,zoompan=z='min(zoom+0.0012,1.035)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=720x1280:fps=24,eq=contrast=1.06[v];[1:v]format=rgba[o];[v][o]overlay=0:0:shortest=1[outv]",
-                 '-map','[outv]','-an','-c:v','libx264','-preset','ultrafast','-crf','24','-threads','2','-pix_fmt','yuv420p',str(scene)]
-        run_cmd(cmd,180); scene_files.append(scene)
-    # Chain short crossfades at 720x1280. This is intentionally kept to 8 scenes so
-    # the Render Free instance can complete it without the old 9-scene 1080p burden.
-    inputs=[]
-    for sfile in scene_files: inputs += ['-i',str(sfile)]
-    filt=[]
-    for i in range(total): filt.append(f'[{i}:v]setpts=PTS-STARTPTS[v{i}]')
-    prev='v0'; offset=per-trans
-    for i in range(1,total):
-        outv=f'x{i}'
-        filt.append(f'[{prev}][v{i}]xfade=transition=fade:duration={trans}:offset={offset:.3f}[{outv}]')
-        prev=outv; offset += per-trans
-    filt.append(f'[{prev}]scale=1080:1920:flags=lanczos,format=yuv420p[vout]')
-    graph=';'.join(filt)
-    run_cmd([ff,'-y',*inputs,'-i',str(audio),'-filter_complex',graph,'-map','[vout]','-map',f'{total}:a',
-             '-t',f'{duration:.2f}','-r','24','-c:v','libx264','-preset','ultrafast','-crf','23','-threads','2',
-             '-pix_fmt','yuv420p','-c:a','aac','-b:a','128k','-movflags','+faststart','-shortest',str(out)],300)
-
+            cmd=[ff,'-y','-loop','1','-i',str(src),'-loop','1','-i',str(overlay),
+                 '-t',f'{per:.3f}','-filter_complex',
+                 "[0:v]scale=540:960:force_original_aspect_ratio=increase,crop=540:960,zoompan=z='min(zoom+0.0015,1.04)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=540x960:fps=24,eq=contrast=1.06,"+fade+"[v];[1:v]format=rgba[o];[v][o]overlay=0:0:shortest=1[outv]",
+                 '-map','[outv]','-an','-c:v','libx264','-preset','ultrafast','-crf','26','-threads','2','-pix_fmt','yuv420p',str(scene)]
+        run_cmd(cmd,120); scene_files.append(scene)
+    listfile=work/'timeline.txt'
+    with listfile.open('w',encoding='utf-8') as f:
+        for sfile in scene_files: f.write(f"file '{sfile.as_posix()}'\n")
+    run_cmd([ff,'-y','-f','concat','-safe','0','-i',str(listfile),'-i',str(audio),
+             '-t',f'{duration:.2f}','-vf','scale=1080:1920:flags=lanczos,format=yuv420p',
+             '-r','24','-c:v','libx264','-preset','ultrafast','-crf','23','-threads','2',
+             '-c:a','aac','-b:a','128k','-movflags','+faststart','-shortest',str(out)],180)
 
 def make_video(scenes,audio,out,duration):
     # Corte mais rápido: 12 cenas em ~2–3 s cada. A troca de enquadramento já foi
@@ -593,7 +582,9 @@ def produce_job(jid):
         update_job(jid,stage='NARRAÇÃO',progress=60,log='Gerando narração PT-BR...'); audio=jobdir/'narracao.mp3'; asyncio.run(make_tts(script['narration'],audio)); duration=duration_of_audio(audio)
         update_job(jid,stage='EDIÇÃO',progress=74,log=f'Montando multimídia: vídeos oficiais + imagens + transições cinematográficas / {duration:.1f}s...')
         official_videos=download_official_video_clips(jobdir/'official_videos')
-        selected_videos=select_video_clips(official_videos,topic['title'],5)
+        selected_videos=select_video_clips(official_videos,topic['title'],3)
+        if not selected_videos:
+            update_job(jid,log=f'Vídeos oficiais indisponíveis no servidor; usando imagens oficiais + movimento. {duration:.1f}s...')
         video=jobdir/'GTA_OCULTO_SHORT.mp4'; make_multimedia_video(selected_videos,image_scenes,audio,video,duration,caps)
         cover=jobdir/'CAPA.jpg'; make_cover(image_scenes[0],topic['title'],cover)
         update_job(jid,stage='AVALIAÇÃO',progress=92,log='Avaliando hook, ritmo, visuais, duração, formato e legendas...'); visual_quality=100
