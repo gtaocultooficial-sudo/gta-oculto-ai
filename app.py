@@ -435,10 +435,10 @@ def _safe_filename(name):
 
 
 def download_official_video_clips(outdir):
-    """Obtain real motion clips without downloading Rockstar's large ZIP.
-    Uses Rockstar Games' official Trailer 2 on YouTube and yt-dlp through
-    the Python module, which is more reliable on Render than relying on the
-    console-script PATH. The result is cached after the first successful run.
+    """Get real motion clips from Rockstar's official downloadable media.
+    No YouTube, no yt-dlp and no authentication. The official Rockstar ZIP is
+    downloaded once into the persistent cache, then only three short clips are
+    extracted/encoded for the current producer.
     """
     outdir.mkdir(parents=True, exist_ok=True)
     cache=WORK/'official_video_cache'; cache.mkdir(parents=True, exist_ok=True)
@@ -448,28 +448,60 @@ def download_official_video_clips(outdir):
         return clips[:3]
 
     ff=str(__import__('imageio_ffmpeg').get_ffmpeg_exe())
-    source=cache/'rockstar_trailer2_12s.mp4'
+    zip_path=cache/'GTAVI_Videos.zip'
+    extract_dir=cache/'official_clips'
+    extract_dir.mkdir(parents=True, exist_ok=True)
     try:
-        if not source.exists() or source.stat().st_size<10000:
-            py=os.environ.get('PYTHON','python')
-            cmd=[py,'-m','yt_dlp','--no-playlist','--no-warnings','--quiet',
-                 '--socket-timeout','12','--retries','1','--fragment-retries','1',
-                 '--download-sections','*0-12','--force-keyframes-at-cuts',
-                 '--ffmpeg-location',ff,
-                 '-f','bv*[height<=480]+ba/b[height<=480]',
-                 '--merge-output-format','mp4','-o',str(source),ROCKSTAR_YT_TRAILER2]
-            run_cmd(cmd,90)
-        if not source.exists() or source.stat().st_size<10000:
-            raise RuntimeError('yt-dlp terminou sem gerar o vídeo oficial do Trailer 2.')
+        # Rockstar's official page exposes the nine clips as one direct ZIP.
+        # This avoids YouTube bot/authentication entirely.
+        if not zip_path.exists() or zip_path.stat().st_size < 100000:
+            import requests
+            url=ROCKSTAR_VIDEO_ZIP
+            tmp=cache/'GTAVI_Videos.zip.part'
+            with requests.get(url, stream=True, timeout=(15,180), headers={'User-Agent':'GTA-Oculto-AI/1.0'}) as r:
+                r.raise_for_status()
+                with tmp.open('wb') as f:
+                    for chunk in r.iter_content(chunk_size=1024*1024):
+                        if chunk:
+                            f.write(chunk)
+            if not tmp.exists() or tmp.stat().st_size < 100000:
+                raise RuntimeError('O download oficial da Rockstar terminou incompleto.')
+            tmp.replace(zip_path)
 
-        for i,start_sec in enumerate((0,4,8)):
+        mp4_names=[]
+        with zipfile.ZipFile(zip_path,'r') as z:
+            for name in z.namelist():
+                low=name.lower()
+                if low.endswith('.mp4'):
+                    mp4_names.append(name)
+            if not mp4_names:
+                raise RuntimeError('O ZIP oficial da Rockstar não contém MP4.')
+            # Prefer named character clips over the cover animation when possible.
+            preferred=[]
+            for key in ('jason','lucia','cal','boobie','raul','brian','real','dre'):
+                for name in mp4_names:
+                    if key in Path(name).stem.lower() and name not in preferred:
+                        preferred.append(name)
+            ordered=preferred + [n for n in mp4_names if n not in preferred]
+            selected=ordered[:3]
+            for idx,name in enumerate(selected):
+                target_src=extract_dir/f'source_{idx:02d}.mp4'
+                if not target_src.exists() or target_src.stat().st_size<10000:
+                    with z.open(name) as src, target_src.open('wb') as dst:
+                        while True:
+                            chunk=src.read(1024*1024)
+                            if not chunk: break
+                            dst.write(chunk)
+
+        for i,src in enumerate(sorted(extract_dir.glob('source_*.mp4'))[:3]):
             target=cache/f'rockstar_clip_{i}.mp4'
             if target.exists() and target.stat().st_size>10000:
                 continue
-            run_cmd([ff,'-y','-ss',str(start_sec),'-i',str(source),'-t','4',
+            run_cmd([ff,'-y','-i',str(src),'-t','4',
                      '-vf','scale=540:960:force_original_aspect_ratio=increase,crop=540:960,setsar=1,fps=24',
                      '-an','-c:v','libx264','-preset','ultrafast','-crf','27','-pix_fmt','yuv420p',
-                     '-movflags','+faststart',str(target)],60)
+                     '-movflags','+faststart',str(target)],90)
+
         clips=sorted([p for p in cache.glob('rockstar_clip_*.mp4')
                       if p.is_file() and p.stat().st_size>10000])
         if len(clips)<3:
@@ -477,7 +509,7 @@ def download_official_video_clips(outdir):
         return clips[:3]
     except Exception as exc:
         (cache/'video_error.txt').write_text(str(exc),encoding='utf-8')
-        raise RuntimeError(f'Falha ao obter vídeo real da Rockstar: {exc}')
+        raise RuntimeError(f'Falha ao obter vídeos oficiais da Rockstar: {exc}')
 
 def _video_relevance(path,title):
     text=(path.stem+' '+title).lower()
