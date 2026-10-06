@@ -552,7 +552,7 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
     # com filtro complexo e aborta com: "Simple and complex filtering cannot be
     # used together for the same stream". A escala final fica dentro do mesmo
     # grafo para manter a edição estável no Render.
-    fc.append(f'{vmap[:-1]}scale=1080:1920:flags=lanczos,format=yuv420p[vout]')
+    fc.append(f'{vmap}scale=1080:1920:flags=lanczos,format=yuv420p[vout]')
     filter_complex=';'.join(fc)
     run_cmd([ff,'-y',*inputs,'-i',str(audio),'-filter_complex',filter_complex,
              '-map','[vout]','-map',f'{len(scene_files)}:a?','-t',f'{duration:.2f}','-r','24',
