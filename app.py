@@ -434,31 +434,38 @@ def _safe_filename(name):
 
 
 def download_official_video_clips(outdir):
-    """Optional video layer that NEVER blocks production on the Render Free instance.
-    First uses clips already cached from an earlier run. If none exist, it makes one
-    short best-effort download from Rockstar Games' verified official YouTube Trailer 2.
-    Any network/yt-dlp failure returns [] immediately so the image editor continues.
+    """Download a few SHORT segments from Rockstar Games' verified official YouTube uploads.
+    The downloader is best-effort and never blocks production: if anything fails, images remain
+    the fallback. Segments are cached between jobs so later Shorts do not redownload them.
     """
     outdir.mkdir(parents=True, exist_ok=True)
     cache=WORK/'official_video_cache'; cache.mkdir(parents=True, exist_ok=True)
     existing=[p for p in cache.iterdir() if p.suffix.lower() in ('.mp4','.mov','.m4v','.webm') and p.stat().st_size>10000]
-    if existing:
+    if len(existing) >= 3:
+        return existing[:3]
+    if shutil.which('yt-dlp') is None:
         return existing[:2]
-    target=cache/'rockstar_trailer2_clip.mp4'
-    try:
-        if shutil.which('yt-dlp') is None:
-            return []
-        # Official Rockstar Games upload, verified externally. Only a short segment is fetched.
-        url='https://www.youtube.com/watch?v=VQRLujxTm3c'
-        cmd=['yt-dlp','--no-playlist','--no-warnings','--quiet','--socket-timeout','6','--retries','0',
-             '--download-sections','*0-8','--force-keyframes-at-cuts','-f','bv*[height<=720]+ba/b[height<=720]',
-             '--merge-output-format','mp4','-o',str(target),url]
-        run_cmd(cmd,45)
+    sources=[
+        ('trailer2_a','https://www.youtube.com/watch?v=VQRLujxTm3c','0-5'),
+        ('trailer2_b','https://www.youtube.com/watch?v=VQRLujxTm3c','35-40'),
+        ('extended_a','https://www.youtube.com/watch?v=tJbzMqJGH4k','15-20'),
+    ]
+    result=[]
+    for name,url,section in sources:
+        target=cache/f'rockstar_{name}.mp4'
         if target.exists() and target.stat().st_size>10000:
-            return [target]
-    except Exception:
-        pass
-    return []
+            result.append(target); continue
+        try:
+            cmd=['yt-dlp','--no-playlist','--no-warnings','--quiet','--socket-timeout','5','--retries','0',
+                 '--download-sections',f'*{section}','--force-keyframes-at-cuts',
+                 '-f','bv*[height<=720]+ba/b[height<=720]','--merge-output-format','mp4',
+                 '-o',str(target),url]
+            run_cmd(cmd,50)
+            if target.exists() and target.stat().st_size>10000:
+                result.append(target)
+        except Exception:
+            target.unlink(missing_ok=True)
+    return result[:3]
 
 
 def _video_relevance(path,title):
@@ -493,41 +500,60 @@ def _ffmpeg_text(s):
 
 
 def make_multimedia_video(video_clips, image_paths, audio, out, duration, captions):
-    """Cloud-safe mixed-media editor.
-    Uses up to 3 official video clips + 3 images, renders each scene at 540x960,
-    applies short fade transitions, concatenates once, then performs one final
-    upscale to 1080x1920. This avoids the previous 8-way xfade/1080p bottleneck.
-    """
+    """Cloud-safe mixed-media editor with real video priority and cinematic crossfades."""
     ff=str(__import__('imageio_ffmpeg').get_ffmpeg_exe())
     work=out.parent/'timeline'; work.mkdir(exist_ok=True)
     assets=[]
-    for v in video_clips[:3]: assets.append(('video',v))
-    for im in image_paths[:3]: assets.append(('image',im))
+    vmax=min(3,len(video_clips)); imax=min(3,len(image_paths))
+    for i in range(max(vmax,imax)):
+        if i < vmax: assets.append(('video',video_clips[i]))
+        if i < imax: assets.append(('image',image_paths[i]))
     if not assets: raise RuntimeError('Nenhum visual disponível para edição')
-    total=len(assets); per=duration/total
+    assets=assets[:6]
+    total=len(assets); per=max(1.6,duration/total); trans=min(0.18,per*0.10)
     scene_files=[]
     for i,(kind,src) in enumerate(assets):
         scene=work/f'scene_{i:02d}.mp4'; overlay=work/f'overlay_{i:02d}.png'
         _caption_overlay(overlay,captions[i % len(captions)],i,total,540,960)
-        fade='fade=t=in:st=0:d=0.16,fade=t=out:st={:.3f}:d=0.16'.format(max(0.2,per-0.16))
         if kind=='video':
+            vf="scale=540:960:force_original_aspect_ratio=increase,crop=540:960,setsar=1,fps=24,eq=contrast=1.05:saturation=1.03"
             cmd=[ff,'-y','-stream_loop','-1','-i',str(src),'-loop','1','-i',str(overlay),
                  '-t',f'{per:.3f}','-filter_complex',
-                 "[0:v]scale=540:960:force_original_aspect_ratio=increase,crop=540:960,setsar=1,fps=24,eq=contrast=1.05:saturation=1.03,"+fade+"[v];[1:v]format=rgba[o];[v][o]overlay=0:0:shortest=1[outv]",
+                 f"[0:v]{vf}[v];[1:v]format=rgba[o];[v][o]overlay=0:0:shortest=1[outv]",
                  '-map','[outv]','-an','-c:v','libx264','-preset','ultrafast','-crf','26','-threads','2','-pix_fmt','yuv420p',str(scene)]
         else:
+            vf="scale=540:960:force_original_aspect_ratio=increase,crop=540:960,zoompan=z='min(zoom+0.0018,1.05)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=540x960:fps=24,eq=contrast=1.06:saturation=1.03"
             cmd=[ff,'-y','-loop','1','-i',str(src),'-loop','1','-i',str(overlay),
                  '-t',f'{per:.3f}','-filter_complex',
-                 "[0:v]scale=540:960:force_original_aspect_ratio=increase,crop=540:960,zoompan=z='min(zoom+0.0015,1.04)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=540x960:fps=24,eq=contrast=1.06,"+fade+"[v];[1:v]format=rgba[o];[v][o]overlay=0:0:shortest=1[outv]",
+                 f"[0:v]{vf}[v];[1:v]format=rgba[o];[v][o]overlay=0:0:shortest=1[outv]",
                  '-map','[outv]','-an','-c:v','libx264','-preset','ultrafast','-crf','26','-threads','2','-pix_fmt','yuv420p',str(scene)]
         run_cmd(cmd,120); scene_files.append(scene)
-    listfile=work/'timeline.txt'
-    with listfile.open('w',encoding='utf-8') as f:
-        for sfile in scene_files: f.write(f"file '{sfile.as_posix()}'\n")
-    run_cmd([ff,'-y','-f','concat','-safe','0','-i',str(listfile),'-i',str(audio),
-             '-t',f'{duration:.2f}','-vf','scale=1080:1920:flags=lanczos,format=yuv420p',
-             '-r','24','-c:v','libx264','-preset','ultrafast','-crf','23','-threads','2',
+
+    # One lightweight crossfade chain at 540x960. This gives a real transition instead of
+    # a slideshow cut while keeping the heavy work below 1080p until the final encode.
+    inputs=[]
+    for sf in scene_files: inputs += ['-i',str(sf)]
+    fc=[]
+    if len(scene_files)==1:
+        fc=['[0:v]format=yuv420p[v]']
+        vmap='[v]'
+    else:
+        prev='[0:v]'
+        cumulative=per-trans
+        for i in range(1,len(scene_files)):
+            outlab=f'[xf{i}]'
+            fc.append(f'{prev}[{i}:v]xfade=transition=fade:duration={trans:.3f}:offset={cumulative:.3f}{outlab}')
+            prev=outlab
+            cumulative += per-trans
+        fc.append(f'{prev}format=yuv420p[v]')
+        vmap='[v]'
+    filter_complex=';'.join(fc)
+    run_cmd([ff,'-y',*inputs,'-i',str(audio),'-filter_complex',filter_complex,
+             '-map',vmap,'-map',f'{len(scene_files)}:a?','-t',f'{duration:.2f}',
+             '-vf','scale=1080:1920:flags=lanczos,format=yuv420p','-r','24',
+             '-c:v','libx264','-preset','ultrafast','-crf','23','-threads','2',
              '-c:a','aac','-b:a','128k','-movflags','+faststart','-shortest',str(out)],180)
+
 
 def make_video(scenes,audio,out,duration):
     # Corte mais rápido: 12 cenas em ~2–3 s cada. A troca de enquadramento já foi
@@ -571,10 +597,10 @@ def produce_job(jid):
         update_job(jid,script=script,stage='VISUAIS',progress=40,log='Baixando visuais oficiais e montando cenas verticais...')
         paths=download_visuals(urls,jobdir/'visuals',topic['title'])
         caps=['A ROCKSTAR PODE TER ESCONDIDO ISSO.','JASON E LUCIA SÃO O CENTRO DA HISTÓRIA.','MAS NÃO É SÓ VICE CITY.','A CONSPIRAÇÃO SE ESPALHA POR LEONIDA.','O MAPA PODE ESCONDER OUTRAS HISTÓRIAS.','CADA REGIÃO PODE TER UMA PISTA.','E A ROCKSTAR JÁ MOSTROU ALGUMAS.','QUAL DETALHE VOCÊ PERCEBEU?']
-        image_order=select_visuals(paths,topic['title'],5)
+        image_order=select_visuals(paths,topic['title'],3)
         image_scenes=[]
         for i,src in enumerate(image_order):
-            dst=jobdir/f'image_{i}.jpg'; prepare_scene(src,dst,caps[min(i,len(caps)-1)],i,8); image_scenes.append(dst)
+            dst=jobdir/f'image_{i}.jpg'; prepare_scene(src,dst,caps[min(i,len(caps)-1)],i,6); image_scenes.append(dst)
         update_job(jid,stage='NARRAÇÃO',progress=60,log='Gerando narração PT-BR...'); audio=jobdir/'narracao.mp3'; asyncio.run(make_tts(script['narration'],audio)); duration=duration_of_audio(audio)
         update_job(jid,stage='EDIÇÃO',progress=74,log=f'Montando multimídia cloud: vídeo oficial opcional + imagens + transições / {duration:.1f}s...')
         official_videos=download_official_video_clips(jobdir/'official_videos')
