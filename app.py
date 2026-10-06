@@ -547,10 +547,15 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
             cumulative += per-trans
         fc.append(f'{prev}format=yuv420p[v]')
         vmap='[v]'
+    # O vídeo já está em um filter_complex. Não podemos adicionar -vf
+    # separadamente, pois o FFmpeg considera isso uma mistura de filtro simples
+    # com filtro complexo e aborta com: "Simple and complex filtering cannot be
+    # used together for the same stream". A escala final fica dentro do mesmo
+    # grafo para manter a edição estável no Render.
+    fc.append(f'{vmap[:-1]}scale=1080:1920:flags=lanczos,format=yuv420p[vout]')
     filter_complex=';'.join(fc)
     run_cmd([ff,'-y',*inputs,'-i',str(audio),'-filter_complex',filter_complex,
-             '-map',vmap,'-map',f'{len(scene_files)}:a?','-t',f'{duration:.2f}',
-             '-vf','scale=1080:1920:flags=lanczos,format=yuv420p','-r','24',
+             '-map','[vout]','-map',f'{len(scene_files)}:a?','-t',f'{duration:.2f}','-r','24',
              '-c:v','libx264','-preset','ultrafast','-crf','23','-threads','2',
              '-c:a','aac','-b:a','128k','-movflags','+faststart','-shortest',str(out)],180)
 
