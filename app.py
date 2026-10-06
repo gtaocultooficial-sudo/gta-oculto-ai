@@ -25,7 +25,6 @@ UA = 'GTA-Oculto-AI/Cloud-Final/1.0'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
-ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
 
 FALLBACK_TOPICS = [
     {'id':'leonida','score':96,'priority':'ALTA','title':'GTA 6: o detalhe de Leonida que pode mudar a história','source':'Rockstar Games','url':ROCKSTAR_VI},
@@ -513,7 +512,6 @@ def download_official_video_clips(outdir, jid=None):
     The official ZIP is accessed with HTTP Range requests: only its directory and the
     three selected video members are downloaded. This is designed for Render Free.
     """
-    import zipfile
     outdir.mkdir(parents=True, exist_ok=True)
     cache=WORK/'official_video_cache'; cache.mkdir(parents=True, exist_ok=True)
     clips=sorted([p for p in cache.glob('rockstar_real_*.mp4') if p.stat().st_size>20000])
