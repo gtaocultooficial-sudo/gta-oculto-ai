@@ -1,4 +1,4 @@
-import os, json, uuid, threading, time, asyncio, subprocess, shutil, re, sys
+import os, json, uuid, threading, time, asyncio, subprocess, shutil, re, sys, struct, zlib
 from pathlib import Path
 from datetime import datetime, timezone
 from urllib.parse import urljoin
@@ -434,68 +434,118 @@ def _safe_filename(name):
     return re.sub(r'[^a-zA-Z0-9._-]+','_',name).strip('_')[:100]
 
 
+def _http_total_size(url):
+    headers={'User-Agent':UA,'Accept-Encoding':'identity'}
+    try:
+        r=requests.head(url,headers=headers,timeout=20,allow_redirects=True)
+        n=int(r.headers.get('content-length','0') or 0)
+        if n: return n
+    except Exception:
+        pass
+    try:
+        r=requests.get(url,headers={**headers,'Range':'bytes=0-0'},timeout=(15,30),stream=True)
+        cr=r.headers.get('content-range','')
+        m=re.search(r'/([0-9]+)$',cr)
+        if r.status_code==206 and m: return int(m.group(1))
+    except Exception:
+        pass
+    return 0
+
+
+def _http_range(url,start,end):
+    if end < start: return b''
+    headers={'User-Agent':UA,'Accept-Encoding':'identity','Range':f'bytes={start}-{end}'}
+    r=requests.get(url,headers=headers,timeout=(20,90))
+    if r.status_code != 206:
+        raise RuntimeError(f'CDN não aceitou Range HTTP (status {r.status_code}).')
+    return r.content
+
+
+def _remote_zip_entries(url):
+    """Read only the ZIP directory from Rockstar CDN; never download the whole ZIP."""
+    total=_http_total_size(url)
+    if total <= 0: raise RuntimeError('Não foi possível descobrir o tamanho da mídia oficial.')
+    tail_start=max(0,total-131072)
+    tail=_http_range(url,tail_start,total-1)
+    pos=tail.rfind(b'PK\x05\x06')
+    if pos<0: raise RuntimeError('Assinatura ZIP oficial não encontrada.')
+    eocd=tail[pos:pos+22]
+    if len(eocd)<22: raise RuntimeError('Cabeçalho ZIP incompleto.')
+    _,disk,cd_disk,n_disk,n_total,cd_size,cd_offset,comment=struct.unpack('<4s4H2LH',eocd)
+    if cd_size<=0 or n_total<=0: raise RuntimeError('ZIP oficial sem arquivos utilizáveis.')
+    cd=_http_range(url,cd_offset,cd_offset+cd_size-1)
+    entries=[]; p=0
+    while p+46<=len(cd):
+        if cd[p:p+4] != b'PK\x01\x02': break
+        vals=struct.unpack('<4s6H3L5H2L',cd[p:p+46])
+        comp=vals[8]; csize=vals[10]; usize=vals[11]; fn=vals[12]; extra=vals[13]; comm=vals[14]; local=vals[16]
+        nameb=cd[p+46:p+46+fn]
+        try: name=nameb.decode('utf-8')
+        except Exception: name=nameb.decode('cp437','replace')
+        entries.append({'name':name,'compression':comp,'compressed':csize,'size':usize,'local':local})
+        p += 46+fn+extra+comm
+    if len(entries)<3: raise RuntimeError(f'ZIP oficial expôs apenas {len(entries)} arquivos.')
+    return total,entries
+
+
+def _remote_zip_extract(url,entry,target):
+    """Download one selected ZIP member by byte ranges and decompress locally."""
+    local=_http_range(url,entry['local'],entry['local']+29)
+    if local[:4] != b'PK\x03\x04': raise RuntimeError(f'Cabeçalho local inválido: {entry["name"]}')
+    _,ver,flags,method,mtime,mdate,crc,csize,usize,fn,extra=struct.unpack('<4s5H3L2H',local)
+    data_start=entry['local']+30+fn+extra
+    data_end=data_start+entry['compressed']-1
+    comp=_http_range(url,data_start,data_end)
+    if method==0:
+        raw=comp
+    elif method==8:
+        try: raw=zlib.decompress(comp,-15)
+        except Exception as e: raise RuntimeError(f'Falha ao descompactar {entry["name"]}: {e}')
+    else:
+        raise RuntimeError(f'Compressão ZIP não suportada em {entry["name"]}: {method}')
+    if entry['size'] and len(raw)!=entry['size']:
+        raise RuntimeError(f'Tamanho inesperado em {entry["name"]}: {len(raw)} de {entry["size"]} bytes.')
+    target.write_bytes(raw)
+
+
 def download_official_video_clips(outdir, jid=None):
-    """Use Rockstar's own downloadable media ZIP, never YouTube/yt-dlp.
-    The ZIP is downloaded only once and cached. Only three short clips are
-    extracted and normalized for the editor, so later productions reuse them.
+    """Obtain real Rockstar motion without YouTube and without downloading the full ZIP.
+    The official ZIP is accessed with HTTP Range requests: only its directory and the
+    three selected video members are downloaded. This is designed for Render Free.
     """
     import zipfile
     outdir.mkdir(parents=True, exist_ok=True)
     cache=WORK/'official_video_cache'; cache.mkdir(parents=True, exist_ok=True)
     clips=sorted([p for p in cache.glob('rockstar_real_*.mp4') if p.stat().st_size>20000])
-    if len(clips)>=3:
-        return clips[:3]
-    zip_path=cache/'GTAVI_Videos.zip'
+    if len(clips)>=3: return clips[:3]
     try:
-        if jid:
-            update_job(jid, log='Baixando mídia oficial da Rockstar diretamente (sem YouTube)...')
-        if not zip_path.exists() or zip_path.stat().st_size<100000:
-            tmp=cache/'GTAVI_Videos.zip.part'
-            with requests.get(ROCKSTAR_VIDEO_ZIP, stream=True, timeout=(20,60), headers={'User-Agent':'GTA-Oculto-AI/1.0'}) as r:
-                r.raise_for_status()
-                total=int(r.headers.get('content-length','0') or 0); done=0
-                with tmp.open('wb') as f:
-                    for chunk in r.iter_content(chunk_size=1024*1024):
-                        if not chunk: continue
-                        f.write(chunk); done += len(chunk)
-                        if jid and total and done % (10*1024*1024) < len(chunk):
-                            update_job(jid, log=f'Mídia oficial: {done/1048576:.0f}/{total/1048576:.0f} MB baixados...')
-            tmp.replace(zip_path)
-        if not zip_path.exists() or zip_path.stat().st_size<100000:
-            raise RuntimeError('O arquivo oficial de vídeos da Rockstar não foi baixado corretamente.')
-        with zipfile.ZipFile(zip_path,'r') as zf:
-            names=[n for n in zf.namelist() if n.lower().endswith(('.mp4','.mov','.m4v'))]
-            if len(names)<3:
-                raise RuntimeError(f'A mídia oficial retornou apenas {len(names)} vídeos.')
-            # Prefer character clips so the first scenes have recognizable GTA VI motion.
-            preferred=[]
-            for key in ('Jason','Lucia','Cal','Boobie','Raul','Brian','Real','Dre'):
-                preferred += [n for n in names if key.lower() in Path(n).stem.lower() and n not in preferred]
-            chosen=(preferred + [n for n in names if n not in preferred])[:3]
-            ff=str(__import__('imageio_ffmpeg').get_ffmpeg_exe())
-            for i,name in enumerate(chosen):
-                target=cache/f'rockstar_real_{i}.mp4'
-                if target.exists() and target.stat().st_size>20000: continue
-                raw=cache/f'raw_{i}.mp4'
-                if jid: update_job(jid, log=f'Preparando clipe oficial {i+1}/3: {Path(name).stem}...')
-                with zf.open(name) as src, raw.open('wb') as dst:
-                    while True:
-                        chunk=src.read(1024*1024)
-                        if not chunk: break
-                        dst.write(chunk)
-                run_cmd([ff,'-y','-i',str(raw),'-t','5',
-                         '-vf','scale=360:640:force_original_aspect_ratio=increase,crop=360:640,setsar=1,fps=24',
-                         '-an','-c:v','libx264','-preset','ultrafast','-crf','28','-threads','1',
-                         '-pix_fmt','yuv420p','-movflags','+faststart',str(target)],60)
-                try: raw.unlink()
-                except Exception: pass
+        if jid: update_job(jid,log='Lendo a mídia oficial da Rockstar sem baixar o ZIP inteiro...')
+        total,entries=_remote_zip_entries(ROCKSTAR_VIDEO_ZIP)
+        if jid: update_job(jid,log=f'Catálogo oficial encontrado ({total/1048576:.1f} MB). Selecionando 3 clipes por Range HTTP...')
+        videos=[e for e in entries if e['name'].lower().endswith(('.mp4','.mov','.m4v'))]
+        preferred=[]
+        for key in ('Jason','Lucia','Cal','Boobie','Raul','Brian','Real','Dre'):
+            preferred += [e for e in videos if key.lower() in Path(e['name']).stem.lower() and e not in preferred]
+        chosen=(preferred+[e for e in videos if e not in preferred])[:3]
+        if len(chosen)<3: raise RuntimeError(f'A mídia oficial possui apenas {len(chosen)} vídeos utilizáveis.')
+        ff=str(__import__('imageio_ffmpeg').get_ffmpeg_exe())
+        for i,e in enumerate(chosen):
+            target=cache/f'rockstar_real_{i}.mp4'
+            if target.exists() and target.stat().st_size>20000: continue
+            raw=cache/f'raw_{i}.source'
+            if jid: update_job(jid,log=f'Baixando clipe oficial {i+1}/3: {Path(e["name"]).stem} ({e["compressed"]/1048576:.1f} MB)...')
+            _remote_zip_extract(ROCKSTAR_VIDEO_ZIP,e,raw)
+            run_cmd([ff,'-y','-i',str(raw),'-t','5',
+                     '-vf','scale=360:640:force_original_aspect_ratio=increase,crop=360:640,setsar=1,fps=24',
+                     '-an','-c:v','libx264','-preset','ultrafast','-crf','28','-threads','1',
+                     '-pix_fmt','yuv420p','-movflags','+faststart',str(target)],90)
+            try: raw.unlink()
+            except Exception: pass
         clips=sorted([p for p in cache.glob('rockstar_real_*.mp4') if p.stat().st_size>20000])
-        if len(clips)<3:
-            raise RuntimeError(f'Apenas {len(clips)} clipes reais foram preparados.')
+        if len(clips)<3: raise RuntimeError(f'Apenas {len(clips)} clipes reais foram preparados.')
         return clips[:3]
     except Exception as e:
-        raise RuntimeError('Não foi possível obter os vídeos oficiais da Rockstar: '+str(e)[:1200])
-
+        raise RuntimeError('Não foi possível obter os vídeos oficiais da Rockstar por Range HTTP: '+str(e)[:1500])
 
 def _video_relevance(path,title):
     text=(path.stem+' '+title).lower()
@@ -644,7 +694,7 @@ def processor_loop():
                             age=now-datetime.fromisoformat(j.get('updated_at','')).timestamp()
                         except Exception:
                             age=0
-                        if age>900:
+                        if age>1800:
                             j['status']='QUEUED'; j['stage']='FILA'; j['progress']=0
                             j['log']='Produção recuperada após reinício do servidor. Retomando automaticamente.'
                 save_jobs(jobs)
