@@ -1,11 +1,10 @@
-# GTA Oculto AI — correção vídeo real
+# GTA Oculto AI — Cloud Video Real Stable
 
-Esta versão corrige o problema em que o Short final virava slideshow.
-
-- Usa o pacote oficial de vídeos do GTA VI da Rockstar Games.
-- Baixa o ZIP oficial somente na primeira produção e mantém cache no servidor.
-- Extrai os MP4 oficiais e monta uma timeline com até 6 vídeos reais.
-- Se os vídeos oficiais não puderem ser obtidos, a produção entra em ERRO em vez de fingir que entregou um vídeo multimídia.
-- Render 100% cloud.
-- 1080x1920 / 24 FPS / narração PT-BR.
-- Mantém o estado persistente em `workspace/jobs.json`.
+Correção final do produtor cloud:
+- não baixa o ZIP de 9 vídeos da Rockstar;
+- usa somente 12 segundos do Trailer 2 oficial via yt-dlp;
+- cria 3 clipes reais em movimento + 3 imagens animadas;
+- processamento em 360x640 durante a montagem e upscale final para 1080x1920;
+- job persistido em `workspace/jobs.json`;
+- jobs RUNNING antigos são recuperados após reinício;
+- falha de vídeo não vira slideshow silencioso: registra ERRO.

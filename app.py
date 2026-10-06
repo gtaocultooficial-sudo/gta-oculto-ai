@@ -1,4 +1,4 @@
-import os, json, uuid, threading, time, asyncio, subprocess, shutil, zipfile, re
+import os, json, uuid, threading, time, asyncio, subprocess, shutil, re, sys
 from pathlib import Path
 from datetime import datetime, timezone
 from urllib.parse import urljoin
@@ -434,54 +434,47 @@ def _safe_filename(name):
     return re.sub(r'[^a-zA-Z0-9._-]+','_',name).strip('_')[:100]
 
 
-def download_official_video_clips(outdir):
-    """Download Rockstar's official GTA VI clips ZIP once, cache the MP4s,
-    and return real video assets. We do NOT silently fall back to a slideshow.
+def download_official_video_clips(outdir, jid=None):
+    """Get real motion from Rockstar's verified Trailer 2 without downloading
+    the 9-video ZIP. Only a short low-resolution source segment is cached.
     """
     outdir.mkdir(parents=True, exist_ok=True)
     cache=WORK/'official_video_cache'; cache.mkdir(parents=True, exist_ok=True)
-    clips=sorted([p for p in cache.glob('*.mp4') if p.stat().st_size>50000 and 'source' not in p.name.lower()])
+    clips=sorted([p for p in cache.glob('yt_clip_*.mp4') if p.stat().st_size>20000])
     if len(clips)>=3:
-        return clips
-
-    zip_path=cache/'GTAVI_Videos.zip'
+        return clips[:3]
+    source=cache/'rockstar_trailer2_360p.mp4'
     try:
-        if not zip_path.exists() or zip_path.stat().st_size < 100000:
-            update_msg='Baixando pacote oficial de vídeos da Rockstar (somente na primeira produção)...'
-            # This function is called from the worker; use a small temporary marker
-            # rather than touching the job state here.
-            tmp=zip_path.with_suffix('.part')
-            with requests.get(ROCKSTAR_VIDEO_ZIP,headers={'User-Agent':UA},stream=True,timeout=(15,120)) as r:
-                r.raise_for_status()
-                total=0
-                with tmp.open('wb') as f:
-                    for chunk in r.iter_content(chunk_size=1024*1024):
-                        if not chunk: continue
-                        total += len(chunk)
-                        if total > 180*1024*1024:
-                            raise RuntimeError('Pacote oficial de vídeos excedeu o limite de 180 MB.')
-                        f.write(chunk)
-            tmp.replace(zip_path)
-
-        with zipfile.ZipFile(zip_path) as z:
-            names=[n for n in z.namelist() if n.lower().endswith(('.mp4','.mov','.m4v')) and not n.endswith('/')]
-            if not names:
-                raise RuntimeError('O pacote oficial não contém vídeos MP4 utilizáveis.')
-            extracted=[]
-            for name in names:
-                safe=_safe_filename(Path(name).name)
-                target=cache/safe
-                if not target.exists() or target.stat().st_size<50000:
-                    with z.open(name) as src, target.open('wb') as dst:
-                        shutil.copyfileobj(src,dst,1024*1024)
-                if target.stat().st_size>=50000:
-                    extracted.append(target)
-            clips=extracted
+        if jid:
+            update_job(jid, log='Baixando somente 12s do Trailer 2 oficial da Rockstar (360p)...')
+        if not source.exists() or source.stat().st_size<20000:
+            # Use the installed module instead of relying on PATH. This avoids
+            # the previous silent fallback when yt-dlp was not found by shutil.which.
+            cmd=[sys.executable,'-m','yt_dlp','--no-playlist','--no-warnings','--quiet',
+                 '--socket-timeout','8','--retries','1','--fragment-retries','1',
+                 '--download-sections','*0-12','--force-keyframes-at-cuts',
+                 '-f','bv*[height<=360][ext=mp4]/bv*[height<=360]/b[height<=360]',
+                 '-o',str(source),ROCKSTAR_YT_TRAILER2]
+            run_cmd(cmd,90)
+        if not source.exists() or source.stat().st_size<20000:
+            raise RuntimeError('Trailer 2 não foi baixado pelo yt-dlp.')
+        ff=str(__import__('imageio_ffmpeg').get_ffmpeg_exe())
+        for i,start_sec in enumerate((0,4,8)):
+            target=cache/f'yt_clip_{i}.mp4'
+            if target.exists() and target.stat().st_size>20000:
+                continue
+            if jid:
+                update_job(jid, log=f'Preparando vídeo real {i+1}/3 da Rockstar...')
+            run_cmd([ff,'-y','-ss',str(start_sec),'-i',str(source),'-t','4',
+                     '-vf','scale=360:640:force_original_aspect_ratio=increase,crop=360:640,setsar=1,fps=24',
+                     '-an','-c:v','libx264','-preset','ultrafast','-crf','28','-threads','1',
+                     '-pix_fmt','yuv420p','-movflags','+faststart',str(target)],45)
+        clips=sorted([p for p in cache.glob('yt_clip_*.mp4') if p.stat().st_size>20000])
         if len(clips)<3:
-            raise RuntimeError(f'Apenas {len(clips)} vídeos oficiais foram extraídos.')
-        return clips
+            raise RuntimeError(f'Apenas {len(clips)} clipes reais foram preparados.')
+        return clips[:3]
     except Exception as e:
-        raise RuntimeError('Não foi possível obter os vídeos oficiais da Rockstar: '+str(e)[:900])
+        raise RuntimeError('Não foi possível obter os vídeos reais da Rockstar: '+str(e)[:1000])
 
 
 def _video_relevance(path,title):
@@ -516,39 +509,40 @@ def _ffmpeg_text(s):
 
 
 def make_multimedia_video(video_clips, image_paths, audio, out, duration, captions):
-    """Build a real-video-first vertical timeline.
-    Six short official Rockstar clips are used before any image fallback.
-    Every scene is encoded independently to keep Render stable.
+    """Fast 6-scene timeline: 3 real motion clips + 3 animated images.
+    Real clips are mandatory; this function never silently becomes a slideshow.
     """
     ff=str(__import__('imageio_ffmpeg').get_ffmpeg_exe())
     work=out.parent/'timeline'; work.mkdir(exist_ok=True)
-    if len(video_clips) < 3:
-        raise RuntimeError('Menos de 3 vídeos reais disponíveis para a edição.')
-    # Prefer six distinct official clips; this prevents the slideshow behavior.
-    clips=list(video_clips[:6])
-    total=len(clips)
-    per=max(2.6, duration/total)
+    if len(video_clips)<3:
+        raise RuntimeError('A edição precisa de pelo menos 3 vídeos reais.')
+    assets=[]
+    for i in range(3):
+        assets.append(('video',video_clips[i]))
+        if i < len(image_paths): assets.append(('image',image_paths[i]))
+    per=max(2.7,duration/len(assets))
     scene_files=[]
-    for i,src in enumerate(clips):
-        scene=work/f'video_scene_{i:02d}.mp4'
-        overlay=work/f'overlay_{i:02d}.png'
-        _caption_overlay(overlay,captions[i % len(captions)],i,total,540,960)
-        vf="scale=540:960:force_original_aspect_ratio=increase,crop=540:960,setsar=1,fps=24,eq=contrast=1.05:saturation=1.06"
-        cmd=[ff,'-y','-stream_loop','-1','-i',str(src),'-loop','1','-i',str(overlay),
-             '-t',f'{per:.3f}','-filter_complex',
-             f"[0:v]{vf}[v];[1:v]format=rgba[o];[v][o]overlay=0:0:shortest=1[outv]",
-             '-map','[outv]','-an','-c:v','libx264','-preset','ultrafast','-crf','26',
-             '-threads','2','-pix_fmt','yuv420p','-movflags','+faststart',str(scene)]
-        run_cmd(cmd,90)
+    for i,(kind,src) in enumerate(assets):
+        scene=work/f'scene_{i:02d}.mp4'; overlay=work/f'overlay_{i:02d}.png'
+        _caption_overlay(overlay,captions[i % len(captions)],i,len(assets),360,640)
+        if kind=='video':
+            vf="scale=360:640:force_original_aspect_ratio=increase,crop=360:640,setsar=1,fps=24,eq=contrast=1.05:saturation=1.06"
+        else:
+            vf="scale=360:640:force_original_aspect_ratio=increase,crop=360:640,setsar=1,zoompan=z='min(zoom+0.002,1.045)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=360x640:fps=24,eq=contrast=1.06"
+        cmd=[ff,'-y']
+        cmd += ['-stream_loop','-1','-i',str(src)] if kind=='video' else ['-loop','1','-i',str(src)]
+        cmd += ['-loop','1','-i',str(overlay),'-t',f'{per:.3f}','-filter_complex',
+                f"[0:v]{vf}[v];[1:v]format=rgba[o];[v][o]overlay=0:0:shortest=1[outv]",
+                '-map','[outv]','-an','-c:v','libx264','-preset','ultrafast','-crf','28','-threads','1','-pix_fmt','yuv420p',str(scene)]
+        run_cmd(cmd,60)
         scene_files.append(scene)
     listfile=work/'timeline.txt'
     with listfile.open('w',encoding='utf-8') as f:
-        for sf in scene_files:
-            f.write(f"file '{sf.as_posix()}'\n")
+        for sf in scene_files: f.write(f"file '{sf.as_posix()}'\n")
     run_cmd([ff,'-y','-f','concat','-safe','0','-i',str(listfile),'-i',str(audio),
-             '-t',f'{duration:.2f}','-vf','scale=1080:1920:flags=lanczos,format=yuv420p',
-             '-r','24','-c:v','libx264','-preset','ultrafast','-crf','23','-threads','2',
-             '-c:a','aac','-b:a','128k','-movflags','+faststart','-shortest',str(out)],180)
+             '-t',f'{duration:.2f}','-vf','scale=1080:1920:flags=fast_bilinear,format=yuv420p',
+             '-r','24','-c:v','libx264','-preset','ultrafast','-crf','25','-threads','1',
+             '-c:a','aac','-b:a','128k','-movflags','+faststart','-shortest',str(out)],120)
 
 
 def make_video(scenes,audio,out,duration):
@@ -599,15 +593,15 @@ def produce_job(jid):
             dst=jobdir/f'image_{i}.jpg'; prepare_scene(src,dst,caps[min(i,len(caps)-1)],i,8); image_scenes.append(dst)
         update_job(jid,stage='NARRAÇÃO',progress=60,log='Gerando narração PT-BR...'); audio=jobdir/'narracao.mp3'; asyncio.run(make_tts(script['narration'],audio)); duration=duration_of_audio(audio)
         update_job(jid,stage='EDIÇÃO',progress=74,log=f'Obtendo vídeos oficiais da Rockstar e montando timeline com movimento real / {duration:.1f}s...')
-        official_videos=download_official_video_clips(jobdir/'official_videos')
-        selected_videos=select_video_clips(official_videos,topic['title'],6)
+        official_videos=download_official_video_clips(jobdir/'official_videos', jid)
+        selected_videos=select_video_clips(official_videos,topic['title'],3)
         update_job(jid,log=f'{len(selected_videos)} vídeos oficiais disponíveis. Editando cortes reais em 9:16 / {duration:.1f}s...')
         video=jobdir/'GTA_OCULTO_SHORT.mp4'; make_multimedia_video(selected_videos,image_scenes,audio,video,duration,caps)
         cover=jobdir/'CAPA.jpg'; make_cover(image_scenes[0],topic['title'],cover)
         update_job(jid,stage='AVALIAÇÃO',progress=92,log='Avaliando hook, ritmo, visuais, duração, formato e legendas...'); visual_quality=100
         for sp in image_scenes:
             q=_image_quality(sp); visual_quality=min(visual_quality, max(0,q))
-        score=evaluate(script,duration,8,visual_quality)
+        score=evaluate(script,duration,6,visual_quality)
         meta={'title':topic['title'].upper()+' 👀','description':script['narration']+'\n\n🔎 GTA Oculto — onde os segredos vêm à tona.','hashtags':['#GTA6','#GTAVI','#GTAOculto','#RockstarGames','#GTA'],'tags':['GTA 6','GTA VI','GTA 6 Brasil','GTA 6 teorias','GTA 6 segredos','Rockstar Games','GTA Oculto'],'score':score}
         (jobdir/'metadata.json').write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding='utf-8')
         update_job(jid,status='DONE',stage='PRONTO',progress=100,log=f'PRONTO — Short gerado e avaliado em {score}/100.',video=f'{jid}/GTA_OCULTO_SHORT.mp4',cover=f'{jid}/CAPA.jpg',score=score,metadata=meta)
@@ -619,16 +613,33 @@ def processor_loop():
     global PROCESSING
     while True:
         try:
-            if not PROCESSING:
-                with LOCK: target=next((j for j in load_jobs().values() if j.get('status')=='QUEUED'),None)
-                if target: PROCESSING=True; threading.Thread(target=produce_job,args=(target['id'],),daemon=True).start()
+            with LOCK:
+                jobs=load_jobs()
+                # If Render restarts after a long encode, a previous RUNNING job
+                # is recovered instead of disappearing from the queue.
+                now=time.time()
+                for j in jobs.values():
+                    if j.get('status')=='RUNNING':
+                        try:
+                            age=now-datetime.fromisoformat(j.get('updated_at','')).timestamp()
+                        except Exception:
+                            age=0
+                        if age>900:
+                            j['status']='QUEUED'; j['stage']='FILA'; j['progress']=0
+                            j['log']='Produção recuperada após reinício do servidor. Retomando automaticamente.'
+                save_jobs(jobs)
+                target=next((j for j in jobs.values() if j.get('status')=='QUEUED'),None)
+            if target and not PROCESSING:
+                PROCESSING=True
+                threading.Thread(target=produce_job,args=(target['id'],),daemon=True).start()
             time.sleep(2)
-        except Exception: time.sleep(5)
+        except Exception:
+            time.sleep(5)
 
 @APP.get('/')
 def home(): return render_template_string(PAGE)
 @APP.get('/health')
-def health(): return jsonify(ok=True,app='GTA Oculto AI',version='CLOUD-VIDEO-REAL-1.0',processor='cloud')
+def health(): return jsonify(ok=True,app='GTA Oculto AI',version='CLOUD-VIDEO-REAL-2.0-STABLE',processor='cloud')
 @APP.get('/api/state')
 def state():
     with LOCK:
