@@ -135,27 +135,205 @@ def make_fallback(path,idx,title):
     for line in wrap_text(d,title,font(70,True),880)[:5]: d.text((80,y),line,font=font(70,True),fill='white'); y+=88
     im.save(path,quality=88)
 
-def download_visuals(urls,outdir,title):
-    outdir.mkdir(parents=True,exist_ok=True); paths=[]
-    for i,u in enumerate(urls[:10]):
-        try:
-            r=fetch(u); r.raise_for_status()
-            if len(r.content)<10000: continue
-            p=outdir/f'src_{i}.jpg'; p.write_bytes(r.content); im=Image.open(p).convert('RGB'); im.thumbnail((1600,1600)); im.save(p,quality=90); paths.append(p)
-        except Exception: pass
-        if len(paths)>=5: break
-    while len(paths)<5:
-        p=outdir/f'fallback_{len(paths)}.jpg'; make_fallback(p,len(paths),title); paths.append(p)
-    return paths[:5]
+def _image_quality(path):
+    """Return a conservative quality score and reject web UI/blank images."""
+    try:
+        im=Image.open(path).convert('RGB')
+        w,h=im.size
+        if w < 640 or h < 360:
+            return -1
+        # Sample a small version for cheap quality checks.
+        sm=im.copy(); sm.thumbnail((180,180)); pix=list(sm.getdata()); n=len(pix)
+        white=sum(1 for r,g,b in pix if r>242 and g>242 and b>242)/n
+        green=sum(1 for r,g,b in pix if g>r*1.18 and g>b*1.12 and g>55)/n
+        lightgray=sum(1 for r,g,b in pix if abs(r-g)<5 and abs(g-b)<5 and 150<r<242)/n
+        black=sum(1 for r,g,b in pix if r<12 and g<12 and b<12)/n
+        # Mean channel spread is a cheap proxy for visual information/color.
+        spread=sum(max(px)-min(px) for px in pix)/n
+        # Blank pages, logos, CSS placeholders and mostly-white screenshots are bad assets.
+        # Also reject obvious green-screen/blank-color frames.
+        if white > 0.34 or (white + lightgray) > 0.58 or green > 0.48:
+            return -1
+        # Quantized dominant-color ratio catches flat placeholder panels.
+        buckets={}
+        for r,g,b in pix:
+            k=(r//24,g//24,b//24); buckets[k]=buckets.get(k,0)+1
+        if max(buckets.values())/n > 0.55:
+            return -1
+        if black > 0.72:
+            return -1
+        if spread < 10:
+            return -1
+        # Prefer reasonably large, colorful/cinematic assets.
+        score=0
+        score += min(w*h/1_000_000, 4)*8
+        score += min(spread/35, 2)*15
+        score += max(0, 1-white)*20
+        if 0.55 <= w/h <= 2.2: score += 8
+        return score
+    except Exception:
+        return -1
 
-def prepare_scene(src,dst,caption,idx):
-    im=Image.open(src).convert('RGB'); W,H=1080,1920; scale=max(W/im.width,H/im.height); nw,nh=int(im.width*scale),int(im.height*scale); im=im.resize((nw,nh),Image.Resampling.LANCZOS)
-    left=(nw-W)//2 if idx%3==0 else (int((nw-W)*0.2) if idx%3==1 else int((nw-W)*0.65)); top=(nh-H)//2; left=max(0,min(nw-W,left)); top=max(0,min(nh-H,top)); im=im.crop((left,top,left+W,top+H)); im=ImageEnhance.Contrast(im).enhance(1.08)
-    ov=Image.new('RGBA',(W,H),(0,0,0,0)); od=ImageDraw.Draw(ov); od.rectangle((0,0,W,150),fill=(0,0,0,115)); od.rectangle((0,H-500,W,H),fill=(0,0,0,155)); im=Image.alpha_composite(im.convert('RGBA'),ov); d=ImageDraw.Draw(im)
-    d.text((52,45),'GTA OCULTO',font=font(38,True),fill='white'); d.text((W-120,45),f'{idx+1:02d}/05',font=font(28,True),fill=(225,35,50))
-    f=font(48,True); lines=wrap_text(d,caption,f,900); box_h=110+len(lines)*62; y=H-box_h-70; d.rounded_rectangle((55,y,1025,H-70),radius=26,fill=(7,9,13,215),outline=(215,28,45),width=3); yy=y+45
-    for line in lines[:5]: d.text((90,yy),line,font=f,fill='white'); yy+=62
-    im.convert('RGB').save(dst,quality=90)
+
+def _candidate_urls(page_url, soup):
+    found=[]; seen=set()
+    def add(u):
+        if not u or u.startswith('data:'): return
+        u=urljoin(page_url,u)
+        if u not in seen:
+            seen.add(u); found.append(u)
+    for tag in soup.find_all('meta'):
+        prop=(tag.get('property') or tag.get('name') or '').lower()
+        if prop in ('og:image','twitter:image','twitter:image:src'):
+            add(tag.get('content'))
+    for tag in soup.find_all('img'):
+        for key in ('src','data-src','data-lazy-src','data-original'):
+            add(tag.get(key))
+        srcset=tag.get('srcset') or tag.get('data-srcset')
+        if srcset:
+            # Prefer the largest candidate in srcset.
+            parts=[x.strip().split(' ')[0] for x in srcset.split(',') if x.strip()]
+            if parts: add(parts[-1])
+    return found
+
+
+def research_official():
+    facts=[]; images=[]
+    for url in [ROCKSTAR_VI,ROCKSTAR_NEWS,'https://www.rockstargames.com/VI/downloads/videos']:
+        try:
+            r=fetch(url); r.raise_for_status(); soup=BeautifulSoup(r.text,'html.parser')
+            text=' '.join(soup.stripped_strings)
+            facts.append(text[:16000])
+            images.extend(_candidate_urls(url,soup))
+        except Exception: pass
+    blob=' '.join(facts); topics=[]
+    def add(t,score,url,key): topics.append({'id':key,'score':score,'priority':'ALTA' if score>=88 else 'MÉDIA','title':t,'source':'Rockstar Games','url':url})
+    if 'Leonida' in blob or 'leonida' in blob.lower(): add('GTA 6: o detalhe de Leonida que pode mudar a história',96,ROCKSTAR_VI,'leonida')
+    if 'Jason' in blob and 'Lucia' in blob: add('Jason e Lucia: o que a Rockstar já confirmou oficialmente',93,ROCKSTAR_VI,'jason-lucia')
+    if 'Vice City' in blob: add('A história de GTA 6 vai muito além de Vice City',90,ROCKSTAR_NEWS,'estado-leonida')
+    add('Os detalhes escondidos que a Rockstar colocou em GTA 6',84,ROCKSTAR_VI,'detalhes')
+    out=[]; seen=set()
+    for x in sorted(topics,key=lambda z:z['score'],reverse=True):
+        if x['id'] not in seen: seen.add(x['id']); out.append(x)
+    return out[:6],images,blob
+
+
+def choose_topic(data,topics):
+    if data.get('id'):
+        for o in topics:
+            if o['id']==data['id']: return o
+    custom=(data.get('topic') or '').strip()
+    if custom: return {'id':'custom','score':88,'priority':'ALTA','title':custom,'source':'Pesquisa editorial','url':ROCKSTAR_VI}
+    return max(topics,key=lambda x:x['score'])
+
+
+def make_script(topic):
+    title=topic['title'].lower()
+    if 'jason' in title:
+        text='Você reparou nisso em GTA 6? A Rockstar já confirmou oficialmente Jason e Lucia como o centro da história. Mas o detalhe mais importante é que os problemas dos dois não ficam presos a Vice City. A própria Rockstar descreve uma conspiração que se espalha por todo o estado de Leonida. Isso abre espaço para muito mais histórias, personagens e segredos pelo mapa. E se algumas pistas já estiverem nos detalhes que vimos?'
+    elif 'leonida' in title:
+        text='Você percebeu isso em GTA 6? A Rockstar não apresentou apenas uma nova Vice City. A história de Jason e Lucia está ligada a uma conspiração que se estende por todo o estado de Leonida. Isso significa que o mapa pode esconder muito mais do que a cidade principal. Cada região pode carregar pistas, personagens e acontecimentos que ainda não foram revelados. E se a Rockstar já estiver mostrando essas pistas sem a gente perceber?'
+    else:
+        text='GTA 6 pode estar mostrando muito mais do que parece. Nos materiais oficiais, a Rockstar apresenta Vice City, Jason, Lucia e um estado inteiro chamado Leonida. O detalhe interessante é que a história não fica limitada à cidade. A escala do mapa cria espaço para pistas, personagens e acontecimentos espalhados por diferentes regiões. Então fica a pergunta: qual detalhe a Rockstar mostrou e quase ninguém percebeu?'
+    return {'title':topic['title'],'narration':text,'source':topic['url'],'source_name':topic['source']}
+
+
+def wrap_text(draw,text,f,max_width):
+    lines=[]; cur=''
+    for w in text.split():
+        t=(cur+' '+w).strip()
+        if draw.textbbox((0,0),t,font=f)[2] <= max_width: cur=t
+        else:
+            if cur: lines.append(cur)
+            cur=w
+    if cur: lines.append(cur)
+    return lines
+
+
+def make_fallback(path,idx,title):
+    im=Image.new('RGB',(1080,1920),(8,10,15)); d=ImageDraw.Draw(im)
+    for y in range(1920): d.line((0,y,1080,y),fill=(10+int(18*y/1920),8,15+int(20*y/1920)))
+    d.rectangle((65,90,1015,1830),outline=(170,25,40),width=3); d.text((80,120),f'ARQUIVO {idx+1:02d}',font=font(34,True),fill=(230,40,55)); d.text((80,1760),'GTA OCULTO',font=font(42,True),fill='white')
+    y=720
+    for line in wrap_text(d,title,font(70,True),880)[:5]: d.text((80,y),line,font=font(70,True),fill='white'); y+=88
+    im.save(path,quality=90)
+
+
+def download_visuals(urls,outdir,title):
+    outdir.mkdir(parents=True,exist_ok=True); candidates=[]; seen=set()
+    for i,u in enumerate(urls[:24]):
+        try:
+            r=fetch(u,timeout=20); r.raise_for_status()
+            ctype=(r.headers.get('content-type') or '').lower()
+            if 'image' not in ctype and not u.lower().split('?')[0].endswith(('.jpg','.jpeg','.png','.webp','.avif')):
+                continue
+            if len(r.content)<15000: continue
+            raw=outdir/f'raw_{i}'
+            raw.write_bytes(r.content)
+            score=_image_quality(raw)
+            if score < 0: raw.unlink(missing_ok=True); continue
+            im=Image.open(raw).convert('RGB')
+            # Keep enough resolution for 1080x1920 output.
+            if max(im.size)<900: raw.unlink(missing_ok=True); continue
+            im.thumbnail((2200,2200),Image.Resampling.LANCZOS)
+            p=outdir/f'good_{len(candidates):02d}.jpg'; im.save(p,quality=92)
+            raw.unlink(missing_ok=True)
+            key=(im.size,round(score,1))
+            if key in seen: p.unlink(missing_ok=True); continue
+            seen.add(key); candidates.append((score,p))
+        except Exception:
+            try: raw.unlink(missing_ok=True)
+            except Exception: pass
+    candidates.sort(key=lambda x:x[0],reverse=True)
+    paths=[p for _,p in candidates[:8]]
+    # If the site supplied fewer than 3 valid assets, create clean branded assets rather than
+    # ever placing a blank/white web page in the Short.
+    if len(paths)<3:
+        while len(paths)<3:
+            p=outdir/f'fallback_{len(paths)}.jpg'; make_fallback(p,len(paths),title); paths.append(p)
+    return paths
+
+
+def _smart_crop(im,W,H,variant=0):
+    im=im.convert('RGB')
+    # Work out the 9:16 crop and choose among several horizontal/vertical positions
+    # using a simple visual-information score, avoiding white/flat areas.
+    scale=max(W/im.width,H/im.height); nw,nh=int(im.width*scale),int(im.height*scale)
+    big=im.resize((nw,nh),Image.Resampling.LANCZOS)
+    max_left=max(0,nw-W); max_top=max(0,nh-H)
+    positions=[0.08,0.28,0.50,0.72,0.90]
+    best=None
+    for frac in positions:
+        left=int(max_left*frac); top=int(max_top*0.50)
+        crop=big.crop((left,top,left+W,top+H)); sm=crop.resize((90,160),Image.Resampling.BILINEAR)
+        px=list(sm.getdata()); n=len(px)
+        white=sum(1 for r,g,b in px if r>242 and g>242 and b>242)/n
+        gray=sum(1 for r,g,b in px if abs(r-g)<5 and abs(g-b)<5 and 150<r<242)/n
+        spread=sum(max(p)-min(p) for p in px)/n
+        score=(1-white-gray)*80 + min(spread/35,2)*20
+        if best is None or score>best[0]: best=(score,crop)
+    return best[1] if best else big.crop((max(0,max_left//2),max(0,max_top//2),max(0,max_left//2)+W,max(0,max_top//2)+H))
+
+
+def prepare_scene(src,dst,caption,idx,total):
+    W,H=1080,1920
+    im=_smart_crop(Image.open(src),W,H,idx)
+    # Alternate crop and scale to simulate movement between consecutive cuts.
+    if idx%3==1:
+        im=im.resize((1120,1991),Image.Resampling.LANCZOS)
+        im=im.crop((20,35,1100,1955))
+    elif idx%3==2:
+        im=im.resize((1160,2062),Image.Resampling.LANCZOS)
+        im=im.crop((40,70,1120,1990))
+    im=ImageEnhance.Contrast(im).enhance(1.06)
+    ov=Image.new('RGBA',(W,H),(0,0,0,0)); od=ImageDraw.Draw(ov)
+    od.rectangle((0,0,W,170),fill=(0,0,0,105)); od.rectangle((0,H-530,W,H),fill=(0,0,0,170))
+    im=Image.alpha_composite(im.convert('RGBA'),ov); d=ImageDraw.Draw(im)
+    d.text((52,48),'GTA OCULTO',font=font(38,True),fill='white'); d.text((W-145,50),f'{idx+1:02d}/{total:02d}',font=font(28,True),fill=(225,35,50))
+    f=font(48,True); lines=wrap_text(d,caption,f,900); box_h=105+len(lines)*62; y=H-box_h-72
+    d.rounded_rectangle((55,y,1025,H-72),radius=26,fill=(7,9,13,220),outline=(215,28,45),width=3); yy=y+42
+    for line in lines[:4]: d.text((90,yy),line,font=f,fill='white'); yy+=62
+    im.convert('RGB').save(dst,quality=92)
 
 def run_cmd(cmd,timeout=240):
     p=subprocess.run(cmd,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,timeout=timeout)
@@ -179,22 +357,26 @@ async def make_tts(text,path):
 def make_video(scenes,audio,out,duration):
     listfile=out.parent/'scenes.txt'; per=duration/len(scenes)
     with listfile.open('w',encoding='utf-8') as f:
-        for p in scenes: f.write(f"file '{p.as_posix()}'\nduration {per:.3f}\n")
+        for p in scenes:
+            f.write(f"file '{p.as_posix()}'\nduration {per:.3f}\n")
         f.write(f"file '{scenes[-1].as_posix()}'\n")
     ff=str(__import__('imageio_ffmpeg').get_ffmpeg_exe())
-    run_cmd([ff,'-y','-f','concat','-safe','0','-i',str(listfile),'-i',str(audio),'-t',f'{duration:.2f}','-r','24','-c:v','libx264','-preset','veryfast','-crf','25','-pix_fmt','yuv420p','-c:a','aac','-b:a','128k','-movflags','+faststart','-shortest',str(out)],240)
+    run_cmd([ff,'-y','-f','concat','-safe','0','-i',str(listfile),'-i',str(audio),'-t',f'{duration:.2f}','-r','30','-c:v','libx264','-preset','veryfast','-crf','20','-profile:v','high','-pix_fmt','yuv420p','-c:a','aac','-b:a','160k','-movflags','+faststart','-shortest',str(out)],300)
 
 def make_cover(scene,title,out):
     im=Image.open(scene).convert('RGB'); d=ImageDraw.Draw(im,'RGBA'); d.rectangle((45,500,1035,1330),fill=(0,0,0,165),outline=(225,25,45),width=5); f=font(72,True); y=610
     for line in wrap_text(d,title,f,880)[:6]: d.text((100,y),line,font=f,fill='white',stroke_width=2,stroke_fill='black'); y+=88
     d.text((100,120),'GTA OCULTO',font=font(42,True),fill='white'); im.save(out,quality=92)
 
-def evaluate(script,duration):
+def evaluate(script,duration,scene_count,visual_quality):
     score=100
-    if duration<22: score-=8
-    if duration>40: score-=6
-    if len(script['narration'])<280: score-=8
-    if '?' not in script['narration'][:180]: score-=4
+    if duration<24: score-=5
+    if duration>38: score-=5
+    if len(script['narration'])<300: score-=5
+    if '?' not in script['narration'][:190]: score-=4
+    if scene_count<8: score-=15
+    elif scene_count<10: score-=6
+    score += max(-15,min(5,int((visual_quality-70)/4)))
     return max(0,min(100,score))
 
 def produce_job(jid):
@@ -207,12 +389,17 @@ def produce_job(jid):
         update_job(jid,stage='ROTEIRO',progress=28,log='Montando roteiro original em português brasileiro...'); script=make_script(topic)
         jobdir=WORK/jid; jobdir.mkdir(parents=True,exist_ok=True)
         update_job(jid,script=script,stage='VISUAIS',progress=40,log='Baixando visuais oficiais e montando cenas verticais...')
-        paths=download_visuals(urls,jobdir/'visuals',topic['title']); caps=['VOCÊ PERCEBEU ISSO EM GTA 6?','JASON E LUCIA ESTÃO NO CENTRO DA HISTÓRIA.','MAS A TRAMA NÃO FICA PRESA EM VICE CITY.','A CONSPIRAÇÃO SE ESTENDE POR LEONIDA.','QUAL DETALHE A ROCKSTAR AINDA ESTÁ ESCONDENDO?']; scenes=[]
-        for i,p in enumerate(paths): dst=jobdir/f'scene_{i}.jpg'; prepare_scene(p,dst,caps[i],i); scenes.append(dst)
+        paths=download_visuals(urls,jobdir/'visuals',topic['title']); caps=['VOCÊ PERCEBEU ISSO EM GTA 6?','JASON E LUCIA ESTÃO NO CENTRO DA HISTÓRIA.','MAS A TRAMA NÃO FICA PRESA EM VICE CITY.','A CONSPIRAÇÃO SE ESTENDE POR LEONIDA.','O MAPA PODE ESCONDER MUITO MAIS.','CADA REGIÃO PODE TER UMA PISTA.','A ROCKSTAR JÁ MOSTROU PARTE DISSO.','MAS O QUE AINDA NÃO FOI REVELADO?','QUAL DETALHE VOCÊ PERCEBEU?']; scenes=[]
+        target_scenes=9
+        for i in range(target_scenes):
+            src=paths[i % len(paths)]; dst=jobdir/f'scene_{i}.jpg'; prepare_scene(src,dst,caps[i],i,target_scenes); scenes.append(dst)
         update_job(jid,stage='NARRAÇÃO',progress=60,log='Gerando narração PT-BR...'); audio=jobdir/'narracao.mp3'; asyncio.run(make_tts(script['narration'],audio)); duration=duration_of_audio(audio)
         update_job(jid,stage='EDIÇÃO',progress=74,log=f'Editando 1080x1920 / 24 FPS / {duration:.1f}s...'); video=jobdir/'GTA_OCULTO_SHORT.mp4'; make_video(scenes,audio,video,duration)
         cover=jobdir/'CAPA.jpg'; make_cover(scenes[0],topic['title'],cover)
-        update_job(jid,stage='AVALIAÇÃO',progress=92,log='Avaliando hook, duração, formato e legendas...'); score=evaluate(script,duration)
+        update_job(jid,stage='AVALIAÇÃO',progress=92,log='Avaliando hook, ritmo, visuais, duração, formato e legendas...'); visual_quality=100
+        for sp in scenes:
+            q=_image_quality(sp); visual_quality=min(visual_quality, max(0,q))
+        score=evaluate(script,duration,len(scenes),visual_quality)
         meta={'title':topic['title'].upper()+' 👀','description':script['narration']+'\n\n🔎 GTA Oculto — onde os segredos vêm à tona.','hashtags':['#GTA6','#GTAVI','#GTAOculto','#RockstarGames','#GTA'],'tags':['GTA 6','GTA VI','GTA 6 Brasil','GTA 6 teorias','GTA 6 segredos','Rockstar Games','GTA Oculto'],'score':score}
         (jobdir/'metadata.json').write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding='utf-8')
         update_job(jid,status='DONE',stage='PRONTO',progress=100,log=f'PRONTO — Short gerado e avaliado em {score}/100.',video=f'{jid}/GTA_OCULTO_SHORT.mp4',cover=f'{jid}/CAPA.jpg',score=score,metadata=meta)
