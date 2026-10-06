@@ -361,7 +361,7 @@ def make_video(scenes,audio,out,duration):
             f.write(f"file '{p.as_posix()}'\nduration {per:.3f}\n")
         f.write(f"file '{scenes[-1].as_posix()}'\n")
     ff=str(__import__('imageio_ffmpeg').get_ffmpeg_exe())
-    run_cmd([ff,'-y','-f','concat','-safe','0','-i',str(listfile),'-i',str(audio),'-t',f'{duration:.2f}','-r','30','-c:v','libx264','-preset','veryfast','-crf','20','-profile:v','high','-pix_fmt','yuv420p','-c:a','aac','-b:a','160k','-movflags','+faststart','-shortest',str(out)],300)
+    run_cmd([ff,'-y','-f','concat','-safe','0','-i',str(listfile),'-i',str(audio),'-t',f'{duration:.2f}','-r','24','-c:v','libx264','-preset','ultrafast','-crf','22','-threads','2','-profile:v','high','-pix_fmt','yuv420p','-c:a','aac','-b:a','128k','-movflags','+faststart','-shortest',str(out)],300)
 
 def make_cover(scene,title,out):
     im=Image.open(scene).convert('RGB'); d=ImageDraw.Draw(im,'RGBA'); d.rectangle((45,500,1035,1330),fill=(0,0,0,165),outline=(225,25,45),width=5); f=font(72,True); y=610
@@ -394,7 +394,7 @@ def produce_job(jid):
         for i in range(target_scenes):
             src=paths[i % len(paths)]; dst=jobdir/f'scene_{i}.jpg'; prepare_scene(src,dst,caps[i],i,target_scenes); scenes.append(dst)
         update_job(jid,stage='NARRAÇÃO',progress=60,log='Gerando narração PT-BR...'); audio=jobdir/'narracao.mp3'; asyncio.run(make_tts(script['narration'],audio)); duration=duration_of_audio(audio)
-        update_job(jid,stage='EDIÇÃO',progress=74,log=f'Editando 1080x1920 / 24 FPS / {duration:.1f}s...'); video=jobdir/'GTA_OCULTO_SHORT.mp4'; make_video(scenes,audio,video,duration)
+        update_job(jid,stage='EDIÇÃO',progress=74,log=f'Editando 1080x1920 / 24 FPS / modo cloud otimizado / {duration:.1f}s...'); video=jobdir/'GTA_OCULTO_SHORT.mp4'; make_video(scenes,audio,video,duration)
         cover=jobdir/'CAPA.jpg'; make_cover(scenes[0],topic['title'],cover)
         update_job(jid,stage='AVALIAÇÃO',progress=92,log='Avaliando hook, ritmo, visuais, duração, formato e legendas...'); visual_quality=100
         for sp in scenes:
