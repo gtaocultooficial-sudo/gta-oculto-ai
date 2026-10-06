@@ -121,7 +121,7 @@ def make_script(topic):
     if 'jason' in title:
         text='Você reparou nisso em GTA 6? A Rockstar já confirmou oficialmente Jason e Lucia como o centro da história. Mas o detalhe mais importante é que os problemas dos dois não ficam presos a Vice City. A própria Rockstar descreve uma conspiração que se espalha por todo o estado de Leonida. Isso abre espaço para muito mais histórias, personagens e segredos pelo mapa. E se algumas pistas já estiverem nos detalhes que vimos?'
     elif 'leonida' in title:
-        text='Você percebeu isso em GTA 6? A Rockstar não apresentou apenas uma nova Vice City. A história de Jason e Lucia está ligada a uma conspiração que se estende por todo o estado de Leonida. Isso significa que o mapa pode esconder muito mais do que a cidade principal. Cada região pode carregar pistas, personagens e acontecimentos que ainda não foram revelados. E se a Rockstar já estiver mostrando essas pistas sem a gente perceber?'
+        text='A Rockstar pode ter escondido uma pista importante em GTA 6. Ela não apresentou apenas uma nova Vice City. A história de Jason e Lucia está ligada a uma conspiração que se estende por todo o estado de Leonida. Isso significa que o mapa pode esconder muito mais do que a cidade principal. Cada região pode carregar pistas, personagens e acontecimentos que ainda não foram revelados. E se a Rockstar já estiver mostrando essas pistas sem a gente perceber?'
     else:
         text='GTA 6 pode estar mostrando muito mais do que parece. Nos materiais oficiais, a Rockstar apresenta Vice City, Jason, Lucia e um estado inteiro chamado Leonida. O detalhe interessante é que a história não fica limitada à cidade. A escala do mapa cria espaço para pistas, personagens e acontecimentos espalhados por diferentes regiões. Então fica a pergunta: qual detalhe a Rockstar mostrou e quase ninguém percebeu?'
     return {'title':topic['title'],'narration':text,'source':topic['url'],'source_name':topic['source']}
@@ -187,24 +187,71 @@ def _image_quality(path):
 
 def _candidate_urls(page_url, soup):
     found=[]; seen=set()
-    def add(u):
+    def add(u,label=''):
         if not u or u.startswith('data:'): return
         u=urljoin(page_url,u)
         if u not in seen:
-            seen.add(u); found.append(u)
+            seen.add(u); found.append({'url':u,'label':(label or '').strip()[:180]})
     for tag in soup.find_all('meta'):
         prop=(tag.get('property') or tag.get('name') or '').lower()
         if prop in ('og:image','twitter:image','twitter:image:src'):
-            add(tag.get('content'))
+            add(tag.get('content'), tag.get('content',''))
     for tag in soup.find_all('img'):
+        label=' '.join(filter(None,[tag.get('alt'),tag.get('title'),tag.get('aria-label')]))
         for key in ('src','data-src','data-lazy-src','data-original'):
-            add(tag.get(key))
+            add(tag.get(key),label)
         srcset=tag.get('srcset') or tag.get('data-srcset')
         if srcset:
-            # Prefer the largest candidate in srcset.
             parts=[x.strip().split(' ')[0] for x in srcset.split(',') if x.strip()]
-            if parts: add(parts[-1])
+            if parts: add(parts[-1],label)
     return found
+
+def _asset_text(asset):
+    if isinstance(asset,dict):
+        return f"{asset.get('label','')} {asset.get('url','')}".lower()
+    return str(asset).lower()
+
+def _scene_keywords(topic_title):
+    t=topic_title.lower()
+    if 'jason' in t and 'lucia' in t:
+        return [
+            ['jason','lucia'],['jason'],['lucia'],['vice city'],['leonida'],['map'],
+            ['jason','car'],['lucia','car'],['vice city','night'],['leonida','road'],['gta vi'],['gta 6']
+        ]
+    if 'leonida' in t or 'vice city' in t:
+        return [
+            ['gta 6'],['jason','lucia'],['vice city'],['vice city','night'],['leonida'],['map'],
+            ['road'],['jason'],['lucia'],['leonida','city'],['gta vi'],['rockstar']
+        ]
+    return [['gta 6'],['jason'],['lucia'],['vice city'],['leonida'],['map'],['rockstar'],['jason','lucia'],['city'],['road'],['gta vi'],['gta 6']]
+
+def select_visuals(paths, topic_title, count=12):
+    if not paths: return []
+    plans=_scene_keywords(topic_title)
+    chosen=[]; used=set()
+    for kws in plans:
+        ranked=[]
+        for idx,item in enumerate(paths):
+            p=item['path'] if isinstance(item,dict) else item
+            if idx in used: continue
+            txt=_asset_text(item)
+            hits=sum(1 for k in kws if k in txt)
+            ranked.append((hits, _image_quality(p), idx))
+        if ranked:
+            ranked.sort(key=lambda x:(x[0],x[1]),reverse=True)
+            chosen.append(ranked[0][2]); used.add(ranked[0][2])
+    # Fill only after unique assets are exhausted; avoid adjacent repeats.
+    if len(chosen)<count:
+        for idx in range(len(paths)):
+            if idx not in used:
+                chosen.append(idx); used.add(idx)
+                if len(chosen)>=count: break
+    while len(chosen)<count:
+        for idx in range(len(paths)):
+            if not chosen or idx!=chosen[-1]:
+                chosen.append(idx)
+                if len(chosen)>=count: break
+    return [paths[i]['path'] if isinstance(paths[i],dict) else paths[i] for i in chosen[:count]]
 
 
 def research_official():
@@ -252,7 +299,7 @@ def make_script(topic):
     if 'jason' in title:
         text='Você reparou nisso em GTA 6? A Rockstar já confirmou oficialmente Jason e Lucia como o centro da história. Mas o detalhe mais importante é que os problemas dos dois não ficam presos a Vice City. A própria Rockstar descreve uma conspiração que se espalha por todo o estado de Leonida. Isso abre espaço para muito mais histórias, personagens e segredos pelo mapa. E se algumas pistas já estiverem nos detalhes que vimos?'
     elif 'leonida' in title:
-        text='Você percebeu isso em GTA 6? A Rockstar não apresentou apenas uma nova Vice City. A história de Jason e Lucia está ligada a uma conspiração que se estende por todo o estado de Leonida. Isso significa que o mapa pode esconder muito mais do que a cidade principal. Cada região pode carregar pistas, personagens e acontecimentos que ainda não foram revelados. E se a Rockstar já estiver mostrando essas pistas sem a gente perceber?'
+        text='A Rockstar pode ter escondido uma pista importante em GTA 6. Ela não apresentou apenas uma nova Vice City. A história de Jason e Lucia está ligada a uma conspiração que se estende por todo o estado de Leonida. Isso significa que o mapa pode esconder muito mais do que a cidade principal. Cada região pode carregar pistas, personagens e acontecimentos que ainda não foram revelados. E se a Rockstar já estiver mostrando essas pistas sem a gente perceber?'
     else:
         text='GTA 6 pode estar mostrando muito mais do que parece. Nos materiais oficiais, a Rockstar apresenta Vice City, Jason, Lucia e um estado inteiro chamado Leonida. O detalhe interessante é que a história não fica limitada à cidade. A escala do mapa cria espaço para pistas, personagens e acontecimentos espalhados por diferentes regiões. Então fica a pergunta: qual detalhe a Rockstar mostrou e quase ninguém percebeu?'
     return {'title':topic['title'],'narration':text,'source':topic['url'],'source_name':topic['source']}
@@ -281,7 +328,10 @@ def make_fallback(path,idx,title):
 
 def download_visuals(urls,outdir,title):
     outdir.mkdir(parents=True,exist_ok=True); candidates=[]; seen=set()
-    for i,u in enumerate(urls[:24]):
+    for i,item in enumerate(urls[:32]):
+        u=item.get('url') if isinstance(item,dict) else item
+        label=item.get('label','') if isinstance(item,dict) else ''
+        raw=None
         try:
             r=fetch(u,timeout=20); r.raise_for_status()
             ctype=(r.headers.get('content-type') or '').lower()
@@ -293,24 +343,22 @@ def download_visuals(urls,outdir,title):
             score=_image_quality(raw)
             if score < 0: raw.unlink(missing_ok=True); continue
             im=Image.open(raw).convert('RGB')
-            # Keep enough resolution for 1080x1920 output.
             if max(im.size)<900: raw.unlink(missing_ok=True); continue
             im.thumbnail((2200,2200),Image.Resampling.LANCZOS)
             p=outdir/f'good_{len(candidates):02d}.jpg'; im.save(p,quality=92)
             raw.unlink(missing_ok=True)
-            key=(im.size,round(score,1))
+            key=(im.size,round(score,1),label[:80])
             if key in seen: p.unlink(missing_ok=True); continue
-            seen.add(key); candidates.append((score,p))
+            seen.add(key); candidates.append({'score':score,'path':p,'label':label,'url':u})
         except Exception:
-            try: raw.unlink(missing_ok=True)
-            except Exception: pass
-    candidates.sort(key=lambda x:x[0],reverse=True)
-    paths=[p for _,p in candidates[:12]]
-    # If the site supplied fewer than 3 valid assets, create clean branded assets rather than
-    # ever placing a blank/white web page in the Short.
+            if raw:
+                try: raw.unlink(missing_ok=True)
+                except Exception: pass
+    candidates.sort(key=lambda x:x['score'],reverse=True)
+    paths=candidates[:16]
     if len(paths)<3:
         while len(paths)<3:
-            p=outdir/f'fallback_{len(paths)}.jpg'; make_fallback(p,len(paths),title); paths.append(p)
+            p=outdir/f'fallback_{len(paths)}.jpg'; make_fallback(p,len(paths),title); paths.append({'score':60,'path':p,'label':title,'url':''})
     return paths
 
 
@@ -420,15 +468,11 @@ def produce_job(jid):
         update_job(jid,stage='ROTEIRO',progress=28,log='Montando roteiro original em português brasileiro...'); script=make_script(topic)
         jobdir=WORK/jid; jobdir.mkdir(parents=True,exist_ok=True)
         update_job(jid,script=script,stage='VISUAIS',progress=40,log='Baixando visuais oficiais e montando cenas verticais...')
-        paths=download_visuals(urls,jobdir/'visuals',topic['title']); caps=['VOCÊ PERCEBEU ISSO EM GTA 6?','JASON E LUCIA ESTÃO NO CENTRO DA HISTÓRIA.','MAS A TRAMA NÃO FICA PRESA EM VICE CITY.','A CONSPIRAÇÃO SE ESTENDE POR LEONIDA.','O MAPA PODE ESCONDER MUITO MAIS.','CADA REGIÃO PODE TER UMA PISTA.','A ROCKSTAR JÁ MOSTROU PARTE DISSO.','E ALGUNS DETALHES JÁ FORAM MOSTRADOS.','MAS O QUE AINDA NÃO FOI REVELADO?','TALVEZ A PISTA ESTEJA NO PRÓPRIO MAPA.','A ROCKSTAR ESTÁ DEIXANDO SINAIS?','QUAL DETALHE VOCÊ PERCEBEU?']; scenes=[]
+        paths=download_visuals(urls,jobdir/'visuals',topic['title']); caps=['A ROCKSTAR PODE TER ESCONDIDO ISSO.','JASON E LUCIA SÃO O CENTRO DA HISTÓRIA.','MAS NÃO É SÓ VICE CITY.','A CONSPIRAÇÃO SE ESPALHA POR LEONIDA.','O MAPA PODE ESCONDER OUTRAS HISTÓRIAS.','CADA REGIÃO PODE TER UMA PISTA.','E A ROCKSTAR JÁ MOSTROU ALGUMAS.','OS DETALHES PODEM ESTAR NAS CENAS.','O QUE AINDA NÃO FOI REVELADO?','TALVEZ A PISTA ESTEJA NO MAPA.','SERÁ QUE ESSES SINAIS SÃO INTENCIONAIS?','QUAL DETALHE VOCÊ PERCEBEU?']; scenes=[]
         target_scenes=12
-        # Usa imagens únicas primeiro; só repete depois de esgotar os arquivos válidos.
-        order=list(range(len(paths)))
-        while len(order)<target_scenes:
-            order += [i for i in range(len(paths)) if not order or i != order[-1]]
-        order=order[:target_scenes]
-        for i,pi in enumerate(order):
-            src=paths[pi]; dst=jobdir/f'scene_{i}.jpg'; prepare_scene(src,dst,caps[i],i,target_scenes); scenes.append(dst)
+        order=select_visuals(paths,topic['title'],target_scenes)
+        for i,src in enumerate(order):
+            dst=jobdir/f'scene_{i}.jpg'; prepare_scene(src,dst,caps[i],i,target_scenes); scenes.append(dst)
         update_job(jid,stage='NARRAÇÃO',progress=60,log='Gerando narração PT-BR...'); audio=jobdir/'narracao.mp3'; asyncio.run(make_tts(script['narration'],audio)); duration=duration_of_audio(audio)
         update_job(jid,stage='EDIÇÃO',progress=74,log=f'Editando 1080x1920 / 24 FPS / modo cloud otimizado / {duration:.1f}s...'); video=jobdir/'GTA_OCULTO_SHORT.mp4'; make_video(scenes,audio,video,duration)
         cover=jobdir/'CAPA.jpg'; make_cover(scenes[0],topic['title'],cover)
