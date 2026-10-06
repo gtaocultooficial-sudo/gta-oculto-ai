@@ -435,46 +435,43 @@ def _safe_filename(name):
 
 
 def download_official_video_clips(outdir):
-    """Download/cache Rockstar Games' official GTA VI clip pack.
-    No YouTube/yt-dlp dependency is used. The official Rockstar media page
-    exposes a ZIP containing the 9 official clips; we download it once,
-    extract the MP4 clips to a persistent cache, and reuse them on later jobs.
+    """Get a few short motion clips without downloading Rockstar's full ZIP.
+    The source is Rockstar Games' official Trailer 2 on YouTube. The download
+    is deliberately tiny and cached. Any network failure is non-fatal.
     """
     outdir.mkdir(parents=True, exist_ok=True)
     cache=WORK/'official_video_cache'; cache.mkdir(parents=True, exist_ok=True)
     clips=sorted([p for p in cache.glob('rockstar_clip_*.mp4') if p.stat().st_size>10000])
-    if len(clips)>=6:
-        return clips[:6]
-    zip_path=cache/'GTAVI_Videos.zip'
-    zip_url='https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
+    if len(clips)>=3:
+        return clips[:3]
     try:
-        if not zip_path.exists() or zip_path.stat().st_size<10000:
-            req=requests.get(zip_url,stream=True,timeout=(12,120),headers={'User-Agent':'GTA-Oculto-AI/1.0'})
-            req.raise_for_status()
-            tmp=cache/'GTAVI_Videos.download'
-            with tmp.open('wb') as f:
-                for chunk in req.iter_content(chunk_size=1024*1024):
-                    if chunk: f.write(chunk)
-            tmp.replace(zip_path)
-        import zipfile
-        with zipfile.ZipFile(zip_path) as z:
-            mp4s=[n for n in z.namelist() if n.lower().endswith('.mp4') and not n.endswith('/')]
-            mp4s=sorted(mp4s)
-            if not mp4s: return []
-            for i,name in enumerate(mp4s[:9]):
-                target=cache/f'rockstar_clip_{i}.mp4'
-                if target.exists() and target.stat().st_size>10000: continue
-                with z.open(name) as src, target.open('wb') as dst:
-                    while True:
-                        chunk=src.read(1024*1024)
-                        if not chunk: break
-                        dst.write(chunk)
-        clips=sorted([p for p in cache.glob('rockstar_clip_*.mp4') if p.stat().st_size>10000])
-        return clips[:6]
+        # yt-dlp is optional at runtime; if unavailable we safely fall back to images.
+        ytdlp=shutil.which('yt-dlp')
+        if not ytdlp:
+            return []
+        source=cache/'rockstar_trailer2_0_12.mp4'
+        if not source.exists() or source.stat().st_size<10000:
+            cmd=[ytdlp,'--no-playlist','--no-warnings','--quiet',
+                 '--socket-timeout','8','--retries','0','--fragment-retries','0',
+                 '--download-sections','*0-12','--force-keyframes-at-cuts',
+                 '-f','bv*[height<=480][ext=mp4]/bv*[height<=480]/b[height<=480]',
+                 '--merge-output-format','mp4','-o',str(source),ROCKSTAR_YT_TRAILER2]
+            run_cmd(cmd,45)
+        if not source.exists() or source.stat().st_size<10000:
+            return []
+        ff=str(__import__('imageio_ffmpeg').get_ffmpeg_exe())
+        for i,start_sec in enumerate((0,4,8)):
+            target=cache/f'rockstar_clip_{i}.mp4'
+            if target.exists() and target.stat().st_size>10000:
+                continue
+            run_cmd([ff,'-y','-ss',str(start_sec),'-i',str(source),'-t','4',
+                     '-vf','scale=540:960:force_original_aspect_ratio=increase,crop=540:960,setsar=1,fps=24',
+                     '-an','-c:v','libx264','-preset','ultrafast','-crf','27','-pix_fmt','yuv420p',
+                     '-movflags','+faststart',str(target)],45)
+        return sorted([p for p in cache.glob('rockstar_clip_*.mp4') if p.stat().st_size>10000])[:3]
     except Exception as exc:
         (cache/'video_error.txt').write_text(str(exc),encoding='utf-8')
         return []
-
 
 def _video_relevance(path,title):
     text=(path.stem+' '+title).lower()
