@@ -435,39 +435,44 @@ def _safe_filename(name):
 
 
 def download_official_video_clips(outdir):
-    """Fetch one short segment from Rockstar Games' verified Trailer 2.
-    The full Rockstar ZIP is never downloaded. The result is cached and split
-    into three short motion clips so video is actually present in the timeline.
-    Any failure is non-fatal and production falls back to images.
+    """Download/cache Rockstar Games' official GTA VI clip pack.
+    No YouTube/yt-dlp dependency is used. The official Rockstar media page
+    exposes a ZIP containing the 9 official clips; we download it once,
+    extract the MP4 clips to a persistent cache, and reuse them on later jobs.
     """
     outdir.mkdir(parents=True, exist_ok=True)
     cache=WORK/'official_video_cache'; cache.mkdir(parents=True, exist_ok=True)
     clips=sorted([p for p in cache.glob('rockstar_clip_*.mp4') if p.stat().st_size>10000])
-    if len(clips)>=3:
-        return clips[:3]
-    source=cache/'rockstar_trailer2_source.mp4'
+    if len(clips)>=6:
+        return clips[:6]
+    zip_path=cache/'GTAVI_Videos.zip'
+    zip_url='https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
     try:
-        if not shutil.which('yt-dlp'):
-            return []
-        if not source.exists() or source.stat().st_size<10000:
-            cmd=['yt-dlp','--no-playlist','--no-warnings','--quiet','--socket-timeout','6','--retries','0',
-                 '--download-sections','*0-12','--force-keyframes-at-cuts',
-                 '-f','bv*[height<=720]+ba/b[height<=720]','--merge-output-format','mp4',
-                 '-o',str(source),ROCKSTAR_YT_TRAILER2]
-            run_cmd(cmd,55)
-        if not source.exists() or source.stat().st_size<10000:
-            return []
-        ff=str(__import__('imageio_ffmpeg').get_ffmpeg_exe())
-        for i,start_sec in enumerate((0,4,8)):
-            target=cache/f'rockstar_clip_{i}.mp4'
-            if target.exists() and target.stat().st_size>10000:
-                continue
-            run_cmd([ff,'-y','-ss',str(start_sec),'-i',str(source),'-t','4',
-                     '-vf','scale=540:960:force_original_aspect_ratio=increase,crop=540:960,setsar=1,fps=24',
-                     '-an','-c:v','libx264','-preset','ultrafast','-crf','26','-pix_fmt','yuv420p','-movflags','+faststart',str(target)],50)
+        if not zip_path.exists() or zip_path.stat().st_size<10000:
+            req=requests.get(zip_url,stream=True,timeout=(12,120),headers={'User-Agent':'GTA-Oculto-AI/1.0'})
+            req.raise_for_status()
+            tmp=cache/'GTAVI_Videos.download'
+            with tmp.open('wb') as f:
+                for chunk in req.iter_content(chunk_size=1024*1024):
+                    if chunk: f.write(chunk)
+            tmp.replace(zip_path)
+        import zipfile
+        with zipfile.ZipFile(zip_path) as z:
+            mp4s=[n for n in z.namelist() if n.lower().endswith('.mp4') and not n.endswith('/')]
+            mp4s=sorted(mp4s)
+            if not mp4s: return []
+            for i,name in enumerate(mp4s[:9]):
+                target=cache/f'rockstar_clip_{i}.mp4'
+                if target.exists() and target.stat().st_size>10000: continue
+                with z.open(name) as src, target.open('wb') as dst:
+                    while True:
+                        chunk=src.read(1024*1024)
+                        if not chunk: break
+                        dst.write(chunk)
         clips=sorted([p for p in cache.glob('rockstar_clip_*.mp4') if p.stat().st_size>10000])
-        return clips[:3]
-    except Exception:
+        return clips[:6]
+    except Exception as exc:
+        (cache/'video_error.txt').write_text(str(exc),encoding='utf-8')
         return []
 
 
@@ -503,18 +508,23 @@ def _ffmpeg_text(s):
 
 
 def make_multimedia_video(video_clips, image_paths, audio, out, duration, captions):
-    """Fast mixed-media timeline: 3 motion clips + 3 animated images.
-    No xfade graph is used; each scene is encoded once at 540x960 and then
-    concatenated. This keeps Render Free stable while producing real motion.
+    """Cloud-stable mixed timeline: up to 6 real video clips + 6 animated images.
+    Cuts are about 2-3 seconds, with no xfade graph. Each scene is encoded
+    independently at 540x960 and the final timeline is upscaled to 1080x1920.
     """
     ff=str(__import__('imageio_ffmpeg').get_ffmpeg_exe())
     work=out.parent/'timeline'; work.mkdir(exist_ok=True)
+    videos=list(video_clips[:6])
+    imgs=list(image_paths[:6])
+    if not videos and not imgs: raise RuntimeError('Nenhum visual disponível para edição')
+    if len(imgs)<6 and imgs:
+        imgs=(imgs*6)[:6]
     assets=[]
-    for i in range(3):
-        if i < len(video_clips): assets.append(('video',video_clips[i]))
-        if i < len(image_paths): assets.append(('image',image_paths[i]))
-    if not assets: raise RuntimeError('Nenhum visual disponível para edição')
-    total=len(assets); per=max(3.0,duration/total)
+    # Alternate real motion and animated stills whenever both are available.
+    for i in range(max(len(videos),len(imgs))):
+        if i < len(videos): assets.append(('video',videos[i]))
+        if i < len(imgs): assets.append(('image',imgs[i]))
+    total=len(assets); per=max(2.0,duration/total)
     scene_files=[]
     for i,(kind,src) in enumerate(assets):
         scene=work/f'scene_{i:02d}.mp4'; overlay=work/f'overlay_{i:02d}.png'
@@ -522,18 +532,17 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
         if kind=='video':
             vf="scale=540:960:force_original_aspect_ratio=increase,crop=540:960,setsar=1,fps=24,eq=contrast=1.05:saturation=1.04"
         else:
-            vf="scale=540:960:force_original_aspect_ratio=increase,crop=540:960,setsar=1,zoompan=z='min(zoom+0.0015,1.045)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=540x960:fps=24,eq=contrast=1.06"
+            vf="scale=540:960:force_original_aspect_ratio=increase,crop=540:960,setsar=1,zoompan=z='min(zoom+0.002,1.06)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=540x960:fps=24,eq=contrast=1.06"
         cmd=[ff,'-y']
         if kind=='video': cmd += ['-stream_loop','-1','-i',str(src)]
         else: cmd += ['-loop','1','-i',str(src)]
         cmd += ['-loop','1','-i',str(overlay),'-t',f'{per:.3f}','-filter_complex',
-                f"[0:v]{vf}[v];[1:v]format=rgba[o];[v][o]overlay=0:0:shortest=1[outv]",
-                '-map','[outv]','-an','-c:v','libx264','-preset','ultrafast','-crf','26','-threads','2','-pix_fmt','yuv420p',str(scene)]
-        run_cmd(cmd,120); scene_files.append(scene)
+                f"[0:v]{vf}[v];[1:v]format=rgba[o];[v][o]overlay=0:0[outv]",
+                '-map','[outv]','-an','-c:v','libx264','-preset','ultrafast','-crf','27','-threads','2','-pix_fmt','yuv420p',str(scene)]
+        run_cmd(cmd,90); scene_files.append(scene)
     listfile=work/'timeline.txt'
     with listfile.open('w',encoding='utf-8') as f:
         for sf in scene_files: f.write(f"file '{sf.as_posix()}'\n")
-    # Concat all six scenes; no -shortest so the final duration is controlled explicitly.
     run_cmd([ff,'-y','-f','concat','-safe','0','-i',str(listfile),'-i',str(audio),
              '-t',f'{duration:.2f}','-vf','scale=1080:1920:flags=lanczos,format=yuv420p',
              '-r','24','-c:v','libx264','-preset','ultrafast','-crf','23','-threads','2',
@@ -582,14 +591,14 @@ def produce_job(jid):
         update_job(jid,script=script,stage='VISUAIS',progress=40,log='Baixando visuais oficiais e montando cenas verticais...')
         paths=download_visuals(urls,jobdir/'visuals',topic['title'])
         caps=['A ROCKSTAR PODE TER ESCONDIDO ISSO.','JASON E LUCIA SÃO O CENTRO DA HISTÓRIA.','MAS NÃO É SÓ VICE CITY.','A CONSPIRAÇÃO SE ESPALHA POR LEONIDA.','O MAPA PODE ESCONDER OUTRAS HISTÓRIAS.','CADA REGIÃO PODE TER UMA PISTA.','E A ROCKSTAR JÁ MOSTROU ALGUMAS.','QUAL DETALHE VOCÊ PERCEBEU?']
-        image_order=select_visuals(paths,topic['title'],5)
+        image_order=select_visuals(paths,topic['title'],6)
         image_scenes=[]
         for i,src in enumerate(image_order):
             dst=jobdir/f'image_{i}.jpg'; prepare_scene(src,dst,caps[min(i,len(caps)-1)],i,8); image_scenes.append(dst)
         update_job(jid,stage='NARRAÇÃO',progress=60,log='Gerando narração PT-BR...'); audio=jobdir/'narracao.mp3'; asyncio.run(make_tts(script['narration'],audio)); duration=duration_of_audio(audio)
-        update_job(jid,stage='EDIÇÃO',progress=74,log=f'Montando timeline: 3 vídeos oficiais + 3 imagens animadas / {duration:.1f}s...')
+        update_job(jid,stage='EDIÇÃO',progress=74,log=f'Montando timeline: vídeos oficiais + imagens animadas / cortes de ~2-3s / {duration:.1f}s...')
         official_videos=download_official_video_clips(jobdir/'official_videos')
-        selected_videos=select_video_clips(official_videos,topic['title'],3)
+        selected_videos=select_video_clips(official_videos,topic['title'],6)
         if not selected_videos:
             update_job(jid,log=f'Vídeos oficiais indisponíveis no servidor; usando imagens oficiais + movimento. {duration:.1f}s...')
         video=jobdir/'GTA_OCULTO_SHORT.mp4'; make_multimedia_video(selected_videos,image_scenes,audio,video,duration,caps)
