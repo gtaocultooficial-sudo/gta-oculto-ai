@@ -9,3 +9,7 @@ Versão cloud-only. A produção não depende do PC do usuário.
 - Se não estiver, o sistema continua automaticamente com screenshots oficiais + movimento + transições.
 - Mantém 1080x1920 / 24 FPS na saída.
 - Mantém a montagem multimídia e fallback seguro.
+
+
+## Estabilidade
+A camada opcional de vídeo não é dependência obrigatória do servidor. Se o downloader de vídeo não estiver disponível, a produção segue com imagens e movimento, sem bloquear a etapa EDIÇÃO.
