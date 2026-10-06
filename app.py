@@ -435,81 +435,49 @@ def _safe_filename(name):
 
 
 def download_official_video_clips(outdir):
-    """Use Rockstar's own downloadable VI media package, cached on the server.
-    We deliberately avoid YouTube/yt-dlp here: the official Rockstar media page
-    provides the nine clips as a direct ZIP. The ZIP is downloaded only when
-    the server cache is empty, extracted once, and the clips are then reused.
+    """Obtain real motion clips without downloading Rockstar's large ZIP.
+    Uses Rockstar Games' official Trailer 2 on YouTube and yt-dlp through
+    the Python module, which is more reliable on Render than relying on the
+    console-script PATH. The result is cached after the first successful run.
     """
     outdir.mkdir(parents=True, exist_ok=True)
     cache=WORK/'official_video_cache'; cache.mkdir(parents=True, exist_ok=True)
-    extracted=cache/'rockstar_extracted'
-    extracted.mkdir(parents=True, exist_ok=True)
+    clips=sorted([p for p in cache.glob('rockstar_clip_*.mp4')
+                  if p.is_file() and p.stat().st_size>10000])
+    if len(clips)>=3:
+        return clips[:3]
 
-    existing=sorted([p for p in extracted.rglob('*.mp4') if p.is_file() and p.stat().st_size>10000])
-    if existing:
-        # Normalize a few lightweight 540x960 clips once. These are what the
-        # editor consumes, so production never has to decode the original files.
-        normalized=[]
-        ff=str(__import__('imageio_ffmpeg').get_ffmpeg_exe())
-        for i,src in enumerate(existing[:6]):
-            target=cache/f'rockstar_clip_{i}.mp4'
-            if not target.exists() or target.stat().st_size<10000:
-                run_cmd([ff,'-y','-i',str(src),'-t','4',
-                         '-vf','scale=540:960:force_original_aspect_ratio=increase,crop=540:960,setsar=1,fps=24',
-                         '-an','-c:v','libx264','-preset','ultrafast','-crf','27','-pix_fmt','yuv420p',
-                         '-movflags','+faststart',str(target)],60)
-            if target.exists() and target.stat().st_size>10000:
-                normalized.append(target)
-        if normalized:
-            return normalized
-
-    zip_path=cache/'GTAVI_Videos.zip'
+    ff=str(__import__('imageio_ffmpeg').get_ffmpeg_exe())
+    source=cache/'rockstar_trailer2_12s.mp4'
     try:
-        if not zip_path.exists() or zip_path.stat().st_size<10000:
-            update_msg='Baixando pacote oficial de vídeos da Rockstar (primeira vez)...'
-            # This message is picked up by the job log before the blocking
-            # download, making failures visible instead of silently becoming
-            # an image-only slideshow.
-            try:
-                r=requests.get(ROCKSTAR_VIDEO_ZIP,headers={'User-Agent':UA},stream=True,timeout=(15,180))
-                r.raise_for_status()
-                total=int(r.headers.get('content-length') or 0)
-                written=0
-                with zip_path.open('wb') as fh:
-                    for chunk in r.iter_content(chunk_size=1024*1024):
-                        if chunk:
-                            fh.write(chunk); written += len(chunk)
-                            if total and written > 350*1024*1024:
-                                raise RuntimeError('Pacote oficial excedeu 350 MB; download interrompido para proteger o Render Free.')
-                if written<10000:
-                    raise RuntimeError('Download do pacote oficial retornou arquivo vazio/inválido.')
-            except Exception:
-                if zip_path.exists() and zip_path.stat().st_size<10000:
-                    zip_path.unlink(missing_ok=True)
-                raise
+        if not source.exists() or source.stat().st_size<10000:
+            py=os.environ.get('PYTHON','python')
+            cmd=[py,'-m','yt_dlp','--no-playlist','--no-warnings','--quiet',
+                 '--socket-timeout','12','--retries','1','--fragment-retries','1',
+                 '--download-sections','*0-12','--force-keyframes-at-cuts',
+                 '--ffmpeg-location',ff,
+                 '-f','bv*[height<=480]+ba/b[height<=480]',
+                 '--merge-output-format','mp4','-o',str(source),ROCKSTAR_YT_TRAILER2]
+            run_cmd(cmd,90)
+        if not source.exists() or source.stat().st_size<10000:
+            raise RuntimeError('yt-dlp terminou sem gerar o vídeo oficial do Trailer 2.')
 
-        with zipfile.ZipFile(zip_path) as z:
-            z.extractall(extracted)
-        existing=sorted([p for p in extracted.rglob('*.mp4') if p.is_file() and p.stat().st_size>10000])
-        if not existing:
-            raise RuntimeError('O pacote oficial foi baixado, mas nenhum MP4 foi encontrado.')
-
-        ff=str(__import__('imageio_ffmpeg').get_ffmpeg_exe())
-        normalized=[]
-        for i,src in enumerate(existing[:6]):
+        for i,start_sec in enumerate((0,4,8)):
             target=cache/f'rockstar_clip_{i}.mp4'
-            run_cmd([ff,'-y','-i',str(src),'-t','4',
+            if target.exists() and target.stat().st_size>10000:
+                continue
+            run_cmd([ff,'-y','-ss',str(start_sec),'-i',str(source),'-t','4',
                      '-vf','scale=540:960:force_original_aspect_ratio=increase,crop=540:960,setsar=1,fps=24',
                      '-an','-c:v','libx264','-preset','ultrafast','-crf','27','-pix_fmt','yuv420p',
                      '-movflags','+faststart',str(target)],60)
-            if target.exists() and target.stat().st_size>10000:
-                normalized.append(target)
-        if not normalized:
-            raise RuntimeError('Os vídeos oficiais foram encontrados, mas não foi possível preparar os clipes.')
-        return normalized
+        clips=sorted([p for p in cache.glob('rockstar_clip_*.mp4')
+                      if p.is_file() and p.stat().st_size>10000])
+        if len(clips)<3:
+            raise RuntimeError(f'Apenas {len(clips)} clipes reais foram preparados; eram necessários 3.')
+        return clips[:3]
     except Exception as exc:
         (cache/'video_error.txt').write_text(str(exc),encoding='utf-8')
-        raise RuntimeError(f'Falha ao obter vídeos oficiais da Rockstar: {exc}')
+        raise RuntimeError(f'Falha ao obter vídeo real da Rockstar: {exc}')
 
 def _video_relevance(path,title):
     text=(path.stem+' '+title).lower()
