@@ -1,5 +1,4 @@
 __pycache__/
+workspace/
 *.pyc
 .env
-.venv/
-data/state.json

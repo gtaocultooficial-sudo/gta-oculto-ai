@@ -1,8 +1,3 @@
-# GTA Oculto AI — Web Dashboard
+# GTA Oculto AI — Web Producer V2
 
-Painel web público do GTA Oculto AI. A camada web fica hospedada no Render; o motor pesado de produção (voz, visuais, FFmpeg e RTX 4060) será conectado posteriormente como agente local.
-
-## Render
-- Build: `pip install -r requirements.txt`
-- Start: `gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120`
-- Health: `/health`
+Primeira versão funcional do produtor web: pesquisa fonte oficial Rockstar, cria roteiro, prepara visuais, gera narração PT-BR quando disponível e renderiza um Short vertical para revisão. O Render gratuito pode dormir e possui recursos limitados; o motor pesado será migrado para o PC local/RTX 4060.
