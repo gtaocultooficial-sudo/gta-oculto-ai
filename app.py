@@ -446,7 +446,7 @@ def prepare_scene(src,dst,caption,idx,total):
     # No fixed channel title here. Branding is handled only by the discreet watermark.
     im=im.convert('RGB')
     im.save(dst,quality=84,optimize=True)
-    im.close(); ov.close()
+    im.close()
 
 
 def run_cmd(cmd,timeout=240):
