@@ -21,6 +21,9 @@ WORK.mkdir(exist_ok=True)
 STATE_FILE = WORK / 'jobs.json'
 LOCK = threading.RLock()
 PROCESSING = False
+RESEARCHING = False
+RESEARCH_STATUS = {'status':'IDLE','message':'IA pronta.'}
+CURRENT_TOPICS = [] 
 UA = 'GTA-Oculto-AI/Cloud-Final/1.0'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
@@ -32,6 +35,7 @@ FALLBACK_TOPICS = [
     {'id':'estado-leonida','score':90,'priority':'ALTA','title':'A história de GTA 6 vai muito além de Vice City','source':'Rockstar Games','url':ROCKSTAR_NEWS},
     {'id':'detalhes','score':84,'priority':'MÉDIA','title':'Os detalhes escondidos que a Rockstar colocou em GTA 6','source':'Rockstar Games','url':ROCKSTAR_VI},
 ]
+CURRENT_TOPICS = list(FALLBACK_TOPICS)
 
 PAGE = '''<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GTA OCULTO AI</title><style>
 *{box-sizing:border-box}body{margin:0;background:#07080b;color:#f4f5f7;font-family:Arial,Helvetica,sans-serif}.wrap{max-width:1380px;margin:auto;padding:22px}.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}.brand{font-size:30px;font-weight:950}.brand span{color:#e21c2a}.status{border:1px solid #303640;background:#11141a;border-radius:999px;padding:9px 13px;color:#72e69a;font-size:12px;font-weight:900}.hero,.panel,.stat{background:#101318;border:1px solid #282e37;border-radius:15px}.hero{padding:22px;display:flex;justify-content:space-between;gap:20px;align-items:center}.eyebrow{color:#e21c2a;font-size:11px;font-weight:950;letter-spacing:1.3px}.hero h1{font-size:28px;margin:8px 0}.muted{color:#8d96a4}.buttons{display:flex;gap:10px}.btn{border:0;border-radius:9px;padding:13px 17px;background:#222730;color:#fff;font-weight:900;cursor:pointer}.btn.red{background:#df1727}.control{margin-top:12px;padding:12px;background:#0d1015;border:1px solid #242a33;border-radius:12px;display:flex;gap:10px}.control input{flex:1;background:#181c23;border:1px solid #2b323c;border-radius:8px;color:#fff;padding:13px}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:16px 0}.stat{padding:17px}.stat small{color:#929aa7;font-weight:800}.stat b{display:block;font-size:29px;margin-top:6px}.panel{margin:16px 0;padding:18px}.steps{display:grid;grid-template-columns:repeat(8,1fr);gap:7px}.step{background:#191d24;border-radius:8px;padding:12px 4px;text-align:center;font-size:10px;font-weight:950;color:#9ba3af}.step.active{background:#3b151a;color:#ff5c68;border:1px solid #7e202b}.row{display:grid;grid-template-columns:55px 1fr 110px 110px 95px;gap:12px;align-items:center;padding:14px 0;border-bottom:1px solid #242a32}.score{font-size:21px;font-weight:950}.title{font-weight:850}.source{font-size:12px;color:#838c99;margin-top:4px}.pill{border:1px solid #343b45;border-radius:20px;padding:7px;text-align:center;font-size:10px;font-weight:850}.produce{background:#242a33;border:0;color:#fff;border-radius:8px;padding:10px;font-weight:900;cursor:pointer}.job{background:#14181e;border:1px solid #2b313a;border-radius:11px;padding:14px;margin-top:10px}.jobhead{display:flex;justify-content:space-between;gap:12px}.bar{height:8px;background:#272d36;border-radius:10px;overflow:hidden;margin-top:10px}.bar i{display:block;height:100%;background:#df1727}.log{font-family:monospace;color:#aab2bf;font-size:12px;margin-top:9px;white-space:pre-wrap}.result{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}.result a{color:#ff5b67;text-decoration:none;font-weight:900}.meta{font-size:11px;color:#77808e;margin-top:6px}.notice{padding:12px;border:1px dashed #3b424c;border-radius:10px;background:#0d1014;color:#aab2bf;font-size:12px}@media(max-width:900px){.hero{display:block}.buttons{margin-top:15px;flex-wrap:wrap}.stats{grid-template-columns:repeat(2,1fr)}.steps{grid-template-columns:repeat(4,1fr)}.row{grid-template-columns:45px 1fr 90px}.row .pill{display:none}}
@@ -46,11 +50,43 @@ PAGE = '''<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta na
 </div><script>
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
 function stageIndex(s){return {PESQUISA:0,ANÁLISE:1,ROTEIRO:2,VISUAIS:3,NARRAÇÃO:4,EDIÇÃO:5,AVALIAÇÃO:6,PRONTO:7}[s]??-1}
-async function load(){try{let d=await(await fetch('/api/state')).json();document.getElementById('opps').textContent=d.opportunities.length;document.getElementById('assuntos').textContent=d.opportunities.length;document.getElementById('produzidos').textContent=d.produced;document.getElementById('fila').textContent=d.queue;document.getElementById('oppList').innerHTML=d.opportunities.map(o=>`<div class="row"><div class="score">${o.score}</div><div><div class="title">${esc(o.title)}</div><div class="source">${esc(o.source)}</div></div><div class="pill">${esc(o.priority)}</div><div class="pill">${esc(o.status||'PRODUZIR')}</div><button class="produce" onclick="createShort('${o.id}')">PRODUZIR</button></div>`).join('');renderJobs(d.jobs)}catch(e){}}
+async function load(){
+  try{
+    let r=await fetch('/api/state',{cache:'no-store'});
+    if(!r.ok) throw new Error('API /api/state respondeu '+r.status);
+    let d=await r.json();
+    document.getElementById('opps').textContent=d.opportunities.length;
+    document.getElementById('assuntos').textContent=d.opportunities.length;
+    document.getElementById('produzidos').textContent=d.produced;
+    document.getElementById('fila').textContent=d.queue;
+    document.querySelector('.status').textContent=d.researching?'● IA PESQUISANDO...':'● PRODUÇÃO CLOUD ONLINE';
+    document.querySelector('.status').style.color=d.researching?'#ffd166':'#72e69a';
+    document.getElementById('oppList').innerHTML=d.opportunities.map(o=>`<div class="row"><div class="score">${o.score}</div><div><div class="title">${esc(o.title)}</div><div class="source">${esc(o.source)}</div></div><div class="pill">${esc(o.priority)}</div><div class="pill">${esc(o.status||'PRODUZIR')}</div><button class="produce" onclick="createShort('${o.id}')">PRODUZIR</button></div>`).join('');
+    renderJobs(d.jobs);
+  }catch(e){
+    document.getElementById('oppList').innerHTML='<div class="notice">⚠️ IA/API indisponível neste momento: '+esc(e.message)+'</div>';
+  }
+}
 function renderJobs(js){if(!js.length){document.getElementById('jobs').textContent='Nenhuma produção iniciada.';return}js=js.slice().reverse();document.getElementById('jobs').innerHTML=js.map(j=>{let p=Math.round(j.progress||0);return `<div class="job"><div class="jobhead"><b>${esc(j.title)}</b><span>${esc(j.status)}</span></div><div class="muted">${esc(j.stage)} — ${p}%</div><div class="bar"><i style="width:${p}%"></i></div><div class="log">${esc(j.log||'')}</div>${j.score?`<div class="meta">Avaliação: ${j.score}/100</div>`:''}${j.video?`<div class="result"><a href="/output/${encodeURIComponent(j.video)}" target="_blank">▶ ABRIR SHORT</a><a href="/output/${encodeURIComponent(j.cover||'')}" target="_blank">🖼️ CAPA</a><a href="/api/job/${j.id}" target="_blank">JSON</a></div>`:''}</div>`}).join('');for(let i=0;i<8;i++)document.getElementById('step-'+i).classList.toggle('active',js[0]&&i===stageIndex(js[0].stage))}
-async function createShort(id){let topic=document.getElementById('topic').value;let r=await fetch('/api/produce',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id||null,topic})});let d=await r.json();if(!r.ok){alert(d.error||'Erro');return}document.getElementById('topic').value='';load()}
-async function research(){let r=await fetch('/api/research',{method:'POST'});let d=await r.json();if(d.error)alert(d.error);load()}
-load();setInterval(load,3000);
+async function createShort(id){
+  let topic=document.getElementById('topic').value;
+  let r=await fetch('/api/produce',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id||null,topic})});
+  let d=await r.json();
+  if(!r.ok){alert(d.error||'Erro ao colocar produção na fila');return}
+  document.getElementById('topic').value='';
+  load();
+}
+async function research(){
+  document.querySelector('.status').textContent='● IA PESQUISANDO...';
+  document.querySelector('.status').style.color='#ffd166';
+  let r=await fetch('/api/research',{method:'POST'});
+  let d=await r.json();
+  if(!r.ok || d.error) alert(d.error||'Erro ao iniciar pesquisa');
+  load();
+}
+load();
+setTimeout(research,800);
+setInterval(load,3000);
 </script></body></html>'''
 
 def now_iso(): return datetime.now(timezone.utc).isoformat()
@@ -653,8 +689,8 @@ def _ffmpeg_text(s):
 
 def make_multimedia_video(video_clips, image_paths, audio, out, duration, captions):
     """Ultra-low-memory editor for Render Free 512 MB.
-    Builds one 540x960 scene at a time and produces a 1080x1920 vertical MP4.
-    Quality mode: keeps much more source detail while processing scenes sequentially to stay within Render Free RAM.
+    Builds one 240x426 scene at a time and produces a 540x960 vertical MP4.
+    540x960 is the quality target; scenes are built sequentially at 240x426 to stay within the free RAM limit.
     """
     ff=str(__import__('imageio_ffmpeg').get_ffmpeg_exe())
     work=out.parent/'timeline'; work.mkdir(exist_ok=True)
@@ -671,18 +707,18 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
     per=max(2.5,duration/len(assets)); scene_files=[]
     for i,(kind,src) in enumerate(assets):
         scene=work/f'scene_{i:02d}.mp4'; overlay=work/f'overlay_{i:02d}.png'
-        _caption_overlay(overlay,captions[i % len(captions)],i,len(assets),540,960)
+        _caption_overlay(overlay,captions[i % len(captions)],i,len(assets),240,426)
         if kind=='video':
-            vf='scale=540:960:force_original_aspect_ratio=increase,crop=540:960,setsar=1,fps=24'
+            vf='scale=240:426:force_original_aspect_ratio=increase,crop=240:426,setsar=1,fps=15'
             inp=['-stream_loop','-1','-i',str(src)]
         else:
-            vf="scale=540:960:force_original_aspect_ratio=increase,crop=540:960,setsar=1,zoompan=z='min(zoom+0.0015,1.03)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=540x960:fps=24"
+            vf="scale=240:426:force_original_aspect_ratio=increase,crop=240:426,setsar=1,zoompan=z='min(zoom+0.0015,1.02)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=240x426:fps=15"
             inp=['-loop','1','-i',str(src)]
         cmd=[ff,'-loglevel','error','-y']+inp+['-loop','1','-i',str(overlay),'-t',f'{per:.3f}',
              '-filter_complex',f'[0:v]{vf}[v];[1:v]format=rgba[o];[v][o]overlay=0:0:shortest=1[outv]',
-             '-map','[outv]','-an','-c:v','libx264','-preset','ultrafast','-crf','20',
+             '-map','[outv]','-an','-c:v','libx264','-preset','ultrafast','-crf','29',
              '-threads','1','-filter_threads','1','-filter_complex_threads','1',
-             '-x264-params','threads=1:lookahead-threads=1','-profile:v','high','-pix_fmt','yuv420p','-movflags','+faststart',str(scene)]
+             '-x264-params','threads=1:lookahead-threads=1','-pix_fmt','yuv420p','-movflags','+faststart',str(scene)]
         run_cmd(cmd,75)
         scene_files.append(scene)
         try: overlay.unlink()
@@ -690,11 +726,11 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
     listfile=work/'timeline.txt'
     with listfile.open('w',encoding='utf-8') as f:
         for sf in scene_files: f.write(f"file '{sf.as_posix()}'\n")
-    # Final encode at full HD vertical. Scenes are already 540x960, so this preserves much more detail than the old 540x960 master.
+    # Final encode at 480x854: conservative 9:16 output for Render Free 512 MB.
     run_cmd([ff,'-loglevel','error','-y','-f','concat','-safe','0','-i',str(listfile),'-i',str(audio),
-             '-t',f'{duration:.2f}','-vf','scale=1080:1920:flags=bicubic,format=yuv420p','-r','24',
-             '-c:v','libx264','-preset','ultrafast','-crf','19','-profile:v','high','-threads','1','-filter_threads','1','-filter_complex_threads','1',
-             '-x264-params','threads=1:lookahead-threads=1','-c:a','aac','-b:a','128k',
+             '-t',f'{duration:.2f}','-vf','scale=540:960:flags=fast_bilinear,format=yuv420p','-r','15',
+             '-c:v','libx264','-preset','ultrafast','-crf','27','-threads','1','-filter_threads','1','-filter_complex_threads','1',
+             '-x264-params','threads=1:lookahead-threads=1','-c:a','aac','-b:a','96k',
              '-movflags','+faststart','-shortest',str(out)],180)
     for p in scene_files:
         try: p.unlink()
@@ -801,12 +837,35 @@ def health(): return jsonify(ok=True,app='GTA Oculto AI',version='CLOUD-VIDEO-RE
 def state():
     with LOCK:
         js=list(load_jobs().values())[-30:]
-        return jsonify(opportunities=FALLBACK_TOPICS,jobs=js,produced=sum(x.get('status')=='DONE' for x in js),queue=sum(x.get('status') in ('QUEUED','RUNNING') for x in js))
+        topics = CURRENT_TOPICS or FALLBACK_TOPICS
+        return jsonify(
+            opportunities=topics,
+            jobs=js,
+            produced=sum(x.get('status')=='DONE' for x in js),
+            queue=sum(x.get('status') in ('QUEUED','RUNNING') for x in js),
+            researching=RESEARCHING,
+            research_status=RESEARCH_STATUS
+        )
+def _research_background():
+    global RESEARCHING, CURRENT_TOPICS, RESEARCH_STATUS
+    try:
+        RESEARCHING = True
+        RESEARCH_STATUS = {'status':'PESQUISANDO','message':'Consultando fontes oficiais da Rockstar e analisando oportunidades.'}
+        topics,_,_=research_official()
+        CURRENT_TOPICS = topics or list(FALLBACK_TOPICS)
+        RESEARCH_STATUS = {'status':'CONCLUÍDO','message':f'Pesquisa concluída: {len(CURRENT_TOPICS)} oportunidades encontradas.'}
+    except Exception as e:
+        CURRENT_TOPICS = list(FALLBACK_TOPICS)
+        RESEARCH_STATUS = {'status':'ERRO','message':'Pesquisa falhou; usando oportunidades de segurança.'}
+    finally:
+        RESEARCHING = False
+
 @APP.post('/api/research')
 def research():
-    try:
-        topics,_,_=research_official(); return jsonify(ok=True,message=f'Pesquisa concluída: {len(topics)} oportunidades encontradas.',opportunities=topics or FALLBACK_TOPICS)
-    except Exception as e: return jsonify(error=str(e)),502
+    global RESEARCHING
+    if not RESEARCHING:
+        threading.Thread(target=_research_background, daemon=True).start()
+    return jsonify(ok=True,message='Pesquisa iniciada. A IA está trabalhando em segundo plano.')
 @APP.post('/api/produce')
 def produce():
     data=request.get_json(silent=True) or {}; topics,_,_=research_official(); topics=topics or FALLBACK_TOPICS; topic=choose_topic(data,topics); jid=uuid.uuid4().hex[:10]
