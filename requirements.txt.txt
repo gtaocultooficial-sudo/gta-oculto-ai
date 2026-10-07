@@ -1,7 +1,0 @@
-Flask
-requests
-beautifulsoup4
-Pillow
-edge-tts
-gunicorn
-googlenewsdecoder==0.1.7
