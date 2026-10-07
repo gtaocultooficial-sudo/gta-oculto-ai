@@ -39,9 +39,9 @@ PAGE = '''<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta na
 </style></head><body><div class="wrap"><div class="top"><div class="brand">GTA <span>OCULTO</span> AI</div><div class="status">● PRODUÇÃO CLOUD ONLINE</div></div>
 <div class="hero"><div><div class="eyebrow">PRODUTOR AUTÔNOMO</div><h1>Você escolhe o assunto. A IA faz o resto.</h1><div class="muted">Pesquisa → decisão → roteiro → visuais → voz → edição → avaliação → Short.</div></div><div class="buttons"><button class="btn red" onclick="createShort()">⚡ CRIAR SHORT</button><button class="btn" onclick="research()">🔎 PESQUISAR AGORA</button></div></div>
 <div class="control"><input id="topic" placeholder="Digite um assunto ou deixe a IA decidir"><button class="btn red" onclick="createShort()">PRODUZIR</button></div>
-<div class="stats"><div class="stat"><small>ASSUNTOS</small><b id="assuntos">0</b></div><div class="stat"><small>OPORTUNIDADES</small><b id="opps">0</b></div><div class="stat"><small>PRODUZIDOS</small><b id="produzidos">0</b></div><div class="stat"><small>FILA</small><b id="fila">0</b></div></div>
+<div class="stats"><div class="stat"><small>ASSUNTOS</small><b id="assuntos">4</b></div><div class="stat"><small>OPORTUNIDADES</small><b id="opps">4</b></div><div class="stat"><small>PRODUZIDOS</small><b id="produzidos">0</b></div><div class="stat"><small>FILA</small><b id="fila">0</b></div></div>
 <div class="panel"><h3>PIPELINE</h3><div class="steps">'''+''.join(f'<div class="step" id="step-{i}">{x}</div>' for i,x in enumerate(['PESQUISA','ANÁLISE','ROTEIRO','VISUAIS','NARRAÇÃO','EDIÇÃO','AVALIAÇÃO','PRONTO']))+'''</div></div>
-<div class="panel"><h3>OPORTUNIDADES</h3><div id="oppList"></div></div>
+<div class="panel"><h3>OPORTUNIDADES</h3><div id="oppList">__OPPORTUNITIES__</div></div>
 <div class="panel"><h3>PRODUÇÕES</h3><div id="jobs">Nenhuma produção iniciada.</div></div>
 <div class="notice">☁️ <b>Modo 100% web:</b> esta versão não depende do seu computador. A produção acontece no próprio servidor. O plano gratuito do Render pode dormir quando fica inativo; o primeiro acesso pode demorar.</div>
 </div><script>
@@ -62,14 +62,11 @@ function drawState(d){
   document.getElementById('oppList').innerHTML=opportunities.map(o=>`<div class="row"><div class="score">${o.score}</div><div><div class="title">${esc(o.title)}</div><div class="source">${esc(o.source)}</div></div><div class="pill">${esc(o.priority)}</div><div class="pill">${esc(o.status||'PRODUZIR')}</div><button class="produce" onclick="createShort('${o.id}')">PRODUZIR</button></div>`).join('');
   renderJobs((d&&d.jobs)||[]);
 }
-async function load(){
-  try{
-    const r=await fetch('/api/state',{cache:'no-store'});
-    if(!r.ok) throw new Error('API /api/state retornou '+r.status);
-    drawState(await r.json());
-  }catch(e){
-    drawState({opportunities:LOCAL_OPPORTUNITIES,jobs:[],produced:0,queue:0});
-  }
+function load(){
+  fetch('/api/state?ts='+Date.now(),{cache:'no-store'})
+    .then(function(r){ if(!r.ok) throw new Error('API /api/state retornou '+r.status); return r.json(); })
+    .then(function(d){ drawState(d); })
+    .catch(function(){ drawState({opportunities:LOCAL_OPPORTUNITIES,jobs:[],produced:0,queue:0}); });
 }
 function renderJobs(js){if(!js.length){document.getElementById('jobs').textContent='Nenhuma produção iniciada.';return}js=js.slice().reverse();document.getElementById('jobs').innerHTML=js.map(j=>{let p=Math.round(j.progress||0);return `<div class="job"><div class="jobhead"><b>${esc(j.title)}</b><span>${esc(j.status)}</span></div><div class="muted">${esc(j.stage)} — ${p}%</div><div class="bar"><i style="width:${p}%"></i></div><div class="log">${esc(j.log||'')}</div>${j.score?`<div class="meta">Avaliação: ${j.score}/100</div>`:''}${j.video?`<div class="result"><a href="/output/${encodeURIComponent(j.video)}" target="_blank">▶ ABRIR SHORT</a><a href="/output/${encodeURIComponent(j.cover||'')}" target="_blank">🖼️ CAPA</a><a href="/api/job/${j.id}" target="_blank">JSON</a></div>`:''}</div>`}).join('');for(let i=0;i<8;i++)document.getElementById('step-'+i).classList.toggle('active',js[0]&&i===stageIndex(js[0].stage))}
 async function createShort(id){
@@ -85,6 +82,7 @@ async function createShort(id){
 async function research(){let r=await fetch('/api/research',{method:'POST'});let d=await r.json();if(d.error)alert(d.error);load()}
 load();setInterval(load,3000);
 </script></body></html>'''
+PAGE = PAGE.replace('__OPPORTUNITIES__', ''.join(f'<div class="row"><div class="score">{o["score"]}</div><div><div class="title">{o["title"]}</div><div class="source">{o["source"]}</div></div><div class="pill">{o["priority"]}</div><div class="pill">PRODUZIR</div><button class="produce" onclick="createShort(\'{o["id"]}\')">PRODUZIR</button></div>' for o in FALLBACK_TOPICS))
 
 def now_iso(): return datetime.now(timezone.utc).isoformat()
 
@@ -1117,7 +1115,7 @@ def processor_loop():
 @APP.get('/')
 def home(): return render_template_string(PAGE)
 @APP.get('/health')
-def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V25-NARRATION-TIMELINE',processor='cloud')
+def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V25.5-STABLE-UI',processor='cloud')
 @APP.get('/api/state')
 def state():
     with LOCK:
