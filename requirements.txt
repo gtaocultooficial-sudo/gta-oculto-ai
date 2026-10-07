@@ -1,8 +1,7 @@
-Flask>=3.1,<4
-requests>=2.32,<3
-beautifulsoup4>=4.13,<5
-Pillow>=11,<13
-imageio-ffmpeg>=0.6,<1
-edge-tts>=7,<8
-gunicorn>=23,<24
-
+Flask
+requests
+beautifulsoup4
+Pillow
+edge-tts
+gunicorn
+googlenewsdecoder==0.1.7
