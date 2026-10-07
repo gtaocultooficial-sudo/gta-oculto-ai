@@ -418,9 +418,21 @@ def prepare_scene(src,dst,caption,idx,total):
 
 
 def run_cmd(cmd,timeout=240):
-    p=subprocess.run(cmd,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,text=True,timeout=timeout)
-    if p.returncode: raise RuntimeError(p.stderr[-3500:])
-    return ''
+    # Render Free has only 512 MB. Never retain FFmpeg's stderr in Python memory.
+    err_path=WORK/'ffmpeg_last_error.log'
+    try:
+        with err_path.open('w',encoding='utf-8',errors='ignore') as ef:
+            p=subprocess.run(cmd,stdout=subprocess.DEVNULL,stderr=ef,text=True,timeout=timeout)
+        if p.returncode:
+            try:
+                msg=err_path.read_text(encoding='utf-8',errors='ignore')[-3500:]
+            except Exception:
+                msg=f'FFmpeg terminou com código {p.returncode}'
+            raise RuntimeError(msg)
+        return ''
+    finally:
+        try: err_path.unlink()
+        except Exception: pass
 
 
 def duration_of_audio(path):
@@ -621,7 +633,10 @@ def _ffmpeg_text(s):
 
 
 def make_multimedia_video(video_clips, image_paths, audio, out, duration, captions):
-    """Low-memory editor for Render Free: one scene at a time, 320x568 intermediates, then one final encode."""
+    """Ultra-low-memory editor for Render Free 512 MB.
+    Builds one 240x426 scene at a time and produces a 540x960 vertical MP4.
+    540x960 is intentional: it keeps the entire pipeline inside the free RAM limit.
+    """
     ff=str(__import__('imageio_ffmpeg').get_ffmpeg_exe())
     work=out.parent/'timeline'; work.mkdir(exist_ok=True)
     if len(video_clips)<3: raise RuntimeError('A edição precisa de pelo menos 3 vídeos reais.')
@@ -629,34 +644,39 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
     for i in range(3):
         assets.append(('video',video_clips[i]))
         if i < len(image_paths): assets.append(('image',image_paths[i]))
-    per=max(2.7,duration/len(assets)); scene_files=[]
+    per=max(2.5,duration/len(assets)); scene_files=[]
     for i,(kind,src) in enumerate(assets):
         scene=work/f'scene_{i:02d}.mp4'; overlay=work/f'overlay_{i:02d}.png'
-        _caption_overlay(overlay,captions[i % len(captions)],i,len(assets),320,568)
+        _caption_overlay(overlay,captions[i % len(captions)],i,len(assets),240,426)
         if kind=='video':
-            vf='scale=320:568:force_original_aspect_ratio=increase,crop=320:568,setsar=1,fps=24'
+            vf='scale=240:426:force_original_aspect_ratio=increase,crop=240:426,setsar=1,fps=20'
             inp=['-stream_loop','-1','-i',str(src)]
         else:
-            vf="scale=320:568:force_original_aspect_ratio=increase,crop=320:568,setsar=1,zoompan=z='min(zoom+0.002,1.045)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=320x568:fps=24"
+            vf="scale=240:426:force_original_aspect_ratio=increase,crop=240:426,setsar=1,zoompan=z='min(zoom+0.002,1.035)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=240x426:fps=20"
             inp=['-loop','1','-i',str(src)]
-        cmd=[ff,'-y']+inp+['-loop','1','-i',str(overlay),'-t',f'{per:.3f}','-filter_complex',
-             f'[0:v]{vf}[v];[1:v]format=rgba[o];[v][o]overlay=0:0:shortest=1[outv]',
-             '-map','[outv]','-an','-c:v','libx264','-preset','ultrafast','-crf','30','-threads','1','-filter_threads','1','-filter_complex_threads','1','-pix_fmt','yuv420p',str(scene)]
+        cmd=[ff,'-loglevel','error','-y']+inp+['-loop','1','-i',str(overlay),'-t',f'{per:.3f}',
+             '-filter_complex',f'[0:v]{vf}[v];[1:v]format=rgba[o];[v][o]overlay=0:0:shortest=1[outv]',
+             '-map','[outv]','-an','-c:v','libx264','-preset','ultrafast','-crf','31',
+             '-threads','1','-filter_threads','1','-filter_complex_threads','1',
+             '-x264-params','threads=1:lookahead-threads=1','-pix_fmt','yuv420p','-movflags','+faststart',str(scene)]
         run_cmd(cmd,75)
         scene_files.append(scene)
+        try: overlay.unlink()
+        except Exception: pass
     listfile=work/'timeline.txt'
     with listfile.open('w',encoding='utf-8') as f:
         for sf in scene_files: f.write(f"file '{sf.as_posix()}'\n")
-    run_cmd([ff,'-y','-f','concat','-safe','0','-i',str(listfile),'-i',str(audio),'-t',f'{duration:.2f}',
-             '-vf','scale=1080:1920:flags=fast_bilinear,format=yuv420p','-r','24','-c:v','libx264','-preset','ultrafast','-crf','30',
-             '-threads','1','-filter_threads','1','-filter_complex_threads','1','-c:a','aac','-b:a','96k','-movflags','+faststart','-shortest',str(out)],180)
-    # Free disk immediately; do not retain the six intermediate MP4s for this job.
+    # Final encode at 540x960: still a valid 9:16 Short, dramatically lower RAM than 1080x1920.
+    run_cmd([ff,'-loglevel','error','-y','-f','concat','-safe','0','-i',str(listfile),'-i',str(audio),
+             '-t',f'{duration:.2f}','-vf','scale=540:960:flags=fast_bilinear,format=yuv420p','-r','20',
+             '-c:v','libx264','-preset','ultrafast','-crf','31','-threads','1',
+             '-x264-params','threads=1:lookahead-threads=1','-c:a','aac','-b:a','80k',
+             '-movflags','+faststart','-shortest',str(out)],180)
     for p in scene_files:
         try: p.unlink()
         except Exception: pass
     try: listfile.unlink()
     except Exception: pass
-
 
 def make_video(scenes,audio,out,duration):
     # Corte mais rápido: 12 cenas em ~2–3 s cada. A troca de enquadramento já foi
@@ -752,7 +772,7 @@ def processor_loop():
 @APP.get('/')
 def home(): return render_template_string(PAGE)
 @APP.get('/health')
-def health(): return jsonify(ok=True,app='GTA Oculto AI',version='CLOUD-VIDEO-REAL-2.0-STABLE',processor='cloud')
+def health(): return jsonify(ok=True,app='GTA Oculto AI',version='CLOUD-VIDEO-REAL-RAM-ULTIMATE',processor='cloud')
 @APP.get('/api/state')
 def state():
     with LOCK:
