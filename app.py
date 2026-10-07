@@ -408,8 +408,7 @@ def prepare_scene(src,dst,caption,idx,total):
     x=int(max_l*((idx*0.23)%1.0)); y=int(max_t*(0.28+0.44*((idx*0.37)%1.0)))
     im=im.crop((x,y,x+W,y+H))
     ov=Image.new('RGBA',(W,H),(0,0,0,0)); od=ImageDraw.Draw(ov)
-    od.rectangle((0,0,W,42),fill=(0,0,0,120))
-    od.text((12,10),'GTA OCULTO',font=font(15,True),fill='white')
+    im=Image.alpha_composite(im.convert('RGBA'),ov).convert('RGB')
     im.save(dst,quality=84,optimize=True)
     im.close(); ov.close()
 
@@ -613,18 +612,77 @@ def select_video_clips(videos,title,count=5):
 
 
 def _caption_overlay(path,caption,idx,total,W=240,H=426):
-    # Single clean overlay. No scene counter and no baked duplicate caption.
-    im=Image.new('RGBA',(W,H),(0,0,0,0)); d=ImageDraw.Draw(im)
-    d.rectangle((0,0,W,42),fill=(0,0,0,125))
-    d.text((12,10),'GTA OCULTO',font=font(15,True),fill='white')
-    f=font(18,True); lines=wrap_text(d,str(caption),f,W-34)[:3]
-    box_h=18+len(lines)*24; y=H-box_h-16
-    d.rounded_rectangle((10,y,W-10,H-16),radius=10,fill=(7,9,13,215),outline=(215,28,45),width=1)
-    yy=y+8
-    for line in lines:
-        d.text((17,yy),line,font=f,fill='white',stroke_width=1,stroke_fill='black'); yy+=24
-    im.save(path)
+    """Legenda editorial forte + marca-d'água discreta.
+    Sem título fixo no topo e sem contador de cena.
+    """
+    im=Image.new('RGBA',(W,H),(0,0,0,0))
+    d=ImageDraw.Draw(im)
+    text=str(caption).strip().upper()
+    words=text.split()
 
+    # Mantém a legenda curta e com impacto visual.
+    if len(words)>8:
+        chunks=[' '.join(words[i:i+4]) for i in range(0,len(words),4)][:2]
+    else:
+        chunks=wrap_text(d,text,font(20,True),W-42)[:2]
+
+    f=font(20,True)
+    line_h=25
+    box_h=24+len(chunks)*line_h
+    y=H-box_h-28
+
+    # Caixa cinematográfica escura com acento vermelho.
+    d.rounded_rectangle(
+        (12,y,W-12,y+box_h),
+        radius=12,
+        fill=(4,6,10,220),
+        outline=(230,30,48,190),
+        width=2
+    )
+
+    yy=y+9
+    stop={'A','O','E','DE','DO','DA','EM','NO','NA','QUE','UM','UMA',
+          'OS','AS','ISSO','PARA','COM','POR','SE','FOI','TEM'}
+
+    for line in chunks:
+        lw=line.split()
+
+        # Escolhe a palavra de maior impacto para receber o vermelho.
+        candidates=[]
+        for w in lw:
+            clean=re.sub(r'[^A-Z0-9ÁÉÍÓÚÃÕÇ]','',w)
+            if len(clean)>=5 and clean not in stop:
+                candidates.append(clean)
+        keyword=max(candidates,key=len) if candidates else None
+
+        x=22
+        for w in lw:
+            clean=re.sub(r'[^A-Z0-9ÁÉÍÓÚÃÕÇ]','',w)
+            is_key=keyword and clean==keyword
+            fill=(240,38,52,255) if is_key else (255,255,255,255)
+            d.text(
+                (x,yy),w,font=f,fill=fill,
+                stroke_width=2,stroke_fill=(0,0,0,235)
+            )
+            x=d.textbbox((x,yy),w+' ',font=f)[2]
+        yy += line_h
+
+    # Marca-d'água pequena e discreta, longe da legenda.
+    wm='GTA OCULTO'
+    wf=font(10,True)
+    bb=d.textbbox((0,0),wm,font=wf)
+    ww=bb[2]-bb[0]
+    wh=bb[3]-bb[1]
+    wx=W-ww-13
+    wy=H-wh-10
+    d.rounded_rectangle(
+        (wx-5,wy-3,W-8,H-7),
+        radius=5,
+        fill=(0,0,0,75)
+    )
+    d.text((wx,wy),wm,font=wf,fill=(255,255,255,110))
+
+    im.save(path)
 
 def _ffmpeg_text(s):
     return s.replace('\\','\\\\').replace(':','\\:').replace("'","\\'").replace('%','\\%').replace('\n',' ')
