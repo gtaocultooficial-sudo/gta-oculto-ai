@@ -23,7 +23,7 @@ WORK.mkdir(exist_ok=True)
 STATE_FILE = WORK / 'jobs.json'
 LOCK = threading.RLock()
 PROCESSING = False
-UA = 'GTA-Oculto-AI/Cloud-Final/1.5-V31.1'
+UA = 'GTA-Oculto-AI/Cloud-Final/1.5-V32.0'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
@@ -559,34 +559,69 @@ def _clean_article_text(text):
     return out
 
 
-def _fetch_topic_evidence(topic):
-    """Tenta obter descrição/meta/articleBody da matéria; falha silenciosamente."""
-    url=str(topic.get('url') or '').strip()
-    if not url or url.startswith(ROCKSTAR_VI): return []
+def _resolve_article_url(url):
+    """V32: resolve redirects (especialmente Google News) para obter a URL da matéria escolhida."""
+    url=str(url or '').strip()
+    if not url:
+        return ''
     try:
-        r=fetch(url,timeout=18); r.raise_for_status()
+        host=urlparse(url).netloc.lower()
+        if 'news.google.com' not in host:
+            return url
+        r=fetch(url, timeout=18)
+        final=str(getattr(r, 'url', '') or '').strip()
+        if final and 'news.google.com' not in urlparse(final).netloc.lower():
+            return final
+    except Exception:
+        pass
+    return url
+
+
+def _is_google_news_url(url):
+    try:
+        return 'news.google.com' in urlparse(str(url or '')).netloc.lower()
+    except Exception:
+        return False
+
+
+def _fetch_topic_evidence(topic):
+    """V32: coleta evidências exclusivamente da matéria escolhida.
+    Nunca usa uma página agregadora do Google News como se fosse o artigo.
+    """
+    original_url=str(topic.get('url') or '').strip()
+    url=_resolve_article_url(original_url)
+    if not url or _is_google_news_url(url):
+        return [], original_url
+    try:
+        r=fetch(url,timeout=20); r.raise_for_status()
         soup=BeautifulSoup(r.text,'html.parser')
         candidates=[]
         for sel in ('meta[name="description"]','meta[property="og:description"]','meta[name="twitter:description"]'):
             tag=soup.select_one(sel)
             if tag and tag.get('content'): candidates.append(tag.get('content'))
-        for tag in soup.find_all('script',type='application/ld+json')[:8]:
+        # Structured data from THIS article only.
+        for tag in soup.find_all('script',type='application/ld+json')[:12]:
             try:
-                obj=json.loads(tag.string or tag.get_text() or '{}')
+                raw=tag.string or tag.get_text() or '{}'
+                obj=json.loads(raw)
                 objs=obj if isinstance(obj,list) else [obj]
                 for item in objs:
                     if isinstance(item,dict):
                         body=item.get('articleBody') or item.get('description')
                         if body: candidates.append(body)
-            except Exception: pass
-        # Párrafos visíveis como último recurso.
-        paras=[p.get_text(' ',strip=True) for p in soup.find_all('p')]
-        candidates.append(' '.join(paras[:20]))
+            except Exception:
+                pass
+        # Visible paragraphs are a last resort, still restricted to this URL.
+        paras=[]
+        for p in soup.find_all('p'):
+            txt=p.get_text(' ',strip=True)
+            if len(txt)>=45: paras.append(txt)
+        if paras: candidates.append(' '.join(paras[:24]))
         joined=' '.join(candidates)
-        return _clean_article_text(joined)[:8]
+        lines=_clean_article_text(joined)[:12]
+        return lines, url
     except Exception:
-        return []
-
+        return [], url
 
 def _evidence_sentences(desc, article_lines=None, title=''):
     raw=[]
@@ -628,10 +663,35 @@ def _safe_hook(title,kind):
     return 'VOCÊ PERCEBEU ESSE DETALHE NO GTA 6?'
 
 
+def _clean_narrative_text(text):
+    """Remove rastros de manchete, fonte, domínio e metadados internos da fala."""
+    t=BeautifulSoup(str(text or ''),'html.parser').get_text(' ',strip=True)
+    t=_strip_publisher_suffix(t)
+    banned=[
+        r'\b(?:score|confiança|confianca|matérias|materias|fontes|menções|mencoes)\s*[:=]?\s*\d+%?\b',
+        r'\b(?:IGN\s*Brasil|TudoCelular(?:\.com)?|Canaltech|Olhar\s+Digital|Adrenaline|Omelete|Exame|UOL|TecMundo|Combo\s+Infinito|Rolling\s+Stone(?:\s+Brasil)?)\b',
+        r'\b(?:radar|editor-chefe|editorial|pauta selecionada|produzir agora)\b',
+    ]
+    for pat in banned:
+        t=re.sub(pat,'',t,flags=re.I)
+    t=re.sub(r'\s+',' ',t).strip(' -–—,;:')
+    return t
+
+
+def _sentence_from_evidence(evidence):
+    """Escolhe UMA evidência da matéria, evitando juntar frases de fontes diferentes."""
+    for x in evidence:
+        x=_fact_sentence(x)
+        x=_clean_narrative_text(x)
+        if len(re.findall(r"[A-Za-zÀ-ÿ0-9']+",x))>=8:
+            return x.rstrip('.!?') + '.'
+    return ''
+
+
 def make_script(topic):
-    """V31 — motor editorial factual.
-    A narração nunca menciona Radar, score, fontes, sites ou metadados internos.
-    Primeiro tenta obter fatos do item do Radar e da própria matéria; só então escreve.
+    """V32 — Motor editorial source-locked.
+    O roteiro usa uma única pauta/cluster e uma única matéria principal.
+    Outras fontes servem ao Radar para confirmação, mas nunca entram misturadas na fala.
     """
     title,desc,source,url=_source_evidence(topic)
     title=title or 'GTA 6'
@@ -643,64 +703,65 @@ def make_script(topic):
         elif any(k in tl for k in ('confirm','revel','anunci','atualização','update','novidade')): kind='NOTÍCIA'
         else: kind='CURIOSIDADE'
 
-    article_lines=_fetch_topic_evidence(topic)
+    article_lines,resolved_url=_fetch_topic_evidence(topic)
+    # A descrição do RSS pertence à mesma pauta; só entra como apoio da própria matéria.
     evidence=_evidence_sentences(desc,article_lines,title)
-    evidence=[_fact_sentence(x) for x in evidence]
-    evidence=[x for x in evidence if x]
+    evidence=[_clean_narrative_text(_fact_sentence(x)) for x in evidence]
+    evidence=[x for x in evidence if len(re.findall(r"[A-Za-zÀ-ÿ0-9']+",x))>=8]
     angle,_=_editorial_angle(topic)
-    hook=_safe_hook(title,kind)
-
-    # O roteiro não repete a manchete inteira. Usa a manchete apenas para identificar o assunto.
-    headline=title.rstrip('.!?')
+    headline=_clean_narrative_text(title.rstrip('.!?'))
     clean_topic=re.sub(r'^(?:GTA\s*6\s*[:\-]\s*)','',headline,flags=re.I).strip()
+    if not clean_topic:
+        clean_topic='uma nova informação sobre GTA 6'
+
+    hook_map={
+        'NOTÍCIA':'A ROCKSTAR REVELOU UMA NOVA INFORMAÇÃO SOBRE GTA 6',
+        'RUMOR':'ISSO SOBRE GTA 6 AINDA NÃO FOI CONFIRMADO',
+        'MISTÉRIO':'ESSE DETALHE DE GTA 6 CHAMOU ATENÇÃO',
+        'CURIOSIDADE':'VOCÊ JÁ TINHA PERCEBIDO ESSE DETALHE NO GTA 6?',
+    }
+    hook=hook_map[kind]
+    fact=_sentence_from_evidence(evidence)
+
+    # Se não há evidência textual suficiente da matéria escolhida, não inventamos contexto.
+    if not fact:
+        fact=f'A matéria destaca {clean_topic.lower()}, mas os detalhes disponíveis não são suficientes para afirmar algo além disso.'
+
     if kind=='NOTÍCIA':
-        context=(f"A Rockstar trouxe uma nova informação sobre GTA 6: {clean_topic}."
-                 if clean_topic else "Uma nova informação sobre GTA 6 chamou atenção.")
-        if evidence:
-            proof=' '.join(evidence[:2])
-            if not proof.endswith(('.', '!', '?')): proof+='.'
-            payoff='O ponto importante é entender o que foi realmente confirmado e o que ainda depende de mais detalhes.'
-        else:
-            proof='A informação disponível confirma apenas o ponto central da notícia, sem detalhes suficientes para afirmar outras mudanças no jogo.'
-            payoff='Por isso, o mais seguro é ficar com o que foi confirmado e não transformar interpretação em fato.'
-        cta='Você gostaria de ver mais detalhes disso no GTA 6?'
+        context=f'Uma nova informação envolvendo GTA 6 ganhou destaque: {clean_topic}.'
+        payoff='O ponto principal é entender exatamente o que foi divulgado, sem misturar informação confirmada com especulação.'
+        cta='Você quer ver mais detalhes sobre isso no GTA 6?'
     elif kind=='RUMOR':
-        context=f"Está circulando uma informação sobre GTA 6: {clean_topic}."
-        proof=' '.join(evidence[:2]) if evidence else 'Até agora, não há evidência suficiente aqui para tratar essa informação como confirmação oficial.'
-        if not proof.endswith(('.', '!', '?')): proof+='.'
-        payoff='O importante é separar o que foi divulgado do que ainda é especulação.'
-        cta='Você acha que isso pode se confirmar?'
+        context=f'Está circulando uma informação envolvendo GTA 6: {clean_topic}.'
+        payoff='Até existir confirmação oficial, essa informação deve ser tratada como possibilidade, não como fato.'
+        cta='Você acha que esse rumor pode se confirmar?'
     elif kind=='MISTÉRIO':
-        context=f"Um detalhe de GTA 6 chamou atenção: {clean_topic}."
-        proof=' '.join(evidence[:2]) if evidence else 'O material disponível mostra o detalhe, mas não traz confirmação suficiente para explicar exatamente o que ele significa.'
-        if not proof.endswith(('.', '!', '?')): proof+='.'
-        payoff='A parte interessante é observar a pista sem transformar uma interpretação em confirmação.'
-        cta='Você acha que existe algo por trás disso?'
+        context=f'Um detalhe envolvendo GTA 6 chamou atenção: {clean_topic}.'
+        payoff='O interessante é analisar a pista sem transformar uma interpretação em confirmação.'
+        cta='Você acha que esse detalhe significa alguma coisa?'
     else:
-        context=f"Tem um detalhe de GTA 6 que merece atenção: {clean_topic}."
-        proof=' '.join(evidence[:2]) if evidence else 'A informação chama atenção, mas os dados disponíveis não permitem afirmar detalhes além do ponto principal da pauta.'
-        if not proof.endswith(('.', '!', '?')): proof+='.'
-        payoff='O mais interessante é entender o que esse detalhe pode significar sem transformar possibilidade em certeza.'
+        context=f'Tem um detalhe de GTA 6 que merece atenção: {clean_topic}.'
+        payoff='O mais interessante é entender o que esse detalhe realmente mostra e o que ainda é apenas interpretação.'
         cta='Você já tinha percebido esse detalhe?'
 
-    sections={'hook':hook,'context':context,'proof':proof,'payoff':payoff,'cta':cta}
+    sections={
+        'hook':hook,
+        'context':_clean_narrative_text(context),
+        'proof':_clean_narrative_text(fact),
+        'payoff':_clean_narrative_text(payoff),
+        'cta':_clean_narrative_text(cta),
+    }
     narration=' '.join(sections[k] for k in ('hook','context','proof','payoff','cta'))
-    # Nunca deixar escapar metadados internos ou nomes de veículos para a fala.
-    banned_patterns=[
-        r'\b(?:score|confiança|confianca|matérias|materias|fontes|menções|mencoes)\s*[:=]?\s*\d+%?',
-        r'\b(?:IGN\s*Brasil|TudoCelular(?:\.com)?|Canaltech|Olhar\s+Digital|Adrenaline|Omelete|Exame|UOL|TecMundo|Combo\s+Infinito|Rolling\s+Stone(?:\s+Brasil)?)\b',
-    ]
-    for pat in banned_patterns: narration=re.sub(pat,'',narration,flags=re.I)
-    narration=re.sub(r'\s+',' ',narration).strip()
+    narration=_clean_narrative_text(narration)
     word_count=len(re.findall(r"[A-Za-zÀ-ÿ0-9']+",narration))
     estimated_seconds=max(20,min(60,round(word_count/2.55)))
     return {
-        'title':title,'narration':narration,'source':url or str(topic.get('url') or ROCKSTAR_VI),
-        'source_name':source or 'Fonte da pauta','content_type':kind,
+        'title':headline,'narration':narration,'source':resolved_url or url or str(topic.get('url') or ROCKSTAR_VI),
+        'source_name':source or str(topic.get('source') or 'Fonte da pauta'),'content_type':kind,
         'editorial_angle':angle,'editorial_hook':hook,
         'editorial_score':topic.get('editorial_score'),'editorial_decision':topic.get('editorial_decision','PRODUZIR'),
         'editorial_reason':topic.get('editorial_reason',''),'sections':sections,
-        'evidence':evidence,'word_count':word_count,'estimated_seconds':estimated_seconds,'script_version':'V31.0'
+        'evidence':evidence[:3],'word_count':word_count,'estimated_seconds':estimated_seconds,'script_version':'V32.0-SOURCE-LOCKED'
     }
 
 def build_dynamic_captions(script, topic, count=9):
@@ -1079,7 +1140,7 @@ def duration_of_audio(path):
     except Exception: return 30.0
 
 async def make_tts(text,path):
-    """V31.1: gera áudio PT-BR e tenta capturar WordBoundary; se a versão do
+    """V32.0: gera áudio PT-BR e tenta capturar WordBoundary; se a versão do
     edge-tts instalada no Render não expuser esses eventos, a produção continua
     usando o fallback editorial sincronizado pela duração real do áudio."""
     if edge_tts is None:
@@ -1740,7 +1801,7 @@ def produce_job(jid):
         topics,urls,_=research_official(); topics=topics or FALLBACK_TOPICS
         job=load_jobs()[jid]; topic=editor_chief_select([job['opportunity']]) or job['opportunity']; job['opportunity']=topic; jobs=load_jobs(); jobs[jid]['opportunity']=topic; save_jobs(jobs)
         update_job(jid,stage='ANÁLISE',progress=16,log=f'EDITOR-CHEFE: {topic.get("editorial_decision","PRODUZIR")} — {topic["title"]} | ângulo: {topic.get("editorial_angle","")}')
-        update_job(jid,stage='ROTEIRO',progress=28,log='EDITOR-CHEFE → MOTOR EDITORIAL V31: criando hook, contexto, verificação, payoff e CTA...'); script=make_script(topic)
+        update_job(jid,stage='ROTEIRO',progress=28,log='EDITOR-CHEFE → MOTOR EDITORIAL V32: matéria principal → fatos → roteiro limpo...'); script=make_script(topic)
         jobdir=WORK/jid; jobdir.mkdir(parents=True,exist_ok=True)
         update_job(jid,script=script,stage='VISUAIS',progress=40,log='Baixando visuais oficiais e montando cenas verticais...')
         paths=download_visuals(urls,jobdir/'visuals',topic['title'])
@@ -1771,7 +1832,7 @@ def produce_job(jid):
         for sp in image_scenes:
             q=_image_quality(sp); visual_quality=min(visual_quality, max(0,q))
         score=evaluate(script,duration,len(beats),visual_quality,beats,len(selected_videos),len(image_scenes))
-        meta={'title':topic['title'].upper()+' 👀','description':script['narration']+'\n\n🔎 GTA Oculto — onde os segredos vêm à tona.','hashtags':['#GTA6','#GTAVI','#GTAOculto','#RockstarGames','#GTA'],'tags':['GTA 6','GTA VI','GTA 6 Brasil','GTA 6 teorias','GTA 6 segredos','Rockstar Games','GTA Oculto'],'score':score,'script_version':script.get('script_version','V31.1')}
+        meta={'title':topic['title'].upper()+' 👀','description':script['narration']+'\n\n🔎 GTA Oculto — onde os segredos vêm à tona.','hashtags':['#GTA6','#GTAVI','#GTAOculto','#RockstarGames','#GTA'],'tags':['GTA 6','GTA VI','GTA 6 Brasil','GTA 6 teorias','GTA 6 segredos','Rockstar Games','GTA Oculto'],'score':score,'script_version':script.get('script_version','V32.0-SOURCE-LOCKED')}
         (jobdir/'metadata.json').write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding='utf-8')
         update_job(jid,status='DONE',stage='PRONTO',progress=100,log=f'PRONTO — Short gerado e avaliado em {score}/100.',video=f'{jid}/GTA_OCULTO_SHORT.mp4',cover=f'{jid}/CAPA.jpg',score=score,metadata=meta)
     except Exception as e:
@@ -1810,7 +1871,7 @@ def processor_loop():
 @APP.get('/')
 def home(): return render_template_string(PAGE)
 @APP.get('/health')
-def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V31.1-EDITORIAL-TIMED-CAPTIONS-FALLBACK',processor='cloud')
+def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V32.0-EDITORIAL-TIMED-CAPTIONS-FALLBACK',processor='cloud')
 @APP.get('/api/state')
 def state():
     with LOCK:
