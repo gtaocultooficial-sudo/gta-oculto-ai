@@ -186,7 +186,11 @@ def _parse_rss(url, feed_name):
             link=(item.findtext('link') or '').strip()
             pub=(item.findtext('pubDate') or '').strip()
             desc=(item.findtext('description') or '').strip()
-            source_el=item.find('source') or item.find('{http://search.yahoo.com/mrss/}source')
+            # ElementTree considera alguns elementos sem filhos como False; por isso
+            # não usamos "a or b" aqui, senão o <source> real do Google News pode ser perdido.
+            source_el=item.find('source')
+            if source_el is None:
+                source_el=item.find('{http://search.yahoo.com/mrss/}source')
             source=(source_el.text or '').strip() if source_el is not None else ''
             if title and link:
                 items.append({'title':BeautifulSoup(title,'html.parser').get_text(' ',strip=True),'url':link,'published':pub,'source':source or _source_name_from_link(link,feed_name),'feed':feed_name,'description':BeautifulSoup(desc,'html.parser').get_text(' ',strip=True)[:500]})
@@ -350,6 +354,14 @@ def _dedupe_group(group):
     return out
 
 
+def _canonical_source_name(name, url=''):
+    """Normaliza a identificação da fonte para contar fontes independentes corretamente."""
+    raw=re.sub(r'\s+',' ',str(name or '').strip())
+    if raw and raw.lower() not in ('google news','google'):
+        return raw
+    return _source_name_from_link(url, 'Fonte')
+
+
 def radar_scan():
     """Radar V26.3: coleta, agrupa e só substitui o último radar quando a coleta realmente teve sucesso."""
     raw=[]; successful_sources=0; errors=[]
@@ -402,7 +414,8 @@ def radar_scan():
     ranked=[]
     for group in groups:
         if not group: continue
-        source_names={str(x.get('source','')).strip().lower() for x in group if x.get('source')}
+        source_names={_canonical_source_name(x.get('source',''), x.get('url','')).strip().lower()
+                      for x in group if x.get('source') or x.get('url')}
         concepts=set()
         for x in group: concepts.update(_topic_concepts(x.get('title','')))
         # Prefere a fonte mais confiável e a manchete mais recente dentro da pauta.
@@ -436,7 +449,7 @@ def radar_scan():
             'priority':'ALTA' if score>=82 else 'MÉDIA' if score>=65 else 'BAIXA',
             'status':status,
             'title':_make_radar_title(best['title']),
-            'source':best.get('source') or 'Fonte',
+            'source':_canonical_source_name(best.get('source',''), best.get('url','')),
             'url':best['url'],
             'published':best.get('published',''),
             'mentions':len(group),
@@ -1622,7 +1635,7 @@ def processor_loop():
 @APP.get('/')
 def home(): return render_template_string(PAGE)
 @APP.get('/health')
-def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V27.2-EDITOR-CHEFE',processor='cloud')
+def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V27.3-EDITOR-CHEFE-DADOS',processor='cloud')
 @APP.get('/api/state')
 def state():
     with LOCK:
