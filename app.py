@@ -158,181 +158,48 @@ def make_script(topic):
 
 
 def build_dynamic_captions(script, topic, count=9):
-    """Editor-chefe: reescreve chamadas curtas a partir do sentido do roteiro.
-    Não corta palavras arbitrariamente; cada bloco é uma chamada editorial completa.
-    """
+    """Cria textos de tela a partir do assunto e do roteiro, variando por conteúdo."""
     narration=str(script.get('narration','')).strip()
     title=str(topic.get('title','')).strip()
-    kind=str(script.get('content_type','CURIOSIDADE')).upper()
-
-    # Normalização e limpeza: evita emojis, pontuação estranha e frases quebradas.
-    def clean(s):
-        s=re.sub(r'[^\wÀ-ÿ0-9\s?!.,\'-]', ' ', str(s), flags=re.UNICODE)
-        return re.sub(r'\s+',' ',s).strip()
-
-    title=clean(title)
-    narration=clean(narration)
-
-    stop={
-        'a','o','e','de','do','da','dos','das','em','no','na','nos','nas',
-        'que','um','uma','uns','umas','os','as','isso','isto','para','com',
-        'por','mais','mas','como','esse','essa','esses','essas','ele','ela',
-        'eles','elas','se','não','sim','foi','ser','são','tem','ter','pode',
-        'podem','sobre','entre','muito','muita','também','já','até','quando'
+    kind=script.get('content_type','CURIOSIDADE')
+    openers={
+        'RUMOR':'⚠️ ISSO AINDA NÃO FOI CONFIRMADO',
+        'MISTÉRIO':'👁️ NINGUÉM ESTÁ FALANDO DESSE DETALHE',
+        'NOTÍCIA':'🚨 A ROCKSTAR ACABOU DE REVELAR ISSO',
+        'CURIOSIDADE':'😳 VOCÊ PERCEBEU ESSE DETALHE?'
     }
-
-    def meaningful_words(s):
-        return [w for w in re.findall(r"[A-Za-zÀ-ÿ0-9']+",s)
-                if w.lower() not in stop and len(w)>=3]
-
-    # Extrai termos realmente ligados ao assunto, priorizando título.
-    tw=meaningful_words(title)
-    topic_terms=[]
-    for w in tw:
-        u=w.upper()
-        if u not in topic_terms:
-            topic_terms.append(u)
-    sentences=[clean(s) for s in re.split(r'[.!?]+',narration) if len(clean(s))>=12]
-
-    sentence_terms=[]
+    endings={
+        'RUMOR':'RUMOR OU PISTA REAL?',
+        'MISTÉRIO':'E SE ISSO NÃO FOR COINCIDÊNCIA?',
+        'NOTÍCIA':'O QUE ISSO MUDA NO GTA 6?',
+        'CURIOSIDADE':'VOCÊ JÁ TINHA PERCEBIDO?'
+    }
+    caps=[openers.get(kind,openers['CURIOSIDADE'])]
+    title_words=[w for w in re.findall(r"[A-Za-zÀ-ÿ0-9']+",title) if len(w)>=4]
+    if title_words:
+        caps.append(' '.join(title_words[:5]).upper())
+    stop={'a','o','e','de','do','da','em','no','na','que','um','uma','os','as','isso','para','com','por','mais','mas','como','esse','essa'}
+    sentences=[s.strip(' .!?') for s in re.split(r'[.!?]+',narration) if len(s.strip())>8]
     for s in sentences:
-        ws=meaningful_words(s)
-        vals=[]
-        for w in ws:
-            u=w.upper()
-            if u not in vals:
-                vals.append(u)
-        if vals:
-            sentence_terms.append((s,vals))
-
-    def pick_terms(i, limit=3):
-        # Alterna título e roteiro para não repetir sempre a mesma expressão.
-        if sentence_terms:
-            vals=sentence_terms[i % len(sentence_terms)][1]
-            if vals:
-                return vals[:limit]
-        return topic_terms[:limit]
-
-    subject=' '.join(topic_terms[:3]) if topic_terms else 'ESSE DETALHE'
-
-    # Chamadas editoriais completas. Cada tipo tem uma linguagem diferente.
-    if kind == 'NOTÍCIA':
-        first=[
-            f"A ROCKSTAR ACABOU DE REVELAR ISSO",
-            f"ESSA NOVIDADE MEXE COM {subject}",
-            "MAS O DETALHE MAIS IMPORTANTE ESTÁ AQUI",
-        ]
-        middle_templates=[
-            "OLHA O QUE ISSO PODE MUDAR",
-            "ESSA PARTE PASSOU QUASE DESPERCEBIDA",
-            "AGORA TUDO FAZ MAIS SENTIDO",
-            "E ISSO NÃO PARECE POR ACASO",
-            "O QUE ISSO SIGNIFICA PARA GTA 6?",
-        ]
-        final="ESSA NOVIDADE PODE MUDAR TUDO"
-    elif kind == 'MISTÉRIO':
-        first=[
-            "NINGUÉM ESTÁ FALANDO DESSE DETALHE",
-            f"ESSE DETALHE ESCONDIDO CHAMA ATENÇÃO",
-            "OLHE BEM PARA ESSA CENA",
-        ]
-        middle_templates=[
-            "A PISTA ESTÁ JUSTAMENTE AQUI",
-            "POR QUE A ROCKSTAR FARIA ISSO?",
-            "ISSO PODE NÃO SER COINCIDÊNCIA",
-            "TEM ALGO ESTRANHO NESSA CENA",
-            "E SE A PISTA ESTIVER AQUI?",
-        ]
-        final="E SE ISSO NÃO FOR COINCIDÊNCIA?"
-    elif kind == 'RUMOR':
-        first=[
-            "ESSE RUMOR ESTÁ GANHANDO FORÇA",
-            "MAS ISSO AINDA NÃO FOI CONFIRMADO",
-            f"ESSA PISTA ENVOLVE {subject}",
-        ]
-        middle_templates=[
-            "A FONTE DIZ UMA COISA",
-            "MAS EXISTE UM DETALHE IMPORTANTE",
-            "ATÉ AGORA, NADA FOI CONFIRMADO",
-            "ISSO É PISTA OU APENAS RUMOR?",
-            "PRECISAMOS OLHAR ISSO COM CUIDADO",
-        ]
-        final="RUMOR OU PISTA REAL?"
-    elif kind == 'TEORIA':
-        first=[
-            "ESSA TEORIA COMEÇA COM UM DETALHE",
-            f"{subject} PODE ESCONDER UMA PISTA",
-            "E SE ISSO TIVER SIDO PLANEJADO?",
-        ]
-        middle_templates=[
-            "A PRIMEIRA PISTA ESTÁ AQUI",
-            "ISSO COMEÇA A FAZER SENTIDO",
-            "MAS EXISTE OUTRO DETALHE",
-            "A TEORIA FICA AINDA MAIS ESTRANHA",
-            "NADA DISSO FOI CONFIRMADO",
-        ]
-        final="COINCIDÊNCIA OU PISTA?"
-    else:
-        first=[
-            "VOCÊ PERCEBEU ESSE DETALHE?",
-            f"ESSE DETALHE DE {subject} PASSOU BATIDO",
-            "QUASE NINGUÉM REPAROU NISSO",
-        ]
-        middle_templates=[
-            "OLHA BEM PARA ESSA PARTE",
-            "A DIFERENÇA ESTÁ AQUI",
-            "ESSE DETALHE MUDA A CENA",
-            "E TEM MAIS UMA COISA",
-            "AGORA VOCÊ VAI PERCEBER",
-        ]
-        final="VOCÊ JÁ TINHA PERCEBIDO?"
-
-    caps=[]
-    def add(s):
-        s=clean(s).upper()
-        s=re.sub(r'\s+',' ',s).strip()
-        if not s or s in caps:
-            return
-        # Não permite chamadas quebradas: precisam terminar com conteúdo suficiente.
-        if len(s.split()) >= 3:
-            caps.append(s)
-
-    for x in first:
-        add(x)
-
-    # Insere termos específicos do roteiro em chamadas completas.
-    for i in range(max(0, count-4)):
-        terms=pick_terms(i, 2)
-        if terms:
-            if i % 3 == 0:
-                add(f"OLHE BEM PARA {' '.join(terms)}")
-            elif i % 3 == 1:
-                add(f"ESSE DETALHE ENVOLVE {' '.join(terms)}")
-            else:
-                add(f"POR QUE {' '.join(terms)} APARECE AQUI?")
+        words=re.findall(r"[A-Za-zÀ-ÿ0-9']+",s)
+        meaningful=[w for w in words if w.lower() not in stop]
+        if len(meaningful)>=2:
+            phrase=' '.join(meaningful[:5]).upper()
+            if phrase not in caps:
+                caps.append(phrase)
         if len(caps)>=count-1:
             break
+    caps.append(endings.get(kind,endings['CURIOSIDADE']))
+    out=[]; seen=set()
+    for c in caps:
+        c=re.sub(r'\s+',' ',c).strip()
+        if c and c not in seen:
+            seen.add(c); out.append(c)
+    while len(out)<count:
+        out.append(out[-1])
+    return out[:count]
 
-    for x in middle_templates:
-        add(x)
-        if len(caps)>=count-1:
-            break
 
-    add(final)
-
-    # Garante variedade sem repetir uma chamada só para preencher a timeline.
-    fallback=[
-        "TEM UM DETALHE QUE VOCÊ NÃO VIU",
-        "OLHE NOVAMENTE PARA ESSA CENA",
-        "ESSA PISTA MERECE ATENÇÃO",
-        "AGORA TUDO COMEÇA A FAZER SENTIDO",
-    ]
-    for x in fallback:
-        if len(caps)>=count:
-            break
-        add(x)
-
-    return caps[:count]
 def wrap_text(draw,text,f,max_width):
     lines=[]; cur=''
     for w in text.split():
@@ -542,45 +409,83 @@ def make_script(topic):
 
 
 def build_dynamic_captions(script, topic, count=9):
-    """Cria textos de tela a partir do assunto e do roteiro, variando por conteúdo."""
+    """Editor-chefe: cria chamadas completas e específicas para cada assunto."""
     narration=str(script.get('narration','')).strip()
     title=str(topic.get('title','')).strip()
-    kind=script.get('content_type','CURIOSIDADE')
-    openers={
-        'RUMOR':'⚠️ ISSO AINDA NÃO FOI CONFIRMADO',
-        'MISTÉRIO':'👁️ NINGUÉM ESTÁ FALANDO DESSE DETALHE',
-        'NOTÍCIA':'🚨 A ROCKSTAR ACABOU DE REVELAR ISSO',
-        'CURIOSIDADE':'😳 VOCÊ PERCEBEU ESSE DETALHE?'
-    }
-    endings={
-        'RUMOR':'RUMOR OU PISTA REAL?',
-        'MISTÉRIO':'E SE ISSO NÃO FOR COINCIDÊNCIA?',
-        'NOTÍCIA':'O QUE ISSO MUDA NO GTA 6?',
-        'CURIOSIDADE':'VOCÊ JÁ TINHA PERCEBIDO?'
-    }
-    caps=[openers.get(kind,openers['CURIOSIDADE'])]
-    title_words=[w for w in re.findall(r"[A-Za-zÀ-ÿ0-9']+",title) if len(w)>=4]
-    if title_words:
-        caps.append(' '.join(title_words[:5]).upper())
-    stop={'a','o','e','de','do','da','em','no','na','que','um','uma','os','as','isso','para','com','por','mais','mas','como','esse','essa'}
-    sentences=[s.strip(' .!?') for s in re.split(r'[.!?]+',narration) if len(s.strip())>8]
+    kind=str(script.get('content_type','CURIOSIDADE')).upper()
+
+    def clean(s):
+        s=re.sub(r'[^\\wÀ-ÿ0-9\\s?!.,\'-]', ' ', str(s), flags=re.UNICODE)
+        return re.sub(r'\\s+',' ',s).strip()
+
+    title=clean(title)
+    narration=clean(narration)
+    stop={'a','o','e','de','do','da','dos','das','em','no','na','nos','nas','que',
+          'um','uma','uns','umas','os','as','isso','isto','para','com','por','mais',
+          'mas','como','esse','essa','esses','essas','ele','ela','eles','elas','se',
+          'não','sim','foi','ser','são','tem','ter','pode','podem','sobre','entre',
+          'muito','muita','também','já','até','quando'}
+
+    def terms(s):
+        return [w.upper() for w in re.findall(r"[A-Za-zÀ-ÿ0-9']+",s)
+                if w.lower() not in stop and len(w)>=4]
+
+    topic_terms=[]
+    for w in terms(title):
+        if w not in topic_terms: topic_terms.append(w)
+    sentences=[clean(s) for s in re.split(r'[.!?]+',narration) if len(clean(s))>=12]
+    route=[]
     for s in sentences:
-        words=re.findall(r"[A-Za-zÀ-ÿ0-9']+",s)
-        meaningful=[w for w in words if w.lower() not in stop]
-        if len(meaningful)>=2:
-            phrase=' '.join(meaningful[:5]).upper()
-            if phrase not in caps:
-                caps.append(phrase)
-        if len(caps)>=count-1:
-            break
-    caps.append(endings.get(kind,endings['CURIOSIDADE']))
-    out=[]; seen=set()
-    for c in caps:
-        c=re.sub(r'\s+',' ',c).strip()
-        if c and c not in seen:
-            seen.add(c); out.append(c)
-    while len(out)<count:
-        out.append(out[-1])
+        vals=[]
+        for w in terms(s):
+            if w not in vals: vals.append(w)
+        if vals: route.append(vals)
+
+    subject=' '.join(topic_terms[:2]) if topic_terms else 'ESSE DETALHE'
+
+    pools={
+      'NOTÍCIA':[
+        "A ROCKSTAR ACABOU DE REVELAR ISSO","ESSA NOVIDADE PODE MUDAR TUDO",
+        "MAS O DETALHE MAIS IMPORTANTE ESTÁ AQUI","ESSA PARTE PASSOU DESPERCEBIDA",
+        "AGORA TUDO COMEÇA A FAZER SENTIDO","O QUE ISSO MUDA NO GTA 6?",
+        "ESSA PISTA MERECE ATENÇÃO","E ISSO NÃO PARECE POR ACASO","ESSA NOVIDADE VAI DAR O QUE FALAR"],
+      'MISTÉRIO':[
+        "NINGUÉM ESTÁ FALANDO DESSE DETALHE","OLHE BEM PARA ESSA CENA",
+        "A PISTA ESTÁ JUSTAMENTE AQUI","POR QUE A ROCKSTAR FARIA ISSO?",
+        "TEM ALGO ESTRANHO NESSA CENA","ISSO PODE NÃO SER COINCIDÊNCIA",
+        "E SE A PISTA ESTIVER AQUI?","ESSE DETALHE MERECE ATENÇÃO","O QUE A ROCKSTAR ESTÁ ESCONDENDO?"],
+      'RUMOR':[
+        "ESSE RUMOR ESTÁ GANHANDO FORÇA","ISSO AINDA NÃO FOI CONFIRMADO",
+        "MAS EXISTE UM DETALHE IMPORTANTE","ATÉ AGORA, NADA FOI CONFIRMADO",
+        "ISSO É PISTA OU APENAS RUMOR?","A FONTE DIZ UMA COISA",
+        "PRECISAMOS OLHAR ISSO COM CUIDADO","RUMOR OU PISTA REAL?","NÃO TRATE ISSO COMO CONFIRMAÇÃO"],
+      'TEORIA':[
+        "ESSA TEORIA COMEÇA COM UM DETALHE","E SE ISSO TIVER SIDO PLANEJADO?",
+        "A PRIMEIRA PISTA ESTÁ AQUI","ISSO COMEÇA A FAZER SENTIDO",
+        "MAS EXISTE OUTRO DETALHE","A TEORIA FICA AINDA MAIS ESTRANHA",
+        "NADA DISSO FOI CONFIRMADO","COINCIDÊNCIA OU PISTA?","ESSA PISTA MUDA A TEORIA"],
+      'CURIOSIDADE':[
+        "VOCÊ PERCEBEU ESSE DETALHE?","QUASE NINGUÉM REPAROU NISSO",
+        "OLHE BEM PARA ESSA PARTE","A DIFERENÇA ESTÁ AQUI",
+        "ESSE DETALHE MUDA A CENA","E TEM MAIS UMA COISA",
+        "AGORA VOCÊ VAI PERCEBER","ESSE DETALHE PASSOU BATIDO","VOCÊ JÁ TINHA PERCEBIDO?"]
+    }
+    pool=list(pools.get(kind,pools['CURIOSIDADE']))
+    if kind=='NOTÍCIA': pool[1]=f"ESSE DETALHE DE {subject} PODE MUDAR TUDO"
+    elif kind=='MISTÉRIO': pool[1]=f"ESSE DETALHE DE {subject} CHAMA ATENÇÃO"
+    elif kind=='TEORIA': pool[1]=f"{subject} PODE ESCONDER UMA PISTA"
+    elif kind=='RUMOR': pool[1]=f"ESSE RUMOR ENVOLVE {subject}"
+    if route and route[0]:
+        pool[2]=f"OLHE BEM PARA {route[0][0]}"
+    if len(route)>1 and route[1]:
+        pool[4]=f"ESSE DETALHE ENVOLVE {route[1][0]}"
+
+    out=[]
+    for phrase in pool:
+        phrase=clean(phrase).upper()
+        if phrase not in out and len(phrase.split())>=3:
+            out.append(phrase)
+        if len(out)>=count: break
     return out[:count]
 
 
@@ -892,16 +797,32 @@ def select_video_clips(videos,title,count=5):
 
 
 def _caption_overlay(path,caption,idx,total,W=240,H=426):
-    # Single clean overlay. No scene counter and no baked duplicate caption.
+    """Legenda editorial forte; GTA Oculto apenas como marca-d'água."""
     im=Image.new('RGBA',(W,H),(0,0,0,0)); d=ImageDraw.Draw(im)
-    d.rectangle((0,0,W,42),fill=(0,0,0,125))
-    d.text((12,10),'GTA OCULTO',font=font(15,True),fill='white')
-    f=font(18,True); lines=wrap_text(d,str(caption),f,W-34)[:3]
-    box_h=18+len(lines)*24; y=H-box_h-16
-    d.rounded_rectangle((10,y,W-10,H-16),radius=10,fill=(7,9,13,215),outline=(215,28,45),width=1)
-    yy=y+8
+    text=str(caption).strip().upper()
+    lines=wrap_text(d,text,font(19,True),W-34)[:2]
+    line_h=24; box_h=18+len(lines)*line_h; y=H-box_h-28
+    d.rounded_rectangle((10,y,W-10,y+box_h),radius=10,
+                        fill=(5,7,11,210),outline=(225,28,45,190),width=2)
+    stop={'A','O','E','DE','DO','DA','EM','NO','NA','QUE','UM','UMA','OS','AS',
+          'ISSO','PARA','COM','MAS','SE','NÃO'}
+    f=font(19,True); yy=y+7
     for line in lines:
-        d.text((17,yy),line,font=f,fill='white',stroke_width=1,stroke_fill='black'); yy+=24
+        words=line.split(); keyword=None
+        for w in reversed(words):
+            cw=re.sub(r'[^A-Z0-9ÁÉÍÓÚÃÕÇ]','',w)
+            if len(cw)>=5 and cw not in stop: keyword=cw; break
+        x=17
+        for w in words:
+            cw=re.sub(r'[^A-Z0-9ÁÉÍÓÚÃÕÇ]','',w)
+            fill=(235,35,48,255) if keyword and cw==keyword else (255,255,255,255)
+            d.text((x,yy),w,font=f,fill=fill,stroke_width=1,stroke_fill=(0,0,0,230))
+            x=d.textbbox((x,yy),w+' ',font=f)[2]
+        yy+=line_h
+    wm='GTA OCULTO'; wf=font(9,True); bb=d.textbbox((0,0),wm,font=wf)
+    ww=bb[2]-bb[0]; wh=bb[3]-bb[1]; wx=W-ww-8; wy=H-wh-8
+    d.rounded_rectangle((wx-4,wy-2,W-5,H-4),radius=4,fill=(0,0,0,75))
+    d.text((wx,wy),wm,font=wf,fill=(255,255,255,110))
     im.save(path)
 
 
