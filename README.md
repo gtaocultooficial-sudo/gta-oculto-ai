@@ -1,28 +1,14 @@
-# GTA Oculto AI — Render Free 512 MB
+# GTA Oculto AI — Primeiro Short Qualidade V2
 
-Versão final otimizada para o plano Free do Render.
+Versão de acabamento sobre a build que já gera MP4 no Render Free.
 
-## Pipeline
-- Pesquisa automática
-- Análise e escolha de pauta
-- Roteiro
-- Narração PT-BR
-- Visuais oficiais
-- 3 clipes reais oficiais da Rockstar
-- Edição vertical 9:16
-- Legendas
-- Avaliação
-- MP4 final
+- mantém o processamento de baixo consumo de RAM;
+- mantém 540x960 / 15 FPS para estabilidade;
+- remove poluição visual de contador de cena no overlay;
+- alterna vídeos reais e imagens;
+- termina com um vídeo real em movimento para evitar quadro congelado no final;
+- mantém mídia oficial da Rockstar e execução em nuvem.
 
-## Otimização de memória
-- FFmpeg com 1 thread
-- stderr do FFmpeg gravado em disco, não acumulado em RAM
-- cenas intermediárias em 240x426
-- 20 fps durante a montagem
-- saída final 540x960 (9:16)
-- temporários removidos após a edição
-- sem YouTube e sem yt-dlp
-
-## Render
+## Deploy Render
 Build: `pip install -r requirements.txt`
-Start: `gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 1 --timeout 300`
+Start: `gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 2 --timeout 300`

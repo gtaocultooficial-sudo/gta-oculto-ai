@@ -643,10 +643,15 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
     ff=str(__import__('imageio_ffmpeg').get_ffmpeg_exe())
     work=out.parent/'timeline'; work.mkdir(exist_ok=True)
     if len(video_clips)<3: raise RuntimeError('A edição precisa de pelo menos 3 vídeos reais.')
+    # Alterna movimento e imagens, mas termina com vídeo real para evitar
+    # sensação de quadro congelado no encerramento.
     assets=[]
-    for i in range(3):
-        assets.append(('video',video_clips[i]))
-        if i < len(image_paths): assets.append(('image',image_paths[i]))
+    order=[('video',0),('image',0),('video',1),('image',1),('image',2),('video',2)]
+    for kind,idx in order:
+        if kind=='video' and idx < len(video_clips):
+            assets.append(('video',video_clips[idx]))
+        elif kind=='image' and idx < len(image_paths):
+            assets.append(('image',image_paths[idx]))
     per=max(2.5,duration/len(assets)); scene_files=[]
     for i,(kind,src) in enumerate(assets):
         scene=work/f'scene_{i:02d}.mp4'; overlay=work/f'overlay_{i:02d}.png'
