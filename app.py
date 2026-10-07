@@ -1,6 +1,6 @@
 import struct
 import zlib
-import os, json, uuid, threading, time, asyncio, subprocess, shutil, re, sys, struct
+import os, json, uuid, threading, time, asyncio, subprocess, shutil, re, sys, struct, math
 from pathlib import Path
 from datetime import datetime, timezone
 from urllib.parse import urljoin
