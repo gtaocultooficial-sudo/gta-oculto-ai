@@ -653,8 +653,8 @@ def _ffmpeg_text(s):
 
 def make_multimedia_video(video_clips, image_paths, audio, out, duration, captions):
     """Ultra-low-memory editor for Render Free 512 MB.
-    Builds one 240x426 scene at a time and produces a 540x960 vertical MP4.
-    540x960 is the quality target; scenes are built sequentially at 240x426 to stay within the free RAM limit.
+    Builds one 540x960 scene at a time and produces a 1080x1920 vertical MP4.
+    Quality mode: keeps much more source detail while processing scenes sequentially to stay within Render Free RAM.
     """
     ff=str(__import__('imageio_ffmpeg').get_ffmpeg_exe())
     work=out.parent/'timeline'; work.mkdir(exist_ok=True)
@@ -671,18 +671,18 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
     per=max(2.5,duration/len(assets)); scene_files=[]
     for i,(kind,src) in enumerate(assets):
         scene=work/f'scene_{i:02d}.mp4'; overlay=work/f'overlay_{i:02d}.png'
-        _caption_overlay(overlay,captions[i % len(captions)],i,len(assets),240,426)
+        _caption_overlay(overlay,captions[i % len(captions)],i,len(assets),540,960)
         if kind=='video':
-            vf='scale=240:426:force_original_aspect_ratio=increase,crop=240:426,setsar=1,fps=15'
+            vf='scale=540:960:force_original_aspect_ratio=increase,crop=540:960,setsar=1,fps=24'
             inp=['-stream_loop','-1','-i',str(src)]
         else:
-            vf="scale=240:426:force_original_aspect_ratio=increase,crop=240:426,setsar=1,zoompan=z='min(zoom+0.0015,1.02)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=240x426:fps=15"
+            vf="scale=540:960:force_original_aspect_ratio=increase,crop=540:960,setsar=1,zoompan=z='min(zoom+0.0015,1.03)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=540x960:fps=24"
             inp=['-loop','1','-i',str(src)]
         cmd=[ff,'-loglevel','error','-y']+inp+['-loop','1','-i',str(overlay),'-t',f'{per:.3f}',
              '-filter_complex',f'[0:v]{vf}[v];[1:v]format=rgba[o];[v][o]overlay=0:0:shortest=1[outv]',
-             '-map','[outv]','-an','-c:v','libx264','-preset','ultrafast','-crf','29',
+             '-map','[outv]','-an','-c:v','libx264','-preset','ultrafast','-crf','20',
              '-threads','1','-filter_threads','1','-filter_complex_threads','1',
-             '-x264-params','threads=1:lookahead-threads=1','-pix_fmt','yuv420p','-movflags','+faststart',str(scene)]
+             '-x264-params','threads=1:lookahead-threads=1','-profile:v','high','-pix_fmt','yuv420p','-movflags','+faststart',str(scene)]
         run_cmd(cmd,75)
         scene_files.append(scene)
         try: overlay.unlink()
@@ -690,11 +690,11 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
     listfile=work/'timeline.txt'
     with listfile.open('w',encoding='utf-8') as f:
         for sf in scene_files: f.write(f"file '{sf.as_posix()}'\n")
-    # Final encode at 480x854: conservative 9:16 output for Render Free 512 MB.
+    # Final encode at full HD vertical. Scenes are already 540x960, so this preserves much more detail than the old 540x960 master.
     run_cmd([ff,'-loglevel','error','-y','-f','concat','-safe','0','-i',str(listfile),'-i',str(audio),
-             '-t',f'{duration:.2f}','-vf','scale=540:960:flags=fast_bilinear,format=yuv420p','-r','15',
-             '-c:v','libx264','-preset','ultrafast','-crf','27','-threads','1','-filter_threads','1','-filter_complex_threads','1',
-             '-x264-params','threads=1:lookahead-threads=1','-c:a','aac','-b:a','96k',
+             '-t',f'{duration:.2f}','-vf','scale=1080:1920:flags=bicubic,format=yuv420p','-r','24',
+             '-c:v','libx264','-preset','ultrafast','-crf','19','-profile:v','high','-threads','1','-filter_threads','1','-filter_complex_threads','1',
+             '-x264-params','threads=1:lookahead-threads=1','-c:a','aac','-b:a','128k',
              '-movflags','+faststart','-shortest',str(out)],180)
     for p in scene_files:
         try: p.unlink()
