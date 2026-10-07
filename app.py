@@ -23,7 +23,7 @@ WORK.mkdir(exist_ok=True)
 STATE_FILE = WORK / 'jobs.json'
 LOCK = threading.RLock()
 PROCESSING = False
-UA = 'GTA-Oculto-AI/Cloud-Final/1.3-V29.3'
+UA = 'GTA-Oculto-AI/Cloud-Final/1.3-V30.0'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
@@ -519,142 +519,128 @@ def choose_topic(data,topics):
     return max(topics,key=lambda x:x.get('score',0))
 
 
+def _strip_publisher_suffix(text):
+    """Remove publisher/domain suffixes from a headline before narration."""
+    t=re.sub(r'\s+',' ',str(text or '').strip()).strip(' -–—')
+    patterns=[
+        r'\s*[-–—|]\s*(?:TudoCelular(?:\.com)?|Canaltech|IGN\s*Brasil|Olhar\s+Digital|Adrenaline|Exame|UOL|TecMundo|Combo\s+Infinito|Rolling\s+Stone(?:\s+Brasil)?|Omelete)(?:\.com(?:\.br)?)?\s*$',
+        r'\s*[-–—|]\s*[^\s]+\.(?:com\.br|com|net|org)(?:\s*)$',
+    ]
+    for pat in patterns:
+        t=re.sub(pat,'',t,flags=re.I).strip(' -–—')
+    return t
+
+
 def _source_evidence(topic):
-    """Return source-backed evidence available in the radar item, without inventing facts."""
-    title=re.sub(r'\s+',' ',str(topic.get('title','')).strip())
-    desc=re.sub(r'\s+',' ',str(topic.get('description','')).strip())
-    source=re.sub(r'\s+',' ',str(topic.get('source','')).strip())
-    # RSS snippets can contain the headline again. Keep only useful descriptive text.
+    """Collect only evidence actually present in the radar item."""
+    title=_strip_publisher_suffix(topic.get('title',''))
+    desc=re.sub(r'\s+',' ',str(topic.get('description','') or '').strip())
+    source=re.sub(r'\s+',' ',str(topic.get('source','') or '').strip())
     if desc:
-        desc=re.sub(r'^(?:[^|]{0,120}\|\s*)','',desc).strip()
-        if desc.lower()==title.lower(): desc=''
+        desc=re.sub(r'^\s*(?:[^|]{0,140}\|\s*)','',desc).strip()
+        desc=_strip_publisher_suffix(desc)
+        if desc.lower()==title.lower():
+            desc=''
     return title,desc,source
 
 
+def _evidence_sentences(desc):
+    parts=[x.strip() for x in re.split(r'(?<=[.!?])\s+',str(desc or '')) if len(x.strip())>=18]
+    clean=[]
+    for x in parts[:3]:
+        x=re.sub(r'\s+',' ',x).strip(' -–—')
+        x=re.sub(r'^(?:segundo|conforme|de acordo com) (?:o|a) (?:material|conteúdo|publicação) (?:publicado|divulgado|disponível),?\s*','',x,flags=re.I)
+        if x and x not in clean:
+            clean.append(x)
+    return clean
+
+
+def _safe_hook(title,kind):
+    t=title.lower()
+    if kind=='RUMOR':
+        return 'ISSO SOBRE GTA 6 AINDA NÃO FOI CONFIRMADO'
+    if kind=='NOTÍCIA':
+        if any(k in t for k in ('confirm','confirma','oficial','revela','revelou','anuncia','anunciou')):
+            return 'A ROCKSTAR ACABOU DE REVELAR UMA NOVIDADE'
+        return 'UMA NOVA INFORMAÇÃO SOBRE GTA 6 CHAMOU ATENÇÃO'
+    if kind=='MISTÉRIO':
+        return 'ESSE DETALHE DE GTA 6 CHAMOU ATENÇÃO'
+    return 'VOCÊ PERCEBEU ESSE DETALHE NO GTA 6?'
+
+
 def make_script(topic):
-    """V29.1 — roteiro factual e natural.
-    O texto narrado fala sobre a pauta, nunca sobre o funcionamento interno do Radar.
-    Quando existe snippet/descrição da fonte, ele é usado como base factual. Quando não
-    existe, o roteiro deixa a limitação explícita em vez de inventar detalhes.
+    """V30 — roteiro factual: a fala do Short é sobre a pauta, nunca sobre o sistema.
+    Só usa título/descrição disponíveis no radar. Não narra score, fontes, confiança,
+    nomes de sites ou metadados internos. Quando a evidência é insuficiente, assume
+    explicitamente a limitação em vez de inventar fatos.
     """
     title,desc,source=_source_evidence(topic)
     title=title or 'GTA 6'
     kind=str(topic.get('content_type') or 'CURIOSIDADE').upper()
     if kind not in ('RUMOR','MISTÉRIO','NOTÍCIA','CURIOSIDADE'):
-        t=title.lower()
-        if any(k in t for k in ('rumor','leak','vazamento','suposto')): kind='RUMOR'
-        elif any(k in t for k in ('teoria','theory','pista','mistério','misterio','segredo','detalhe','escond')): kind='MISTÉRIO'
-        elif any(k in t for k in ('confirm','revel','anunci','news','notícia','noticia','atualização','update')): kind='NOTÍCIA'
+        tl=title.lower()
+        if any(k in tl for k in ('rumor','leak','vazamento','suposto','suposta')): kind='RUMOR'
+        elif any(k in tl for k in ('teoria','pista','mistério','misterio','segredo','detalhe','escond')): kind='MISTÉRIO'
+        elif any(k in tl for k in ('confirm','revel','anunci','atualização','update','novidade')): kind='NOTÍCIA'
         else: kind='CURIOSIDADE'
 
-    angle,hook=_editorial_angle(topic)
-    angle=str(topic.get('editorial_angle') or angle).strip()
-    hook=str(topic.get('editorial_hook') or hook).strip()
-    # Nunca narrar métricas internas como "92% de confiança" ou "20 matérias".
-    # Elas pertencem ao painel, não ao Short.
-    clean_source=source if source and source.lower() not in ('pesquisa editorial','google news','google') else ''
+    angle,_old_hook=_editorial_angle(topic)
+    hook=_safe_hook(title,kind)
+    evidence=_evidence_sentences(desc)
 
-    if desc:
-        # Snippets muito longos podem conter chamadas editoriais; limitamos a duas frases.
-        evidence_sentences=[x.strip() for x in re.split(r'(?<=[.!?])\s+',desc) if len(x.strip())>12]
-        evidence=' '.join(evidence_sentences[:2]).strip()
-        if len(evidence)>360:
-            evidence=evidence[:357].rsplit(' ',1)[0]+'...'
-    else:
-        evidence=''
-
+    # Título limpo é a única base quando o RSS não trouxe texto descritivo.
+    headline=title.rstrip('.!?')
     if kind=='NOTÍCIA':
-        context=(f"A informação em destaque é que {title.rstrip('.')}.")
-        if clean_source:
-            context += f" O assunto foi publicado por {clean_source}."
+        context=f"A novidade em destaque no GTA 6 é: {headline}."
         if evidence:
-            proof=f"Segundo o material disponível da fonte, {evidence}"
+            proof=' '.join(evidence[:2])
+            if not proof.endswith(('.', '!', '?')): proof+='.'
+            payoff='O ponto mais importante é entender exatamente o que essa informação muda na experiência do jogo, sem ir além do que foi divulgado.'
         else:
-            proof="O material disponível aqui confirma apenas o tema da manchete; não há detalhes adicionais suficientes para afirmar algo além disso."
-        payoff=(f"{angle} O ponto principal é entender o que foi realmente informado, sem transformar especulação em confirmação.")
-        cta="Você acha que isso pode mudar a experiência de GTA 6?"
+            proof='A pauta disponível confirma apenas essa informação da manchete; não há detalhes adicionais suficientes aqui para afirmar mais do que isso.'
+            payoff='Por isso, o melhor é tratar a novidade pelo que foi divulgado e esperar detalhes adicionais antes de tirar outras conclusões.'
+        cta='Você gostaria de ver mais detalhes disso no GTA 6?'
     elif kind=='RUMOR':
-        context=(f"Está circulando uma informação sobre GTA 6: {title.rstrip('.')}.")
-        if clean_source:
-            context += f" A repercussão veio de {clean_source}."
-        if evidence:
-            proof=f"O material associado à pauta diz que {evidence}"
-        else:
-            proof="Até aqui, o material disponível não traz confirmação oficial suficiente para tratar essa informação como fato."
-        payoff="Por isso, o mais importante é separar o que foi publicado do que ainda é especulação. Se houver confirmação oficial, a história pode ganhar outro peso."
-        cta="Você acha que esse rumor pode se confirmar?"
+        context=f"Está circulando uma informação sobre GTA 6: {headline}."
+        proof=(' '.join(evidence[:2]) if evidence else 'Até aqui, o material disponível não traz confirmação oficial suficiente para tratar essa informação como fato.')
+        if not proof.endswith(('.', '!', '?')): proof+='.'
+        payoff='O mais importante é separar o que foi divulgado do que ainda é especulação.'
+        cta='Você acha que isso pode se confirmar?'
     elif kind=='MISTÉRIO':
-        context=(f"Um detalhe chamou atenção em GTA 6: {title.rstrip('.')}.")
-        if evidence:
-            proof=f"O material disponível destaca que {evidence}"
-        else:
-            proof="O detalhe aparece na pauta, mas não há informação suficiente para tratá-lo como uma confirmação oficial."
-        payoff="O interessante é justamente separar o que foi mostrado do que é interpretação. E é aí que esse detalhe fica mais curioso."
-        cta="Você acha que existe algo por trás disso?"
+        context=f"Um detalhe de GTA 6 chamou atenção: {headline}."
+        proof=(' '.join(evidence[:2]) if evidence else 'O material disponível apresenta o detalhe, mas não traz informação suficiente para tratá-lo como confirmação oficial.')
+        if not proof.endswith(('.', '!', '?')): proof+='.'
+        payoff='O interessante é observar o detalhe sem transformar uma interpretação em fato.'
+        cta='Você acha que existe algo por trás disso?'
     else:
-        context=(f"Tem um detalhe em GTA 6 que merece atenção: {title.rstrip('.')}.")
-        if evidence:
-            proof=f"O material disponível aponta que {evidence}"
-        else:
-            proof="A pauta chama atenção, mas os dados disponíveis aqui não permitem afirmar detalhes além do que aparece no título."
-        payoff="O mais interessante é conectar esse detalhe ao que já foi mostrado, sem transformar uma possibilidade em fato."
-        cta="Você já tinha percebido esse detalhe?"
+        context=f"Tem um detalhe de GTA 6 que merece atenção: {headline}."
+        proof=(' '.join(evidence[:2]) if evidence else 'A pauta chama atenção, mas os dados disponíveis não permitem afirmar detalhes além do que aparece na manchete.')
+        if not proof.endswith(('.', '!', '?')): proof+='.'
+        payoff='O mais interessante é conectar esse detalhe ao que já foi mostrado, sem transformar uma possibilidade em confirmação.'
+        cta='Você já tinha percebido esse detalhe?'
 
     sections={'hook':hook,'context':context,'proof':proof,'payoff':payoff,'cta':cta}
     narration=' '.join(sections[k] for k in ('hook','context','proof','payoff','cta'))
+    # Remove qualquer vazamento acidental de metadados internos ou nomes de sites.
+    narration=re.sub(r'\b(?:score|confiança|confianca|matérias|materias|fontes)\s*[:=]?\s*\d+%?','',narration,flags=re.I)
     narration=re.sub(r'\s+',' ',narration).strip()
-    word_count=len(re.findall(r"[A-Za-zÀ-ÿ0-9']+", narration))
+    word_count=len(re.findall(r"[A-Za-zÀ-ÿ0-9']+",narration))
     estimated_seconds=max(20,min(60,round(word_count/2.55)))
     return {
         'title':title,'narration':narration,'source':str(topic.get('url') or ROCKSTAR_VI),
-        'source_name':clean_source or 'Fonte da pauta','content_type':kind,
+        'source_name':source or 'Fonte da pauta','content_type':kind,
         'editorial_angle':angle,'editorial_hook':hook,
         'editorial_score':topic.get('editorial_score'),'editorial_decision':topic.get('editorial_decision','PRODUZIR'),
         'editorial_reason':topic.get('editorial_reason',''),'sections':sections,
-        'word_count':word_count,'estimated_seconds':estimated_seconds,'script_version':'V29.3'
+        'word_count':word_count,'estimated_seconds':estimated_seconds,'script_version':'V30.0'
     }
 
+
 def build_dynamic_captions(script, topic, count=9):
-    """Cria textos de tela a partir do assunto e do roteiro, variando por conteúdo."""
-    narration=str(script.get('narration','')).strip()
-    title=str(topic.get('title','')).strip()
-    kind=script.get('content_type','CURIOSIDADE')
-    openers={
-        'RUMOR':'⚠️ ISSO AINDA NÃO FOI CONFIRMADO',
-        'MISTÉRIO':'👁️ NINGUÉM ESTÁ FALANDO DESSE DETALHE',
-        'NOTÍCIA':'🚨 A ROCKSTAR ACABOU DE REVELAR ISSO',
-        'CURIOSIDADE':'😳 VOCÊ PERCEBEU ESSE DETALHE?'
-    }
-    endings={
-        'RUMOR':'RUMOR OU PISTA REAL?',
-        'MISTÉRIO':'E SE ISSO NÃO FOR COINCIDÊNCIA?',
-        'NOTÍCIA':'O QUE ISSO MUDA NO GTA 6?',
-        'CURIOSIDADE':'VOCÊ JÁ TINHA PERCEBIDO?'
-    }
-    caps=[openers.get(kind,openers['CURIOSIDADE'])]
-    title_words=[w for w in re.findall(r"[A-Za-zÀ-ÿ0-9']+",title) if len(w)>=4]
-    if title_words:
-        caps.append(' '.join(title_words[:5]).upper())
-    stop={'a','o','e','de','do','da','em','no','na','que','um','uma','os','as','isso','para','com','por','mais','mas','como','esse','essa'}
-    sentences=[s.strip(' .!?') for s in re.split(r'[.!?]+',narration) if len(s.strip())>8]
-    for s in sentences:
-        words=re.findall(r"[A-Za-zÀ-ÿ0-9']+",s)
-        meaningful=[w for w in words if w.lower() not in stop]
-        if len(meaningful)>=2:
-            phrase=' '.join(meaningful[:5]).upper()
-            if phrase not in caps:
-                caps.append(phrase)
-        if len(caps)>=count-1:
-            break
-    caps.append(endings.get(kind,endings['CURIOSIDADE']))
-    out=[]; seen=set()
-    for c in caps:
-        c=re.sub(r'\s+',' ',c).strip()
-        if c and c not in seen:
-            seen.add(c); out.append(c)
-    while len(out)<count:
-        out.append(out[-1])
-    return out[:count]
+    """V30 — captions são apenas da fala real; sem título, fonte ou metadados extras."""
+    narration=re.sub(r'\s+',' ',str(script.get('narration','')).strip())
+    sentences=[s.strip() for s in re.split(r'(?<=[.!?])\s+',narration) if s.strip()]
+    return [x['text'] for x in build_short_timeline(script,topic, max(20,float(script.get('estimated_seconds',30))), count)] if narration else ['GTA 6']
 
 
 def wrap_text(draw,text,f,max_width):
@@ -894,49 +880,6 @@ def choose_topic(data,topics):
         topic.update(editorial_score=78,editorial_angle=angle,editorial_hook=hook,editorial_decision='PRODUZIR AGORA',editorial_reason='Assunto informado diretamente pelo usuário.')
         return topic
     return editor_chief_select(topics)
-
-
-def build_dynamic_captions(script, topic, count=9):
-    """Cria textos de tela a partir do assunto e do roteiro, variando por conteúdo."""
-    narration=str(script.get('narration','')).strip()
-    title=str(topic.get('title','')).strip()
-    kind=script.get('content_type','CURIOSIDADE')
-    openers={
-        'RUMOR':'⚠️ ISSO AINDA NÃO FOI CONFIRMADO',
-        'MISTÉRIO':'👁️ NINGUÉM ESTÁ FALANDO DESSE DETALHE',
-        'NOTÍCIA':'🚨 A ROCKSTAR ACABOU DE REVELAR ISSO',
-        'CURIOSIDADE':'😳 VOCÊ PERCEBEU ESSE DETALHE?'
-    }
-    endings={
-        'RUMOR':'RUMOR OU PISTA REAL?',
-        'MISTÉRIO':'E SE ISSO NÃO FOR COINCIDÊNCIA?',
-        'NOTÍCIA':'O QUE ISSO MUDA NO GTA 6?',
-        'CURIOSIDADE':'VOCÊ JÁ TINHA PERCEBIDO?'
-    }
-    caps=[openers.get(kind,openers['CURIOSIDADE'])]
-    title_words=[w for w in re.findall(r"[A-Za-zÀ-ÿ0-9']+",title) if len(w)>=4]
-    if title_words:
-        caps.append(' '.join(title_words[:5]).upper())
-    stop={'a','o','e','de','do','da','em','no','na','que','um','uma','os','as','isso','para','com','por','mais','mas','como','esse','essa'}
-    sentences=[s.strip(' .!?') for s in re.split(r'[.!?]+',narration) if len(s.strip())>8]
-    for s in sentences:
-        words=re.findall(r"[A-Za-zÀ-ÿ0-9']+",s)
-        meaningful=[w for w in words if w.lower() not in stop]
-        if len(meaningful)>=2:
-            phrase=' '.join(meaningful[:5]).upper()
-            if phrase not in caps:
-                caps.append(phrase)
-        if len(caps)>=count-1:
-            break
-    caps.append(endings.get(kind,endings['CURIOSIDADE']))
-    out=[]; seen=set()
-    for c in caps:
-        c=re.sub(r'\s+',' ',c).strip()
-        if c and c not in seen:
-            seen.add(c); out.append(c)
-    while len(out)<count:
-        out.append(out[-1])
-    return out[:count]
 
 
 def wrap_text(draw,text,f,max_width):
@@ -1333,113 +1276,66 @@ def _caption_is_bad_end(word):
 
 
 def _caption_phrase_chunks(sentence, min_words=3, max_words=10):
-    """V29.3 — divide a fala em unidades de sentido, não em janelas fixas.
-    Prioriza pontuação, pausas e fronteiras linguísticas. Mantém expressões
-    conhecidas juntas e aceita blocos maiores quando isso preserva o sentido.
-    Todas as palavras da fala são preservadas na mesma ordem.
-    """
+    """V30 — divide by meaning and punctuation, preserving the complete spoken phrase."""
     raw=re.sub(r'\s+',' ',str(sentence)).strip()
-    if not raw:
-        return []
-
+    if not raw: return []
     tokens=_caption_words(raw)
-    if len(tokens)<min_words:
-        return [tokens] if tokens else []
-
-    bad_end={
-        'e','de','do','da','em','no','na','que','um','uma','o','a','os','as',
-        'para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa',
-        'sobre','entre','até','sem','como','pelo','pela','pelos','pelas','mais'
-    }
-    bad_start=bad_end | {'porque','porém','porem','então','entao','quando','enquanto'}
-    strong_right={'e','mas','porque','porém','porem','então','entao','quando','enquanto','além','alem'}
-    protected={
-        ('gta','6'), ('gta','vi'), ('vice','city'), ('cloud','gaming'),
-        ('xbox','cloud'), ('xbox','cloud','gaming'), ('jason','e','lucia'),
-        ('nível','inédito','de','realismo'), ('nivel','inedito','de','realismo'),
-        ('sistema','de','moral'), ('mecânica','de','relacionamento'),
-        ('mecanica','de','relacionamento'), ('grand','theft','auto'),
-        ('playstation','5'), ('xbox','series')
-    }
+    if len(tokens)<=max_words:
+        return [tokens] if len(tokens)>=min_words else ([tokens] if tokens else [])
 
     def norm(w):
-        return _caption_clean_word(w).replace('í','i').replace('é','e').replace('ã','a').replace('á','a').replace('ç','c')
-
-    def breaks_protected(cut):
+        return _caption_clean_word(w).lower()
+    bad_end={'e','de','do','da','em','no','na','que','um','uma','o','a','os','as','para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa','sobre','entre','até','sem','como','pelo','pela','pelos','pelas'}
+    bad_start=bad_end | {'porque','porém','porem','então','entao','quando','enquanto'}
+    connectors={'e','mas','porque','porém','porem','então','entao','quando','enquanto'}
+    protected={
+        ('gta','6'),('gta','vi'),('vice','city'),('cloud','gaming'),('xbox','cloud'),('xbox','cloud','gaming'),
+        ('jason','e','lucia'),('nível','inédito','de','realismo'),('nivel','inedito','de','realismo'),
+        ('sistema','de','moral'),('mecânica','de','relacionamento'),('mecanica','de','relacionamento'),
+        ('playstation','5'),('xbox','series')
+    }
+    def protected_cut(cut):
         left=[norm(x) for x in tokens[max(0,cut-4):cut]]
         right=[norm(x) for x in tokens[cut:cut+4]]
-        for phrase in protected:
-            n=len(phrase)
+        for ph in protected:
+            n=len(ph)
             for i in range(len(left)-n+1):
-                if tuple(left[i:i+n])==phrase and i+n==len(left):
-                    return True
+                if tuple(left[i:i+n])==ph and i+n==len(left): return True
             for i in range(len(right)-n+1):
-                if tuple(right[i:i+n])==phrase and i==0:
-                    return True
+                if tuple(right[i:i+n])==ph and i==0: return True
         return False
 
     chunks=[]; i=0
-    while i < len(tokens):
-        remaining=len(tokens)-i
-        if remaining <= max_words:
-            chunks.append(tokens[i:])
-            break
-
-        # Procuramos a melhor fronteira numa faixa razoável, sem obrigar 3–7 palavras.
-        target=7 if remaining >= 14 else max(5, round(remaining/2))
-        lo=max(i+min_words, i+4)
-        hi=min(len(tokens)-1, i+max_words)
-        best=None
+    while i<len(tokens):
+        rem=len(tokens)-i
+        if rem<=max_words:
+            chunks.append(tokens[i:]); break
+        target=7 if rem>=15 else max(5,round(rem/2))
+        lo=i+min_words
+        hi=min(len(tokens)-1,i+max_words)
+        candidates=[]
         for cut in range(lo,hi+1):
-            left=tokens[i:cut]
-            right=tokens[cut:]
-            if len(right)<min_words and len(right)>0:
-                continue
-            last=left[-1]
-            first=right[0] if right else ''
-            score=abs(len(left)-target)*1.25
+            left=tokens[i:cut]; right=tokens[cut:]
+            if len(right)>0 and len(right)<min_words and rem>max_words+min_words: continue
+            lw=norm(left[-1]); rw=norm(right[0]) if right else ''
+            score=abs(len(left)-target)*1.4
+            if re.search(r'[,:;.!?]$',left[-1]): score-=18
+            if lw in bad_end: score+=35
+            if rw in bad_start: score+=35
+            if rw in connectors: score-=8
+            if protected_cut(cut): score+=45
+            if len(left)>=8: score+=1
+            candidates.append((score,cut))
+        cut=min(i+target,len(tokens)) if not candidates else min(candidates)[1]
+        chunks.append(tokens[i:cut]); i=cut
 
-            # Pontuação/pausa é a melhor fronteira.
-            if re.search(r'[,:;.!?]$', last): score-=14
-            # Vírgula interna é especialmente boa se não deixar palavra funcional pendurada.
-            if re.search(r'[,:;]$', last): score-=4
-
-            lw=norm(last); rw=norm(first)
-            if lw in bad_end: score+=18
-            if rw in bad_start: score+=18
-            if rw in strong_right: score-=5
-            if breaks_protected(cut): score+=30
-
-            # Não corta no meio de expressões compostas comuns.
-            pair_left=' '.join(norm(x) for x in left[-2:])
-            pair_right=' '.join(norm(x) for x in right[:2])
-            if pair_left in {'gta 6','vice city','cloud gaming','xbox cloud','jason e','sistema de','nivel inedito','nível inédito'}:
-                score+=10
-            if pair_right in {'6 no','6 na','6 do','6 da','6 via','city agora','gaming no','gaming da'}:
-                score+=10
-
-            # Se o trecho ficar grande demais, penaliza; se ficar curto, também.
-            if len(left)>max_words: score+=100
-            if len(left)<min_words: score+=100
-
-            if best is None or score<best[0]:
-                best=(score,cut)
-
-        cut=best[1] if best else min(i+target,len(tokens))
-        chunks.append(tokens[i:cut])
-        i=cut
-
-    # Rebalanceamento final: não cria blocos de 1–2 palavras se puder unir ao vizinho.
+    # Merge tiny chunks without crossing protected expressions.
     out=[]
     for ch in chunks:
         if not ch: continue
-        if len(ch)<min_words and out and len(out[-1])+len(ch)<=max_words:
+        if out and len(ch)<min_words and len(out[-1])+len(ch)<=max_words:
             out[-1].extend(ch)
-        else:
-            out.append(ch)
-
-    # Se houver muitos blocos, funde os pares menos problemáticos até o limite solicitado pelo caller.
-    # A função não corta novamente; preserva unidades de sentido.
+        else: out.append(ch)
     return out
 
 
@@ -1467,7 +1363,7 @@ def _merge_caption_chunks(chunks, target_count=10, max_words=12):
 
 
 def build_short_timeline(script, topic, duration, count=10):
-    """V29.3 — legendas editoriais por unidades de sentido.
+    """V30.0 — legendas editoriais por unidades de sentido.
     Primeiro respeita frases/pausas; depois divide apenas quando necessário.
     Não usa janelas fixas de palavras e não remove palavras da narração.
     """
@@ -1687,7 +1583,7 @@ def produce_job(jid):
         topics,urls,_=research_official(); topics=topics or FALLBACK_TOPICS
         job=load_jobs()[jid]; topic=editor_chief_select([job['opportunity']]) or job['opportunity']; job['opportunity']=topic; jobs=load_jobs(); jobs[jid]['opportunity']=topic; save_jobs(jobs)
         update_job(jid,stage='ANÁLISE',progress=16,log=f'EDITOR-CHEFE: {topic.get("editorial_decision","PRODUZIR")} — {topic["title"]} | ângulo: {topic.get("editorial_angle","")}')
-        update_job(jid,stage='ROTEIRO',progress=28,log='EDITOR-CHEFE → ROTEIRISTA V28: criando hook, contexto, verificação, payoff e CTA...'); script=make_script(topic)
+        update_job(jid,stage='ROTEIRO',progress=28,log='EDITOR-CHEFE → ROTEIRISTA V30: criando hook, contexto, verificação, payoff e CTA...'); script=make_script(topic)
         jobdir=WORK/jid; jobdir.mkdir(parents=True,exist_ok=True)
         update_job(jid,script=script,stage='VISUAIS',progress=40,log='Baixando visuais oficiais e montando cenas verticais...')
         paths=download_visuals(urls,jobdir/'visuals',topic['title'])
@@ -1756,7 +1652,7 @@ def processor_loop():
 @APP.get('/')
 def home(): return render_template_string(PAGE)
 @APP.get('/health')
-def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V29.2-LEGENDAS-EDITORIAIS',processor='cloud')
+def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V30.0-ROTEIRO-LEGENDAS',processor='cloud')
 @APP.get('/api/state')
 def state():
     with LOCK:
