@@ -23,7 +23,7 @@ WORK.mkdir(exist_ok=True)
 STATE_FILE = WORK / 'jobs.json'
 LOCK = threading.RLock()
 PROCESSING = False
-UA = 'GTA-Oculto-AI/Cloud-Final/1.6-V33.0'
+UA = 'GTA-Oculto-AI/Cloud-Final/1.7-V34.0'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
@@ -585,87 +585,98 @@ def _is_google_news_url(url):
 
 
 def _fetch_topic_evidence(topic):
-    """V33: extrai somente o corpo principal da matéria escolhida.
-    Nunca concatena todos os <p> da página, porque páginas jornalísticas
-    normalmente carregam manchetes de matérias relacionadas, recomendações e anúncios.
+    """V34 FINAL: extrai exclusivamente o corpo da matéria original.
+
+    Regras duras:
+    1) resolve a URL do Google News;
+    2) se continuar em Google News, BLOQUEIA;
+    3) aceita articleBody estruturado somente se existir;
+    4) sem articleBody, aceita apenas contêineres inequívocos <article> / [itemprop=articleBody];
+    5) NUNCA usa description/meta/RSS como evidência factual;
+    6) NUNCA usa <main> ou [role=main] genérico;
+    7) retorna método de extração para auditoria.
     """
     original_url=str(topic.get('url') or '').strip()
     url=_resolve_article_url(original_url)
     if not url or _is_google_news_url(url):
-        return [], original_url
+        return [], original_url, 'BLOCKED_URL'
     try:
         r=fetch(url,timeout=22); r.raise_for_status()
+        final_url=str(getattr(r,'url','') or url).strip()
+        if _is_google_news_url(final_url):
+            return [], final_url, 'BLOCKED_GOOGLE_NEWS'
         soup=BeautifulSoup(r.text,'html.parser')
 
-        # 1) Structured data: articleBody é a fonte mais segura quando disponível.
+        # 1) JSON-LD articleBody: melhor fonte quando o publisher fornece o corpo.
         structured=[]
-        for tag in soup.find_all('script',type='application/ld+json')[:20]:
+        for tag in soup.find_all('script',type='application/ld+json')[:30]:
             try:
                 raw=tag.string or tag.get_text() or '{}'
                 obj=json.loads(raw)
-                objs=obj if isinstance(obj,list) else [obj]
-                for item in objs:
+                stack=obj if isinstance(obj,list) else [obj]
+                seen_obj=set()
+                while stack:
+                    item=stack.pop(0)
                     if not isinstance(item,dict):
                         continue
-                    if isinstance(item.get('@graph'),list):
-                        objs.extend([x for x in item['@graph'] if isinstance(x,dict)])
+                    oid=id(item)
+                    if oid in seen_obj: continue
+                    seen_obj.add(oid)
+                    graph=item.get('@graph')
+                    if isinstance(graph,list): stack.extend(graph)
                     body=item.get('articleBody')
-                    if isinstance(body,str) and len(body.strip())>=120:
+                    typ=str(item.get('@type') or '').lower()
+                    if isinstance(body,str) and len(body.strip())>=180 and ('article' in typ or 'newsarticle' in typ or not typ):
                         structured.append(body)
             except Exception:
-                pass
+                continue
         if structured:
-            # Escolhe o maior articleBody da própria página e não mistura com outros blocos.
             body=max(structured,key=len)
-            lines=_clean_article_text(body)[:16]
-            if lines:
-                return lines, url
+            lines=_clean_article_text(body)
+            # Exige material suficiente para sustentar uma narrativa curta.
+            if len(lines)>=2:
+                return lines[:20], final_url, 'JSONLD_ARTICLE_BODY'
 
-        # 2) Meta description como fallback, mas apenas se não houver corpo visível.
-        meta=[]
-        for sel in ('meta[property="og:description"]','meta[name="description"]','meta[name="twitter:description"]'):
-            tag=soup.select_one(sel)
-            if tag and tag.get('content'):
-                txt=str(tag.get('content')).strip()
-                if len(txt)>=60:
-                    meta.append(txt)
-        # 3) Procura o contêiner principal da matéria e extrai somente seus parágrafos.
+        # 2) Contêineres inequívocos do artigo. Não usar <main> genérico.
         containers=[]
-        for sel in (
+        selectors=(
             'article',
             '[itemprop="articleBody"]',
-            'main article',
-            'main',
-            '[role="main"]'
-        ):
-            for node in soup.select(sel)[:3]:
+            '[data-testid="article-body"]',
+            '[data-testid="articleBody"]',
+            '.article-body', '.article__body', '.article-content', '.article-content-body',
+            '.post-content', '.entry-content', '.story-body', '.story-content',
+            '.articleBody', '.articleBodyText'
+        )
+        for sel in selectors:
+            for node in soup.select(sel)[:4]:
                 paras=[]
                 for ptag in node.find_all('p'):
-                    # Ignora blocos que pertencem a navegação/relacionados dentro do contêiner.
-                    parent_names={p.parent.name for p in [ptag] if p.parent}
                     txt=ptag.get_text(' ',strip=True)
                     if len(txt)>=45:
+                        # Ignora parágrafos claramente editoriais/navegação.
+                        low=txt.lower()
+                        if any(b in low for b in ('leia também','publicidade','assine','newsletter','cookies','siga-nos','compartilhe')):
+                            continue
                         paras.append(txt)
-                if paras:
+                if len(paras)>=2:
                     containers.append(paras)
         if containers:
             paras=max(containers,key=len)
-            lines=_clean_article_text(' '.join(paras))[:16]
-            if lines:
-                return lines, url
-        if meta:
-            lines=_clean_article_text(' '.join(meta))[:8]
-            if lines:
-                return lines, url
-        return [], url
-    except Exception:
-        return [], url
+            lines=_clean_article_text(' '.join(paras))
+            if len(lines)>=2:
+                return lines[:20], final_url, 'ARTICLE_CONTAINER'
 
-def _evidence_sentences(desc, article_lines=None, title=''):
-    """V33: prioriza 100% o corpo principal; RSS só é usado quando não há corpo."""
+        # V34: sem corpo inequívoco = não produz.
+        return [], final_url, 'BLOCKED_NO_ARTICLE_BODY'
+    except Exception:
+        return [], url, 'BLOCKED_FETCH_ERROR'
+
+def _evidence_sentences(desc, article_lines=None, title='', extraction_method=''):
+    """V34: evidência SOMENTE do corpo da matéria. desc é deliberadamente ignorado."""
     raw=list(article_lines or [])
     if not raw:
-        raw.extend(_clean_article_text(desc))
+        return []
     title_norm=re.sub(r'[^a-z0-9à-ÿ ]',' ',title.lower())
     title_words=set(w for w in title_norm.split() if len(w)>3)
     seen=set(); clean=[]
@@ -674,11 +685,13 @@ def _evidence_sentences(desc, article_lines=None, title=''):
         if len(x)<35: continue
         low=x.lower()
         if any(bad in low for bad in ('leia também','publicidade','clique aqui','assine','cookies','newsletter')): continue
-        # Bloqueia frases que parecem manchetes/menus de outras matérias.
-        if len(re.findall(r'[:|–—-]',x))>=3 and len(x.split())<18: continue
+        # Bloqueia aparência de manchete/listagem.
+        if len(re.findall(r'[:|–—-]',x))>=3 and len(x.split())<20: continue
+        # Rejeita linhas excessivamente curtas ou fragmentadas.
+        if len(x.split())<8: continue
         overlap=len(title_words.intersection(set(re.sub(r'[^a-z0-9à-ÿ ]',' ',low).split())))
         gta_relevance=any(k in low for k in ('gta 6','gta vi','grand theft auto vi','rockstar','vice city','jason','lucia','xbox cloud','cloud gaming'))
-        if gta_relevance or overlap>=2:
+        if gta_relevance or overlap>=1:
             key=re.sub(r'\W+',' ',low).strip()
             if key not in seen:
                 seen.add(key); clean.append(x)
@@ -743,8 +756,10 @@ def make_script(topic):
         elif any(k in tl for k in ('confirm','revel','anunci','atualização','update','novidade')): kind='NOTÍCIA'
         else: kind='CURIOSIDADE'
 
-    article_lines,resolved_url=_fetch_topic_evidence(topic)
-    evidence=_evidence_sentences(desc,article_lines,title)
+    article_lines,resolved_url,extraction_method=_fetch_topic_evidence(topic)
+    if not article_lines or extraction_method.startswith('BLOCKED_'):
+        raise ValueError(f'MATÉRIA SEM CORPO ORIGINAL CONFIÁVEL — produção bloqueada ({extraction_method}).')
+    evidence=_evidence_sentences('',article_lines,title,extraction_method)
     evidence=[_clean_narrative_text(_fact_sentence(x)) for x in evidence]
     evidence=[x for x in evidence if len(re.findall(r"[A-Za-zÀ-ÿ0-9']+",x))>=8]
 
@@ -816,7 +831,7 @@ def make_script(topic):
         'editorial_score':topic.get('editorial_score'),'editorial_decision':topic.get('editorial_decision','PRODUZIR'),
         'editorial_reason':topic.get('editorial_reason',''),'sections':sections,
         'evidence':evidence[:3],'word_count':word_count,'estimated_seconds':estimated_seconds,
-        'script_version':'V33.0-MAIN-ARTICLE-LOCKED'
+        'script_version':'V34.0-SOURCE-LOCK-FINAL','extraction_method':extraction_method
     }
 
 def build_dynamic_captions(script, topic, count=9):
@@ -1896,6 +1911,10 @@ def produce_job(jid):
             raise ValueError('GATE EDITORIAL: roteiro factual curto demais para um Short consistente.')
         if not script.get('evidence'):
             raise ValueError('GATE EDITORIAL: nenhuma evidência da matéria principal.')
+        if str(script.get('source','')).lower().find('news.google.com') >= 0:
+            raise ValueError('GATE SOURCE-LOCK: a URL final ainda é Google News.')
+        if str(script.get('extraction_method','')).startswith('BLOCKED_'):
+            raise ValueError('GATE SOURCE-LOCK: extração da matéria original não confiável.')
         meta={'title':topic['title'].upper()+' 👀','description':script['narration']+'\n\n🔎 GTA Oculto — onde os segredos vêm à tona.','hashtags':['#GTA6','#GTAVI','#GTAOculto','#RockstarGames','#GTA'],'tags':['GTA 6','GTA VI','GTA 6 Brasil','GTA 6 teorias','GTA 6 segredos','Rockstar Games','GTA Oculto'],'score':score,'script_version':script.get('script_version','V33.0-MAIN-ARTICLE-LOCKED')}
         (jobdir/'metadata.json').write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding='utf-8')
         update_job(jid,status='DONE',stage='PRONTO',progress=100,log=f'PRONTO — Short gerado e avaliado em {score}/100.',video=f'{jid}/GTA_OCULTO_SHORT.mp4',cover=f'{jid}/CAPA.jpg',score=score,metadata=meta)
@@ -1935,7 +1954,7 @@ def processor_loop():
 @APP.get('/')
 def home(): return render_template_string(PAGE)
 @APP.get('/health')
-def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V32.0-EDITORIAL-TIMED-CAPTIONS-FALLBACK',processor='cloud')
+def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V34.0-SOURCE-LOCK-FINAL',processor='cloud')
 @APP.get('/api/state')
 def state():
     with LOCK:
