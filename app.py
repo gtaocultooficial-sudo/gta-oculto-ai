@@ -1,4 +1,5 @@
-import os, json, uuid, threading, time, asyncio, subprocess, shutil, re, sys
+import struct
+import os, json, uuid, threading, time, asyncio, subprocess, shutil, re, sys, struct
 from pathlib import Path
 from datetime import datetime, timezone
 from urllib.parse import urljoin
