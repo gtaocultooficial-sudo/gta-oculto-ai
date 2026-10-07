@@ -394,6 +394,9 @@ def _smart_crop(im,W,H,variant=0):
 
 
 def prepare_scene(src,dst,caption,idx,total):
+    """Prepare a clean background image for the final editor overlay.
+    No scene counter and no baked-in caption: the final timeline draws captions once.
+    """
     W,H=360,640
     im=Image.open(src).convert('RGB')
     im=_smart_crop(im,W,H,idx)
@@ -405,13 +408,8 @@ def prepare_scene(src,dst,caption,idx,total):
     x=int(max_l*((idx*0.23)%1.0)); y=int(max_t*(0.28+0.44*((idx*0.37)%1.0)))
     im=im.crop((x,y,x+W,y+H))
     ov=Image.new('RGBA',(W,H),(0,0,0,0)); od=ImageDraw.Draw(ov)
-    od.rectangle((0,0,W,115),fill=(0,0,0,105)); od.rectangle((0,H-350,W,H),fill=(0,0,0,170))
-    od.text((30,30),'GTA OCULTO',font=font(26,True),fill='white')
-    od.text((W-105,32),f'{idx+1:02d}/{total:02d}',font=font(20,True),fill=(225,35,50))
-    f=font(30,True); lines=wrap_text(od,caption,f,W-70); box_h=65+len(lines[:3])*40; y=H-box_h-35
-    od.rounded_rectangle((24,y,W-24,H-35),radius=18,fill=(7,9,13,220),outline=(215,28,45),width=2)
-    yy=y+20
-    for line in lines[:3]: od.text((45,yy),line,font=f,fill='white'); yy+=40
+    od.rectangle((0,0,W,42),fill=(0,0,0,120))
+    od.text((12,10),'GTA OCULTO',font=font(15,True),fill='white')
     im=Image.alpha_composite(im.convert('RGBA'),ov).convert('RGB')
     im.save(dst,quality=84,optimize=True)
     im.close(); ov.close()
@@ -616,17 +614,15 @@ def select_video_clips(videos,title,count=5):
 
 
 def _caption_overlay(path,caption,idx,total,W=240,H=426):
-    # Overlay leve e legível mesmo depois do upscale para 540x960.
+    # Single clean overlay. No scene counter and no baked duplicate caption.
     im=Image.new('RGBA',(W,H),(0,0,0,0)); d=ImageDraw.Draw(im)
-    d.rectangle((0,0,W,42),fill=(0,0,0,145))
+    d.rectangle((0,0,W,42),fill=(0,0,0,125))
     d.text((12,10),'GTA OCULTO',font=font(15,True),fill='white')
-    # Sem contador de cena: reduz poluição visual.
-    f=font(18,True); lines=wrap_text(d,str(caption),f,W-34)[:4]
+    f=font(18,True); lines=wrap_text(d,str(caption),f,W-34)[:3]
     box_h=18+len(lines)*24; y=H-box_h-16
-    d.rounded_rectangle((10,y,W-10,H-16),radius=10,fill=(7,9,13,220),outline=(215,28,45),width=1)
+    d.rounded_rectangle((10,y,W-10,H-16),radius=10,fill=(7,9,13,215),outline=(215,28,45),width=1)
     yy=y+8
     for line in lines:
-        # contorno discreto para leitura sobre vídeo.
         d.text((17,yy),line,font=f,fill='white',stroke_width=1,stroke_fill='black'); yy+=24
     im.save(path)
 

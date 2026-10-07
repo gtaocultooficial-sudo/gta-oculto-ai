@@ -12,3 +12,9 @@ Versão de acabamento sobre a build que já gera MP4 no Render Free.
 ## Deploy Render
 Build: `pip install -r requirements.txt`
 Start: `gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 2 --timeout 300`
+
+
+### V3 acabamento
+- Remove contador de cenas e legendas duplicadas nas imagens.
+- Mantém 540x960 / 15 FPS para o Render Free 512 MB.
+- Faz o overlay de legenda apenas uma vez na timeline final.
