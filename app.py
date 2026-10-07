@@ -446,7 +446,7 @@ def prepare_scene(src,dst,caption,idx,total):
     # No fixed channel title here. Branding is handled only by the discreet watermark.
     im=im.convert('RGB')
     im.save(dst,quality=84,optimize=True)
-    im.close()
+    im.close(); ov.close()
 
 
 def run_cmd(cmd,timeout=240):
@@ -608,19 +608,14 @@ def download_official_video_clips(outdir, jid=None):
             for i,name in enumerate(chosen):
                 target=cache/f'rockstar_real_{i}.mp4'
                 if target.exists() and target.stat().st_size>20000: continue
-                raw=cache/f'raw_{i}.mp4'
-                if jid: update_job(jid,log=f'Preparando clipe oficial {i+1}/3: {Path(name).stem}...')
-                with zf.open(name) as src, raw.open('wb') as dst:
+                if jid: update_job(jid,log=f'Preparando clipe oficial {i+1}/6: {Path(name).stem}...')
+                # Keep the official source resolution. The editor downsizes only once
+                # for the intermediate timeline, avoiding the old 160x284 quality loss.
+                with zf.open(name) as src, target.open('wb') as dst:
                     while True:
                         chunk=src.read(1024*1024)
                         if not chunk: break
                         dst.write(chunk)
-                run_cmd([ff,'-y','-i',str(raw),'-t','5',
-                         '-vf','scale=160:284:force_original_aspect_ratio=increase,crop=160:284,setsar=1,fps=12',
-                         '-an','-c:v','libx264','-preset','ultrafast','-crf','32','-threads','1','-filter_threads','1','-filter_complex_threads','1','-x264-params','threads=1:lookahead-threads=1',
-                         '-pix_fmt','yuv420p','-movflags','+faststart',str(target)],90)
-                try: raw.unlink()
-                except Exception: pass
         clips=sorted([p for p in cache.glob('rockstar_real_*.mp4') if p.stat().st_size>20000])
         if len(clips)<6:
             raise RuntimeError(f'Apenas {len(clips)} clipes reais foram preparados.')
@@ -688,50 +683,47 @@ def _ffmpeg_text(s):
 
 
 def make_multimedia_video(video_clips, image_paths, audio, out, duration, captions):
-    """Ultra-low-memory editor for Render Free 512 MB.
-    Builds one 240x426 scene at a time and produces a 540x960 vertical MP4.
-    540x960 is the quality target; scenes are built sequentially at 240x426 to stay within the free RAM limit.
+    """Quality-first vertical editor, still designed for Render Free 512 MB.
+    Official source clips are preserved; timeline scenes are rendered at 540x960
+    and the final delivery is 1080x1920/24fps with a higher-quality H.264 encode.
+    Processing remains sequential to keep peak RAM under control.
     """
     ff=str(__import__('imageio_ffmpeg').get_ffmpeg_exe())
     work=out.parent/'timeline'; work.mkdir(exist_ok=True)
     if len(video_clips)<3: raise RuntimeError('A edição precisa de pelo menos 3 vídeos reais.')
-    # Alterna movimento e imagens, mas termina com vídeo real para evitar
-    # sensação de quadro congelado no encerramento.
     assets=[]
     order=[('video',0),('image',0),('video',1),('image',1),('video',2),('image',2),('video',3),('video',4),('video',5)]
     for kind,idx in order:
-        if kind=='video' and idx < len(video_clips):
-            assets.append(('video',video_clips[idx]))
-        elif kind=='image' and idx < len(image_paths):
-            assets.append(('image',image_paths[idx]))
+        if kind=='video' and idx < len(video_clips): assets.append(('video',video_clips[idx]))
+        elif kind=='image' and idx < len(image_paths): assets.append(('image',image_paths[idx]))
     per=max(2.5,duration/len(assets)); scene_files=[]
     for i,(kind,src) in enumerate(assets):
         scene=work/f'scene_{i:02d}.mp4'; overlay=work/f'overlay_{i:02d}.png'
-        _caption_overlay(overlay,captions[i % len(captions)],i,len(assets),240,426)
+        _caption_overlay(overlay,captions[i % len(captions)],i,len(assets),540,960)
         if kind=='video':
-            vf='scale=240:426:force_original_aspect_ratio=increase,crop=240:426,setsar=1,fps=15'
+            vf='scale=540:960:force_original_aspect_ratio=increase,crop=540:960,setsar=1,fps=24'
             inp=['-stream_loop','-1','-i',str(src)]
         else:
-            vf="scale=240:426:force_original_aspect_ratio=increase,crop=240:426,setsar=1,zoompan=z='min(zoom+0.0015,1.02)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=240x426:fps=15"
+            vf="scale=540:960:force_original_aspect_ratio=increase,crop=540:960,setsar=1,zoompan=z='min(zoom+0.0012,1.03)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=540x960:fps=24"
             inp=['-loop','1','-i',str(src)]
         cmd=[ff,'-loglevel','error','-y']+inp+['-loop','1','-i',str(overlay),'-t',f'{per:.3f}',
              '-filter_complex',f'[0:v]{vf}[v];[1:v]format=rgba[o];[v][o]overlay=0:0:shortest=1[outv]',
-             '-map','[outv]','-an','-c:v','libx264','-preset','ultrafast','-crf','29',
+             '-map','[outv]','-an','-c:v','libx264','-preset','veryfast','-crf','20',
              '-threads','1','-filter_threads','1','-filter_complex_threads','1',
-             '-x264-params','threads=1:lookahead-threads=1','-pix_fmt','yuv420p','-movflags','+faststart',str(scene)]
-        run_cmd(cmd,75)
+             '-x264-params','threads=1:lookahead-threads=1','-profile:v','high','-pix_fmt','yuv420p','-movflags','+faststart',str(scene)]
+        run_cmd(cmd,120)
         scene_files.append(scene)
         try: overlay.unlink()
         except Exception: pass
     listfile=work/'timeline.txt'
     with listfile.open('w',encoding='utf-8') as f:
         for sf in scene_files: f.write(f"file '{sf.as_posix()}'\n")
-    # Final encode at 480x854: conservative 9:16 output for Render Free 512 MB.
+    # Final delivery: true 1080x1920 vertical, 24fps, higher bitrate/quality.
     run_cmd([ff,'-loglevel','error','-y','-f','concat','-safe','0','-i',str(listfile),'-i',str(audio),
-             '-t',f'{duration:.2f}','-vf','scale=540:960:flags=fast_bilinear,format=yuv420p','-r','15',
-             '-c:v','libx264','-preset','ultrafast','-crf','27','-threads','1','-filter_threads','1','-filter_complex_threads','1',
-             '-x264-params','threads=1:lookahead-threads=1','-c:a','aac','-b:a','96k',
-             '-movflags','+faststart','-shortest',str(out)],180)
+             '-t',f'{duration:.2f}','-vf','scale=1080:1920:flags=lanczos,format=yuv420p','-r','24',
+             '-c:v','libx264','-preset','veryfast','-crf','19','-threads','1','-filter_threads','1','-filter_complex_threads','1',
+             '-x264-params','threads=1:lookahead-threads=1','-profile:v','high','-level','4.2',
+             '-c:a','aac','-b:a','128k','-movflags','+faststart','-shortest',str(out)],300)
     for p in scene_files:
         try: p.unlink()
         except Exception: pass
