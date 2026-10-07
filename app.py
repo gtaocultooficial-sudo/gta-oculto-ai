@@ -22,7 +22,7 @@ WORK.mkdir(exist_ok=True)
 STATE_FILE = WORK / 'jobs.json'
 LOCK = threading.RLock()
 PROCESSING = False
-UA = 'GTA-Oculto-AI/Cloud-Final/1.0'
+UA = 'GTA-Oculto-AI/Cloud-Final/1.1'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
@@ -585,12 +585,9 @@ def prepare_scene(src,dst,caption,idx,total):
     max_l=max(0,nw-W); max_t=max(0,nh-H)
     x=int(max_l*((idx*0.23)%1.0)); y=int(max_t*(0.28+0.44*((idx*0.37)%1.0)))
     im=im.crop((x,y,x+W,y+H))
-    ov=Image.new('RGBA',(W,H),(0,0,0,0)); od=ImageDraw.Draw(ov)
-    od.rectangle((0,0,W,42),fill=(0,0,0,120))
-    od.text((12,10),'GTA OCULTO',font=font(15,True),fill='white')
-    im=Image.alpha_composite(im.convert('RGBA'),ov).convert('RGB')
+    # Branding is added only in the final timeline, as a watermark.
     im.save(dst,quality=84,optimize=True)
-    im.close(); ov.close()
+    im.close()
 
 
 def run_cmd(cmd,timeout=240):
@@ -760,34 +757,43 @@ def select_video_clips(videos,title,count=5):
 
 
 def _caption_overlay(path,caption,idx,total,W=320,H=568,highlight=None):
-    """Shorts-style caption: compact phrase, highlighted keyword, crisp at scene resolution."""
+    """Editorial Shorts caption + discreet GTA OCULTO watermark.
+    The watermark is branding, never a headline. Captions stay short and content-led.
+    """
     im=Image.new('RGBA',(W,H),(0,0,0,0)); d=ImageDraw.Draw(im)
-    # subtle brand bar
-    d.rectangle((0,0,W,46),fill=(0,0,0,120))
-    d.text((14,11),'GTA OCULTO',font=font(16,True),fill='white')
-    f=font(25,True)
+
+    # --- GTA OCULTO watermark: small, fixed, low-opacity, bottom-right ---
+    wm=font(11,True)
+    wm_text='GTA OCULTO'
+    wb=d.textbbox((0,0),wm_text,font=wm)
+    wx=W-(wb[2]-wb[0])-12; wy=H-(wb[3]-wb[1])-13
+    d.rounded_rectangle((wx-7,wy-4,wx+(wb[2]-wb[0])+7,wy+(wb[3]-wb[1])+4),radius=6,fill=(0,0,0,75))
+    d.text((wx,wy),wm_text,font=wm,fill=(255,255,255,105))
+
+    f=font(24,True)
     text=re.sub(r'\s+',' ',str(caption)).strip().upper()
     words=text.split()
-    # Keep captions punchy: maximum two lines.
     lines=[]; cur=''
     for w in words:
         test=(cur+' '+w).strip()
-        if d.textbbox((0,0),test,font=f)[2] <= W-48:
+        if d.textbbox((0,0),test,font=f,stroke_width=1)[2] <= W-40:
             cur=test
         else:
             if cur: lines.append(cur)
             cur=w
     if cur: lines.append(cur)
     lines=lines[:2]
-    if not lines: return im.save(path)
-    line_h=34
-    box_h=24+len(lines)*line_h
-    y=H-box_h-54
-    d.rounded_rectangle((16,y,W-16,H-54),radius=16,fill=(4,7,12,225),outline=(225,30,48,235),width=2)
-    yy=y+10
+    if not lines:
+        im.save(path); return
+
+    # Caption sits above the lower safe area and watermark, with a cleaner pill.
+    line_h=30
+    box_h=22+len(lines)*line_h
+    y=H-box_h-45
+    d.rounded_rectangle((18,y,W-18,H-45),radius=13,fill=(3,5,9,205),outline=(225,30,48,220),width=1)
+    yy=y+8
     hi=(str(highlight or '').upper()).strip()
     for line in lines:
-        # Center the whole line; highlight one important word if present.
         parts=line.split()
         if hi and hi in parts:
             widths=[d.textlength(w,font=f) for w in parts]
@@ -795,74 +801,93 @@ def _caption_overlay(path,caption,idx,total,W=320,H=568,highlight=None):
             totalw=sum(widths)+spaces*(len(parts)-1)
             x=(W-totalw)/2
             for w,ww in zip(parts,widths):
-                fill=(255,45,60) if w==hi else 'white'
-                d.text((x,yy),w,font=f,fill=fill,stroke_width=2,stroke_fill='black')
+                fill=(255,52,68,255) if w==hi else (255,255,255,255)
+                d.text((x,yy),w,font=f,fill=fill,stroke_width=1,stroke_fill=(0,0,0,220))
                 x += ww+spaces
         else:
-            bb=d.textbbox((0,0),line,font=f,stroke_width=2)
+            bb=d.textbbox((0,0),line,font=f,stroke_width=1)
             x=(W-(bb[2]-bb[0]))/2
-            d.text((x,yy),line,font=f,fill='white',stroke_width=2,stroke_fill='black')
+            d.text((x,yy),line,font=f,fill='white',stroke_width=1,stroke_fill=(0,0,0,220))
         yy += line_h
     im.save(path)
 
 def build_short_timeline(script, topic, duration, count=10):
-    """Split narration into short, punchy caption beats with proportional timing.
-    Timing is estimated from word count because Edge-TTS does not expose word
-    timestamps in this pipeline.
+    """Build editorial captions from the actual story instead of generic subtitles.
+    Each beat is a short idea: hook -> evidence/detail -> implication -> payoff.
     """
     narration=str(script.get('narration','')).strip()
+    title=str(topic.get('title','GTA 6')).strip()
+    kind=script.get('content_type','CURIOSIDADE')
     words=re.findall(r"[A-Za-zÀ-ÿ0-9']+", narration)
     if not words:
         return [{'text':'GTA 6','duration':duration,'highlight':'GTA'}]
-    # 3-5 words per beat; prefer natural sentence boundaries.
-    raw=[]
-    sentences=[s.strip() for s in re.split(r'(?<=[.!?])\s+', narration) if s.strip()]
+
+    stop={'a','o','e','de','do','da','em','no','na','que','um','uma','os','as','isso','para','com','por','mais','mas','como','esse','essa','este','esta','se','já','só','não','nao','até','ate','foi','ser','são','sao'}
+    sentences=[s.strip(' .!?') for s in re.split(r'[.!?]+',narration) if len(s.strip())>8]
+
+    hooks={
+        'RUMOR':'⚠️ ISSO AINDA NÃO FOI CONFIRMADO',
+        'MISTÉRIO':'👁️ ESSE DETALHE PODE SER IMPORTANTE',
+        'NOTÍCIA':'🚨 A ROCKSTAR REVELOU ISSO',
+        'CURIOSIDADE':'😳 VOCÊ PERCEBEU ESSE DETALHE?'
+    }
+    endings={
+        'RUMOR':'RUMOR OU PISTA REAL?',
+        'MISTÉRIO':'E SE ISSO NÃO FOR COINCIDÊNCIA?',
+        'NOTÍCIA':'O QUE ISSO MUDA NO GTA 6?',
+        'CURIOSIDADE':'VOCÊ JÁ TINHA PERCEBIDO?'
+    }
+
+    beats=[]
+    beats.append({'text':hooks.get(kind,hooks['CURIOSIDADE']),'highlight':None})
+
+    # Use title as the first factual anchor, but turn it into a compact editorial phrase.
+    title_words=[w for w in re.findall(r"[A-Za-zÀ-ÿ0-9']+",title) if w.lower() not in stop]
+    if title_words:
+        # Prefer named entities and the strongest nouns.
+        key=[w for w in title_words if w.lower() in {'gta','gta6','vi','leonida','jason','lucia','rockstar','vice','city','mapa','história','historia','detalhe'}]
+        chosen=(key+[w for w in title_words if w not in key])[:5]
+        beats.append({'text':' '.join(chosen).upper(),'highlight':(chosen[-1] if chosen else None).upper()})
+
+    # Convert each narration sentence into an editorial punchline, not a transcript.
     for sent in sentences:
-        sw=re.findall(r"[A-Za-zÀ-ÿ0-9']+", sent)
-        for i in range(0,len(sw),4):
-            chunk=sw[i:i+4]
-            if chunk: raw.append(chunk)
-    # Merge tiny tail chunks so the screen does not flash a 1-word caption.
-    merged=[]
-    for ch in raw:
-        if merged and len(ch)<2:
-            merged[-1].extend(ch)
-        else:
-            merged.append(ch)
-    if len(merged)>count:
-        # Re-chunk globally to keep the number of cuts predictable.
-        merged=[]
-        step=max(3,math.ceil(len(words)/count))
+        sw=re.findall(r"[A-Za-zÀ-ÿ0-9']+",sent)
+        meaningful=[w for w in sw if w.lower() not in stop and len(w)>3]
+        if len(meaningful)<2: continue
+        # Keep the strongest 3-5 words; preserve names when present.
+        preferred=[w for w in meaningful if w.lower() in {'rockstar','gta','gta6','jason','lucia','leonida','vice','city','detalhe','história','historia','confirmado','confirmou','rumor','teoria','mapa','mundo'}]
+        chosen=[]
+        for w in preferred+meaningful:
+            if w not in chosen: chosen.append(w)
+            if len(chosen)>=5: break
+        text=' '.join(chosen).upper()
+        if text and text not in [b['text'] for b in beats]:
+            hi=(preferred[0] if preferred else chosen[-1]).upper()
+            beats.append({'text':text,'highlight':hi})
+        if len(beats)>=count-1: break
+
+    beats.append({'text':endings.get(kind,endings['CURIOSIDADE']),'highlight':None})
+    beats=beats[:count]
+
+    # Split overly sparse timelines using narration chunks only as a fallback.
+    if len(beats)<5:
+        chunks=[]
+        step=max(4,math.ceil(len(words)/max(4,count)))
         for i in range(0,len(words),step):
-            merged.append(words[i:i+step])
-    merged=merged[:count]
-    # If too few beats, split long ones.
-    while len(merged)<min(count,8) and any(len(x)>=7 for x in merged):
-        i=max(range(len(merged)),key=lambda j:len(merged[j]))
-        x=merged.pop(i); mid=max(3,len(x)//2)
-        merged.insert(i,x[:mid]); merged.insert(i+1,x[mid:])
-    # Proportional durations with sane visual rhythm.
-    weights=[max(2,len(x)) for x in merged]
-    total_w=sum(weights)
-    durations=[duration*w/total_w for w in weights]
-    # Clamp to 1.7-3.8s, then normalize a few times.
+            ch=[w for w in words[i:i+step] if w.lower() not in stop]
+            if ch: chunks.append(' '.join(ch[:5]).upper())
+        for c in chunks:
+            if len(beats)>=count: break
+            if c not in [b['text'] for b in beats]: beats.insert(-1,{'text':c,'highlight':c.split()[-1]})
+
+    beats=beats[:count]
+    weights=[max(2,len(re.findall(r"\w+",b['text']))) for b in beats]
+    durations=[duration*w/sum(weights) for w in weights]
     for _ in range(4):
-        durations=[max(1.7,min(3.8,d)) for d in durations]
+        durations=[max(1.6,min(4.0,d)) for d in durations]
         scale=duration/sum(durations)
         durations=[d*scale for d in durations]
-    kind=script.get('content_type','CURIOSIDADE')
-    stop={'a','o','e','de','do','da','em','no','na','que','um','uma','os','as','isso','para','com','por','mais','mas','como','esse','essa','este','esta'}
-    beats=[]
-    for ch,dur in zip(merged,durations):
-        txt=' '.join(ch).upper()
-        meaningful=[w for w in ch if w.lower() not in stop and len(w)>3]
-        highlight=(meaningful[-1] if meaningful else ch[-1]).upper()
-        beats.append({'text':txt,'duration':dur,'highlight':highlight})
-    # Stronger first beat for the hook.
-    if beats:
-        opener={'RUMOR':'⚠️ RUMOR OU PISTA REAL?','MISTÉRIO':'👁️ OLHA ESSE DETALHE','NOTÍCIA':'🚨 A ROCKSTAR CONFIRMOU','CURIOSIDADE':'😳 VOCÊ PERCEBEU?'}
-        beats[0]['text']=opener.get(kind,'😳 VOCÊ PERCEBEU?')
-        beats[0]['highlight']=None
+    for b,d in zip(beats,durations): b['duration']=d
     return beats
 
 def _beat_keywords(text, topic_title):
@@ -993,7 +1018,7 @@ def make_cover(scene,title,out):
     f=font(72,True); y=610
     for line in wrap_text(d,title,f,880)[:6]:
         d.text((100,y),line,font=f,fill='white',stroke_width=2,stroke_fill='black'); y+=88
-    d.text((100,120),'GTA OCULTO',font=font(42,True),fill='white')
+    d.text((100,120),'GTA OCULTO',font=font(30,True),fill=(255,255,255,180))
     im.save(out,quality=92)
 
 def evaluate(script,duration,scene_count,visual_quality,beats=None,video_count=0,image_count=0):
