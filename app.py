@@ -182,12 +182,13 @@ def _normalize_topic_text(text):
     text=re.sub(r'https?://\S+',' ',text)
     # Remove generic editorial words so the clustering compares the actual subject.
     stop={
-        'gta','gta6','gta','vi','grand','theft','auto','rockstar','games','game',
-        'confirma','confirmou','revela','revelou','anuncia','anunciou','explica',
+        'gta','gta6','vi','grand','theft','auto','rockstar','games','game',
+        'confirma','confirmou','confirm','revela','revelou','revel','anuncia','anunciou','anuncia',
         'novo','nova','novas','novos','detalhes','detalhe','segundo','sobre',
-        'pode','ser','será','vai','agora','ainda','já','ja','que','para','com','como',
+        'pode','ser','será','sera','vai','agora','ainda','já','ja','que','para','com','como',
         'de','da','do','das','dos','em','no','na','nos','nas','e','ou','um','uma',
-        'os','as','o','a','por','mais','se','ao','aos','é','e','the','of','and','to'
+        'os','as','o','a','por','mais','se','ao','aos','é','the','of','and','to','this','that',
+        'afirma','afirmam','explica','explicou','revela','revelou','mostra','mostrou','sobre'
     }
     words=[]
     for w in re.findall(r'[a-z0-9à-ÿ]{3,}',text):
@@ -195,11 +196,54 @@ def _normalize_topic_text(text):
     return words
 
 
+def _topic_concepts(text):
+    """Extrai conceitos editoriais fortes para agrupar manchetes diferentes sobre a mesma pauta."""
+    t=(text or '').lower()
+    concepts=[]
+    aliases={
+        'cloud-gaming': ('cloud gaming','xbox cloud','streaming','jogar na nuvem','jogos na nuvem'),
+        'moral-relacionamentos': ('sistema de moral','sistema de relacionamento','relacionamento','moral','amizade','romance'),
+        'discord-parceria': ('discord','parceria com discord'),
+        '35-novidades': ('35 novidades','35 novos','35 recursos','35 detalhes'),
+        'mapa-tamanho': ('tamanho do mapa','mapa de gta 6','mapa gta 6','maior que'),
+        'jason-lucia': ('jason','lucia'),
+        'vice-city': ('vice city','miami'),
+        'leonida': ('leonida',),
+        'trailer': ('trailer','extended look','teaser'),
+        'pre-venda': ('pré-venda','pre-venda','pre order','pre-order','preorder'),
+        'album': ('álbum','album','trilha sonora','soundtrack'),
+        'lancamento': ('lançamento','release date','data de lançamento','novembro 19','19 de novembro'),
+        'vazamento': ('vazamento','vazou','leak','leaked'),
+        'pc': ('pc','computador'),
+        'xbox': ('xbox',),
+        'ps5': ('ps5','playstation 5','playstation'),
+        'gameplay-realismo': ('realismo na gameplay','realismo','gameplay','jogabilidade'),
+    }
+    for name, terms in aliases.items():
+        if any(term in t for term in terms): concepts.append(name)
+    return concepts
+
+
+def _topic_signature(text):
+    """Assinatura compacta usada para deduplicação e agrupamento editorial."""
+    words=set(_normalize_topic_text(text))
+    concepts=set(_topic_concepts(text))
+    # Conceitos fortes têm prioridade; palavras relevantes complementam a assinatura.
+    return concepts, words
+
+
 def _topic_similarity(a,b):
-    sa=set(_normalize_topic_text(a))
-    sb=set(_normalize_topic_text(b))
-    if not sa or not sb: return 0.0
-    return len(sa & sb)/max(1,len(sa | sb))
+    ca,wa=_topic_signature(a)
+    cb,wb=_topic_signature(b)
+    if ca and cb:
+        inter=len(ca & cb)
+        union=max(1,len(ca | cb))
+        concept_sim=inter/union
+        if concept_sim >= 0.5: return max(0.72,concept_sim)
+        # A mesma entidade forte (ex.: cloud-gaming) já é uma pista relevante.
+        if ca & cb: return 0.58
+    if not wa or not wb: return 0.0
+    return len(wa & wb)/max(1,len(wa | wb))
 
 
 def _classify_content(title):
@@ -232,7 +276,7 @@ def _clickbait_penalty(title):
     return min(8,penalty)
 
 
-def _radar_score(item, duplicate_count=1, source_count=1):
+def _radar_score(item, duplicate_count=1, source_count=1, concept_count=1):
     title=item.get('title','')
     dt=_parse_pubdate(item.get('published',''))
     age_hours=999
@@ -242,12 +286,12 @@ def _radar_score(item, duplicate_count=1, source_count=1):
     title_low=title.lower()
     keyword_bonus=sum(v for k,v in RADAR_KEYWORDS.items() if k in title_low)
     trust=_source_trust(item.get('source',''))
-    mentions=min(14,max(0,(duplicate_count-1)*4))
-    diversity=min(8,max(0,(source_count-1)*3))
+    mentions=min(12,max(0,(duplicate_count-1)*3))
+    diversity=min(12,max(0,(source_count-1)*5))
+    concept_bonus=min(6,max(0,(concept_count-1)*2))
     content_bonus=5 if _classify_content(title) in ('NOTÍCIA','MISTÉRIO') else 3
     penalty=_clickbait_penalty(title)
-    # Editorial score: recency + relevance + source quality + independent confirmation.
-    raw=recency+min(22,keyword_bonus)+trust+mentions+diversity+content_bonus-penalty
+    raw=recency+min(20,keyword_bonus)+trust+mentions+diversity+concept_bonus+content_bonus-penalty
     return int(min(99,max(35,raw)))
 
 
@@ -257,19 +301,31 @@ def _make_radar_title(headline):
 
 
 def _merge_radar_candidates(items):
+    """Agrupa notícias da mesma pauta mesmo quando as manchetes usam palavras diferentes."""
     groups=[]
     for item in items:
         placed=False
         for group in groups:
-            # A high similarity means the sources are reporting the same story.
-            if max(_topic_similarity(item.get('title',''), x.get('title','')) for x in group) >= 0.48:
+            similarities=[_topic_similarity(item.get('title',''), x.get('title','')) for x in group]
+            best_similarity=max(similarities) if similarities else 0
+            if best_similarity >= 0.55:
                 group.append(item); placed=True; break
         if not placed: groups.append([item])
     return groups
 
 
+def _dedupe_group(group):
+    """Remove a mesma matéria repetida pelo RSS sem perder fontes independentes."""
+    out=[]; seen=set()
+    for item in group:
+        key=(str(item.get('url','')).split('?')[0].rstrip('/').lower() or re.sub(r'\W+',' ',item.get('title','').lower()).strip())
+        if key in seen: continue
+        seen.add(key); out.append(item)
+    return out
+
+
 def radar_scan():
-    """Radar V26.1: coleta, agrupa, valida e pontua oportunidades GTA VI com fontes públicas gratuitas."""
+    """Radar V26.2: coleta, agrupa por pauta, verifica diversidade e pontua oportunidades GTA VI."""
     raw=[]
     for name,url in RADAR_FEEDS:
         raw.extend(_parse_rss(url,name))
@@ -285,37 +341,48 @@ def radar_scan():
         pass
 
     allowed=('gta 6','gta vi','grand theft auto vi','rockstar games','rockstar','vice city','leonida','jason','lucia')
-    filtered=[]
-    seen_urls=set()
+    filtered=[]; seen_urls=set()
     for x in raw:
-        title=x.get('title','').strip()
-        url=x.get('url','').strip()
-        if not title or url in seen_urls: continue
+        title=x.get('title','').strip(); url=x.get('url','').strip()
+        if not title: continue
+        url_key=url.split('?')[0].rstrip('/').lower()
+        if url_key and url_key in seen_urls: continue
         if any(k in title.lower() for k in allowed):
-            filtered.append(x); seen_urls.add(url)
+            filtered.append(x)
+            if url_key: seen_urls.add(url_key)
 
-    groups=_merge_radar_candidates(filtered)
+    groups=[_dedupe_group(g) for g in _merge_radar_candidates(filtered)]
     ranked=[]
     for group in groups:
-        sources={str(x.get('source','')).strip().lower() for x in group if x.get('source')}
-        best=max(group,key=lambda x:_radar_score(x,len(group),len(sources)))
-        score=_radar_score(best,len(group),len(sources))
+        if not group: continue
+        source_names={str(x.get('source','')).strip().lower() for x in group if x.get('source')}
+        concepts=set()
+        for x in group: concepts.update(_topic_concepts(x.get('title','')))
+        # Prefere a fonte mais confiável e a manchete mais recente dentro da pauta.
+        best=max(group,key=lambda x:_radar_score(x,len(group),len(source_names),len(concepts)))
+        score=_radar_score(best,len(group),len(source_names),len(concepts))
         typ=_classify_content(best.get('title',''))
-        # Confidence is different from viral potential: it rewards independent confirmation.
-        confidence=min(99,45 + min(25,(len(group)-1)*8) + min(20,(len(sources)-1)*10) + (10 if best.get('source')=='Rockstar Games' else 0))
+        independent=max(0,len(source_names)-1)
+        confidence=min(99,48 + min(24,(len(group)-1)*6) + min(20,independent*10) + (10 if best.get('source')=='Rockstar Games' else 0))
         if typ=='RUMOR': confidence=max(25,confidence-18)
-        # Keep the radar clean: weak, old and unconfirmed items are not opportunities.
-        if score<52 and best.get('source')!='Rockstar Games': continue
-        if confidence<38 and score<70: continue
         if best.get('source')=='Rockstar Games': confidence=max(confidence,85)
-        status='PRODUZIR' if score>=70 and confidence>=55 else 'OBSERVAR'
+
+        # Assuntos com uma única fonte e linguagem especulativa ficam em observação.
+        speculative=any(k in best.get('title','').lower() for k in ('acredita','pode ser','poderá','seria','talvez','suposto','vazamento','rumor'))
+        if speculative and len(source_names)<2: confidence=min(confidence,62)
+        status='PRODUZIR' if score>=68 and confidence>=55 else 'OBSERVAR'
         if score>=82 and confidence>=70: status='PRODUZIR AGORA'
+        if speculative and len(source_names)<2: status='OBSERVAR'
+
         reason=[]
-        if len(group)>=2: reason.append(f'{len(group)} fontes')
-        if len(sources)>=2: reason.append('confirmação cruzada')
-        if _parse_pubdate(best.get('published','')) and score>=70: reason.append('recente')
+        if len(group)>=2: reason.append(f'{len(group)} matérias')
+        if len(source_names)>=2: reason.append(f'{len(source_names)} fontes')
+        if independent>=1: reason.append('confirmação cruzada')
+        if _parse_pubdate(best.get('published','')) and score>=68: reason.append('recente')
         if best.get('source')=='Rockstar Games': reason.append('fonte oficial')
         if typ=='RUMOR': reason.append('tratar como rumor')
+        if speculative and len(source_names)<2: reason.append('não confirmado')
+
         ranked.append({
             'id':'radar-'+uuid.uuid4().hex[:8],
             'score':score,
@@ -326,18 +393,20 @@ def radar_scan():
             'url':best['url'],
             'published':best.get('published',''),
             'mentions':len(group),
-            'source_count':len(sources),
+            'source_count':len(source_names),
             'confidence':confidence,
             'content_type':typ,
             'reason':', '.join(reason) or 'relevância editorial',
-            'description':best.get('description',''),'radar':True
+            'concepts':sorted(concepts)[:8],
+            'description':best.get('description',''),
+            'radar':True
         })
 
-    ranked.sort(key=lambda x:(x['score'],x.get('confidence',0),x.get('mentions',1)),reverse=True)
+    ranked.sort(key=lambda x:(x['score'],x.get('confidence',0),x.get('source_count',0),x.get('mentions',1)),reverse=True)
     if not ranked:
         ranked=[dict(x,radar=False,status='PRODUZIR',confidence=70,reason='fallback editorial') for x in FALLBACK_TOPICS]
     else:
-        # Fallbacks only fill the radar when public sources return too few items.
+        # Fallbacks só completam a lista se a coleta pública trouxer poucas pautas distintas.
         for f in FALLBACK_TOPICS:
             if len(ranked)>=10: break
             ranked.append(dict(f,radar=False,status='OBSERVAR',confidence=65,reason='fallback editorial'))
@@ -1382,7 +1451,7 @@ def processor_loop():
 @APP.get('/')
 def home(): return render_template_string(PAGE)
 @APP.get('/health')
-def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V26.1-RADAR-INTELIGENTE',processor='cloud')
+def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V26.2-CLUSTER-VERIFICACAO',processor='cloud')
 @APP.get('/api/state')
 def state():
     with LOCK:
