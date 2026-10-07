@@ -118,14 +118,87 @@ def choose_topic(data,topics):
     return max(topics,key=lambda x:x['score'])
 
 def make_script(topic):
-    title=topic['title'].lower()
-    if 'jason' in title:
-        text='Você reparou nisso em GTA 6? A Rockstar já confirmou oficialmente Jason e Lucia como o centro da história. Mas o detalhe mais importante é que os problemas dos dois não ficam presos a Vice City. A própria Rockstar descreve uma conspiração que se espalha por todo o estado de Leonida. Isso abre espaço para muito mais histórias, personagens e segredos pelo mapa. E se algumas pistas já estiverem nos detalhes que vimos?'
-    elif 'leonida' in title:
-        text='A Rockstar pode ter escondido uma pista importante em GTA 6. Ela não apresentou apenas uma nova Vice City. A história de Jason e Lucia está ligada a uma conspiração que se estende por todo o estado de Leonida. Isso significa que o mapa pode esconder muito mais do que a cidade principal. Cada região pode carregar pistas, personagens e acontecimentos que ainda não foram revelados. E se a Rockstar já estiver mostrando essas pistas sem a gente perceber?'
+    """Cria roteiro adaptado ao assunto, sem reutilizar um roteiro fixo."""
+    title=str(topic.get('title','GTA 6')).strip()
+    t=title.lower()
+    if any(k in t for k in ('rumor','leak','vazamento','suposto')):
+        kind='RUMOR'
+    elif any(k in t for k in ('teoria','theory','pista','mistério','misterio','segredo','detalhe','escond')):
+        kind='MISTÉRIO'
+    elif any(k in t for k in ('confirm','revel','anunci','news','notícia','noticia','atualização','update')):
+        kind='NOTÍCIA'
     else:
-        text='GTA 6 pode estar mostrando muito mais do que parece. Nos materiais oficiais, a Rockstar apresenta Vice City, Jason, Lucia e um estado inteiro chamado Leonida. O detalhe interessante é que a história não fica limitada à cidade. A escala do mapa cria espaço para pistas, personagens e acontecimentos espalhados por diferentes regiões. Então fica a pergunta: qual detalhe a Rockstar mostrou e quase ninguém percebeu?'
-    return {'title':topic['title'],'narration':text,'source':topic['url'],'source_name':topic['source']}
+        kind='CURIOSIDADE'
+
+    if kind=='RUMOR':
+        narration=(f'Existe uma informação circulando sobre GTA 6 que chamou atenção: {title}. '
+        'Mas existe uma diferença importante entre rumor e confirmação oficial. '
+        'Até aqui, o que podemos tratar como fato é apenas o que foi apresentado ou confirmado pela Rockstar. '
+        'O restante precisa ser analisado com cuidado. Mesmo assim, o detalhe mais curioso dessa história é o que ele pode significar para o jogo. '
+        'Se essa informação se confirmar, ela pode mudar a forma como enxergamos GTA 6. Você acha que isso faz sentido ou é só mais um rumor?')
+    elif kind=='MISTÉRIO':
+        narration=(f'Existe um detalhe em GTA 6 que merece muito mais atenção: {title}. '
+        'A Rockstar costuma esconder informações importantes nos próprios materiais do jogo, e esse ponto pode ter passado despercebido. '
+        'O mais interessante é que ele pode se conectar com outros elementos já apresentados oficialmente. '
+        'Isso não prova uma teoria, mas cria uma possibilidade muito curiosa. '
+        'E se esse detalhe estiver apontando para algo maior dentro de Leonida? Qual é a sua teoria?')
+    elif kind=='NOTÍCIA':
+        narration=(f'A Rockstar trouxe uma novidade que merece atenção em GTA 6: {title}. '
+        'O ponto mais importante é entender exatamente o que foi confirmado e o que ainda é interpretação. '
+        'Essa informação ajuda a revelar como a Rockstar está construindo o mundo de GTA 6 e pode ter impacto em personagens, mapa ou gameplay. '
+        'E existe um detalhe nessa novidade que pode ter passado despercebido. Agora fica a pergunta: o que essa informação pode significar para GTA 6?')
+    else:
+        narration=(f'Você reparou neste detalhe de GTA 6? {title}. '
+        'À primeira vista parece apenas mais uma informação sobre o jogo, mas existe algo interessante por trás disso. '
+        'Quando juntamos esse detalhe com o que a Rockstar já mostrou oficialmente, surgem novas possibilidades para o mundo de Leonida. '
+        'Não significa que uma teoria esteja confirmada, mas é exatamente esse tipo de detalhe que faz GTA 6 gerar tanta discussão. Você tinha percebido isso?')
+
+    return {'title':title,'narration':narration,'source':topic.get('url',ROCKSTAR_VI),
+            'source_name':topic.get('source','Pesquisa editorial'),'content_type':kind}
+
+
+def build_dynamic_captions(script, topic, count=9):
+    """Cria textos de tela a partir do assunto e do roteiro, variando por conteúdo."""
+    narration=str(script.get('narration','')).strip()
+    title=str(topic.get('title','')).strip()
+    kind=script.get('content_type','CURIOSIDADE')
+    openers={
+        'RUMOR':'⚠️ ISSO AINDA NÃO FOI CONFIRMADO',
+        'MISTÉRIO':'👁️ NINGUÉM ESTÁ FALANDO DESSE DETALHE',
+        'NOTÍCIA':'🚨 A ROCKSTAR ACABOU DE REVELAR ISSO',
+        'CURIOSIDADE':'😳 VOCÊ PERCEBEU ESSE DETALHE?'
+    }
+    endings={
+        'RUMOR':'RUMOR OU PISTA REAL?',
+        'MISTÉRIO':'E SE ISSO NÃO FOR COINCIDÊNCIA?',
+        'NOTÍCIA':'O QUE ISSO MUDA NO GTA 6?',
+        'CURIOSIDADE':'VOCÊ JÁ TINHA PERCEBIDO?'
+    }
+    caps=[openers.get(kind,openers['CURIOSIDADE'])]
+    title_words=[w for w in re.findall(r"[A-Za-zÀ-ÿ0-9']+",title) if len(w)>=4]
+    if title_words:
+        caps.append(' '.join(title_words[:5]).upper())
+    stop={'a','o','e','de','do','da','em','no','na','que','um','uma','os','as','isso','para','com','por','mais','mas','como','esse','essa'}
+    sentences=[s.strip(' .!?') for s in re.split(r'[.!?]+',narration) if len(s.strip())>8]
+    for s in sentences:
+        words=re.findall(r"[A-Za-zÀ-ÿ0-9']+",s)
+        meaningful=[w for w in words if w.lower() not in stop]
+        if len(meaningful)>=2:
+            phrase=' '.join(meaningful[:5]).upper()
+            if phrase not in caps:
+                caps.append(phrase)
+        if len(caps)>=count-1:
+            break
+    caps.append(endings.get(kind,endings['CURIOSIDADE']))
+    out=[]; seen=set()
+    for c in caps:
+        c=re.sub(r'\s+',' ',c).strip()
+        if c and c not in seen:
+            seen.add(c); out.append(c)
+    while len(out)<count:
+        out.append(out[-1])
+    return out[:count]
+
 
 def wrap_text(draw,text,f,max_width):
     lines=[]; cur=''
@@ -296,14 +369,86 @@ def choose_topic(data,topics):
 
 
 def make_script(topic):
-    title=topic['title'].lower()
-    if 'jason' in title:
-        text='Você reparou nisso em GTA 6? A Rockstar já confirmou oficialmente Jason e Lucia como o centro da história. Mas o detalhe mais importante é que os problemas dos dois não ficam presos a Vice City. A própria Rockstar descreve uma conspiração que se espalha por todo o estado de Leonida. Isso abre espaço para muito mais histórias, personagens e segredos pelo mapa. E se algumas pistas já estiverem nos detalhes que vimos?'
-    elif 'leonida' in title:
-        text='A Rockstar pode ter escondido uma pista importante em GTA 6. Ela não apresentou apenas uma nova Vice City. A história de Jason e Lucia está ligada a uma conspiração que se estende por todo o estado de Leonida. Isso significa que o mapa pode esconder muito mais do que a cidade principal. Cada região pode carregar pistas, personagens e acontecimentos que ainda não foram revelados. E se a Rockstar já estiver mostrando essas pistas sem a gente perceber?'
+    """Cria roteiro adaptado ao assunto, sem reutilizar um roteiro fixo."""
+    title=str(topic.get('title','GTA 6')).strip()
+    t=title.lower()
+    if any(k in t for k in ('rumor','leak','vazamento','suposto')):
+        kind='RUMOR'
+    elif any(k in t for k in ('teoria','theory','pista','mistério','misterio','segredo','detalhe','escond')):
+        kind='MISTÉRIO'
+    elif any(k in t for k in ('confirm','revel','anunci','news','notícia','noticia','atualização','update')):
+        kind='NOTÍCIA'
     else:
-        text='GTA 6 pode estar mostrando muito mais do que parece. Nos materiais oficiais, a Rockstar apresenta Vice City, Jason, Lucia e um estado inteiro chamado Leonida. O detalhe interessante é que a história não fica limitada à cidade. A escala do mapa cria espaço para pistas, personagens e acontecimentos espalhados por diferentes regiões. Então fica a pergunta: qual detalhe a Rockstar mostrou e quase ninguém percebeu?'
-    return {'title':topic['title'],'narration':text,'source':topic['url'],'source_name':topic['source']}
+        kind='CURIOSIDADE'
+
+    if kind=='RUMOR':
+        narration=(f'Existe uma informação circulando sobre GTA 6 que chamou atenção: {title}. '
+        'Mas existe uma diferença importante entre rumor e confirmação oficial. '
+        'Até aqui, o que podemos tratar como fato é apenas o que foi apresentado ou confirmado pela Rockstar. '
+        'O restante precisa ser analisado com cuidado. Mesmo assim, o detalhe mais curioso dessa história é o que ele pode significar para o jogo. '
+        'Se essa informação se confirmar, ela pode mudar a forma como enxergamos GTA 6. Você acha que isso faz sentido ou é só mais um rumor?')
+    elif kind=='MISTÉRIO':
+        narration=(f'Existe um detalhe em GTA 6 que merece muito mais atenção: {title}. '
+        'A Rockstar costuma esconder informações importantes nos próprios materiais do jogo, e esse ponto pode ter passado despercebido. '
+        'O mais interessante é que ele pode se conectar com outros elementos já apresentados oficialmente. '
+        'Isso não prova uma teoria, mas cria uma possibilidade muito curiosa. '
+        'E se esse detalhe estiver apontando para algo maior dentro de Leonida? Qual é a sua teoria?')
+    elif kind=='NOTÍCIA':
+        narration=(f'A Rockstar trouxe uma novidade que merece atenção em GTA 6: {title}. '
+        'O ponto mais importante é entender exatamente o que foi confirmado e o que ainda é interpretação. '
+        'Essa informação ajuda a revelar como a Rockstar está construindo o mundo de GTA 6 e pode ter impacto em personagens, mapa ou gameplay. '
+        'E existe um detalhe nessa novidade que pode ter passado despercebido. Agora fica a pergunta: o que essa informação pode significar para GTA 6?')
+    else:
+        narration=(f'Você reparou neste detalhe de GTA 6? {title}. '
+        'À primeira vista parece apenas mais uma informação sobre o jogo, mas existe algo interessante por trás disso. '
+        'Quando juntamos esse detalhe com o que a Rockstar já mostrou oficialmente, surgem novas possibilidades para o mundo de Leonida. '
+        'Não significa que uma teoria esteja confirmada, mas é exatamente esse tipo de detalhe que faz GTA 6 gerar tanta discussão. Você tinha percebido isso?')
+
+    return {'title':title,'narration':narration,'source':topic.get('url',ROCKSTAR_VI),
+            'source_name':topic.get('source','Pesquisa editorial'),'content_type':kind}
+
+
+def build_dynamic_captions(script, topic, count=9):
+    """Cria textos de tela a partir do assunto e do roteiro, variando por conteúdo."""
+    narration=str(script.get('narration','')).strip()
+    title=str(topic.get('title','')).strip()
+    kind=script.get('content_type','CURIOSIDADE')
+    openers={
+        'RUMOR':'⚠️ ISSO AINDA NÃO FOI CONFIRMADO',
+        'MISTÉRIO':'👁️ NINGUÉM ESTÁ FALANDO DESSE DETALHE',
+        'NOTÍCIA':'🚨 A ROCKSTAR ACABOU DE REVELAR ISSO',
+        'CURIOSIDADE':'😳 VOCÊ PERCEBEU ESSE DETALHE?'
+    }
+    endings={
+        'RUMOR':'RUMOR OU PISTA REAL?',
+        'MISTÉRIO':'E SE ISSO NÃO FOR COINCIDÊNCIA?',
+        'NOTÍCIA':'O QUE ISSO MUDA NO GTA 6?',
+        'CURIOSIDADE':'VOCÊ JÁ TINHA PERCEBIDO?'
+    }
+    caps=[openers.get(kind,openers['CURIOSIDADE'])]
+    title_words=[w for w in re.findall(r"[A-Za-zÀ-ÿ0-9']+",title) if len(w)>=4]
+    if title_words:
+        caps.append(' '.join(title_words[:5]).upper())
+    stop={'a','o','e','de','do','da','em','no','na','que','um','uma','os','as','isso','para','com','por','mais','mas','como','esse','essa'}
+    sentences=[s.strip(' .!?') for s in re.split(r'[.!?]+',narration) if len(s.strip())>8]
+    for s in sentences:
+        words=re.findall(r"[A-Za-zÀ-ÿ0-9']+",s)
+        meaningful=[w for w in words if w.lower() not in stop]
+        if len(meaningful)>=2:
+            phrase=' '.join(meaningful[:5]).upper()
+            if phrase not in caps:
+                caps.append(phrase)
+        if len(caps)>=count-1:
+            break
+    caps.append(endings.get(kind,endings['CURIOSIDADE']))
+    out=[]; seen=set()
+    for c in caps:
+        c=re.sub(r'\s+',' ',c).strip()
+        if c and c not in seen:
+            seen.add(c); out.append(c)
+    while len(out)<count:
+        out.append(out[-1])
+    return out[:count]
 
 
 def wrap_text(draw,text,f,max_width):
@@ -408,6 +553,8 @@ def prepare_scene(src,dst,caption,idx,total):
     x=int(max_l*((idx*0.23)%1.0)); y=int(max_t*(0.28+0.44*((idx*0.37)%1.0)))
     im=im.crop((x,y,x+W,y+H))
     ov=Image.new('RGBA',(W,H),(0,0,0,0)); od=ImageDraw.Draw(ov)
+    od.rectangle((0,0,W,42),fill=(0,0,0,120))
+    od.text((12,10),'GTA OCULTO',font=font(15,True),fill='white')
     im=Image.alpha_composite(im.convert('RGBA'),ov).convert('RGB')
     im.save(dst,quality=84,optimize=True)
     im.close(); ov.close()
@@ -612,77 +759,18 @@ def select_video_clips(videos,title,count=5):
 
 
 def _caption_overlay(path,caption,idx,total,W=240,H=426):
-    """Legenda editorial forte + marca-d'água discreta.
-    Sem título fixo no topo e sem contador de cena.
-    """
-    im=Image.new('RGBA',(W,H),(0,0,0,0))
-    d=ImageDraw.Draw(im)
-    text=str(caption).strip().upper()
-    words=text.split()
-
-    # Mantém a legenda curta e com impacto visual.
-    if len(words)>8:
-        chunks=[' '.join(words[i:i+4]) for i in range(0,len(words),4)][:2]
-    else:
-        chunks=wrap_text(d,text,font(20,True),W-42)[:2]
-
-    f=font(20,True)
-    line_h=25
-    box_h=24+len(chunks)*line_h
-    y=H-box_h-28
-
-    # Caixa cinematográfica escura com acento vermelho.
-    d.rounded_rectangle(
-        (12,y,W-12,y+box_h),
-        radius=12,
-        fill=(4,6,10,220),
-        outline=(230,30,48,190),
-        width=2
-    )
-
-    yy=y+9
-    stop={'A','O','E','DE','DO','DA','EM','NO','NA','QUE','UM','UMA',
-          'OS','AS','ISSO','PARA','COM','POR','SE','FOI','TEM'}
-
-    for line in chunks:
-        lw=line.split()
-
-        # Escolhe a palavra de maior impacto para receber o vermelho.
-        candidates=[]
-        for w in lw:
-            clean=re.sub(r'[^A-Z0-9ÁÉÍÓÚÃÕÇ]','',w)
-            if len(clean)>=5 and clean not in stop:
-                candidates.append(clean)
-        keyword=max(candidates,key=len) if candidates else None
-
-        x=22
-        for w in lw:
-            clean=re.sub(r'[^A-Z0-9ÁÉÍÓÚÃÕÇ]','',w)
-            is_key=keyword and clean==keyword
-            fill=(240,38,52,255) if is_key else (255,255,255,255)
-            d.text(
-                (x,yy),w,font=f,fill=fill,
-                stroke_width=2,stroke_fill=(0,0,0,235)
-            )
-            x=d.textbbox((x,yy),w+' ',font=f)[2]
-        yy += line_h
-
-    # Marca-d'água pequena e discreta, longe da legenda.
-    wm='GTA OCULTO'
-    wf=font(10,True)
-    bb=d.textbbox((0,0),wm,font=wf)
-    ww=bb[2]-bb[0]
-    wh=bb[3]-bb[1]
-    wx=W-ww-13
-    wy=H-wh-10
-    d.rounded_rectangle(
-        (wx-5,wy-3,W-8,H-7),
-        radius=5,
-        fill=(0,0,0,75)
-    )
-    d.text((wx,wy),wm,font=wf,fill=(255,255,255,110))
-
+    # Single clean overlay. No scene counter and no baked duplicate caption.
+    im=Image.new('RGBA',(W,H),(0,0,0,0)); d=ImageDraw.Draw(im)
+    d.rectangle((0,0,W,42),fill=(0,0,0,125))
+    d.text((12,10),'GTA OCULTO',font=font(15,True),fill='white')
+    f=font(18,True); lines=wrap_text(d,str(caption),f,W-34)[:3]
+    box_h=18+len(lines)*24; y=H-box_h-16
+    d.rounded_rectangle((10,y,W-10,H-16),radius=10,fill=(7,9,13,215),outline=(215,28,45),width=1)
+    yy=y+8
+    for line in lines:
+        d.text((17,yy),line,font=f,fill='white',stroke_width=1,stroke_fill='black'); yy+=24
     im.save(path)
+
 
 def _ffmpeg_text(s):
     return s.replace('\\','\\\\').replace(':','\\:').replace("'","\\'").replace('%','\\%').replace('\n',' ')
@@ -780,7 +868,7 @@ def produce_job(jid):
         jobdir=WORK/jid; jobdir.mkdir(parents=True,exist_ok=True)
         update_job(jid,script=script,stage='VISUAIS',progress=40,log='Baixando visuais oficiais e montando cenas verticais...')
         paths=download_visuals(urls,jobdir/'visuals',topic['title'])
-        caps=['A ROCKSTAR PODE TER ESCONDIDO ISSO.','JASON E LUCIA ESTÃO NO CENTRO DA HISTÓRIA.','MAS NÃO É SÓ VICE CITY.','LEONIDA PODE GUARDAR OUTRAS PISTAS.','O MAPA TEM DETALHES QUE MERECEM ATENÇÃO.','CADA REGIÃO PODE ESCONDER UMA HISTÓRIA.','A ROCKSTAR JÁ MOSTROU PARTE DESSE MUNDO.','MAS O QUE AINDA NÃO FOI REVELADO?','QUAL DETALHE VOCÊ PERCEBEU?']
+        caps=build_dynamic_captions(script, topic, 9)
         image_order=select_visuals(paths,topic['title'],3)
         image_scenes=[]
         for i,src in enumerate(image_order):
