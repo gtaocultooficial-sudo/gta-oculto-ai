@@ -1,6 +1,5 @@
-import struct
-import zlib
-import os, json, uuid, threading, time, asyncio, subprocess, shutil, re, sys, struct, math
+import struct, zlib
+import os, json, uuid, threading, time, asyncio, subprocess, shutil, re, sys, math
 from pathlib import Path
 from datetime import datetime, timezone
 from urllib.parse import urljoin
@@ -700,7 +699,7 @@ def download_official_video_clips(outdir, jid=None):
             if jid: update_job(jid,log=f'Baixando clipe oficial {i+1}/6: {Path(entry["name"]).stem}...')
             _remote_zip_extract(ROCKSTAR_VIDEO_ZIP,entry,raw)
             run_cmd([ff,'-loglevel','error','-y','-i',str(raw),'-t','5',
-                     '-vf','scale=320:569:force_original_aspect_ratio=increase,crop=320:569,setsar=1,fps=15',
+                     '-vf','scale=320:568:force_original_aspect_ratio=increase,crop=320:568,setsar=1,fps=15',
                      '-an','-c:v','libx264','-preset','ultrafast','-crf','29','-threads','1',
                      '-filter_threads','1','-filter_complex_threads','1','-x264-params','threads=1:lookahead-threads=1',
                      '-pix_fmt','yuv420p','-movflags','+faststart',str(target)],90)
@@ -728,7 +727,7 @@ def select_video_clips(videos,title,count=5):
 
 
 
-def _caption_overlay(path,caption,idx,total,W=320,H=569,highlight=None):
+def _caption_overlay(path,caption,idx,total,W=320,H=568,highlight=None):
     """Shorts-style caption: compact phrase, highlighted keyword, crisp at scene resolution."""
     im=Image.new('RGBA',(W,H),(0,0,0,0)); d=ImageDraw.Draw(im)
     # subtle brand bar
@@ -885,6 +884,11 @@ def _choose_timeline_assets(video_clips, image_paths, beats, topic_title):
     return chosen
 
 def make_multimedia_video(video_clips, image_paths, audio, out, duration, captions, script=None, topic_title='GTA 6'):
+    # FFmpeg/yuv420p requires even width/height. Keep the Render Free
+    # intermediate at an even 320x568 and upscale only at the final render.
+    INTER_W, INTER_H = 320, 568
+    if INTER_W % 2 or INTER_H % 2:
+        raise RuntimeError(f'Dimensões intermediárias inválidas: {INTER_W}x{INTER_H}.')
     """V25 editor: narration-driven timeline, 12 short beats, real clips + images.
     Still optimized for Render Free by encoding one scene at a time.
     """
@@ -904,12 +908,12 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
     scene_files=[]
     for i,(beat,(kind,src)) in enumerate(zip(beats,assets)):
         scene=work/f'scene_{i:02d}.mp4'; overlay=work/f'overlay_{i:02d}.png'
-        _caption_overlay(overlay,beat['text'],i,len(beats),320,569,beat.get('highlight'))
+        _caption_overlay(overlay,beat['text'],i,len(beats),320,568,beat.get('highlight'))
         if kind=='video':
-            vf='scale=320:569:force_original_aspect_ratio=increase,crop=320:569,setsar=1,fps=15'
+            vf='scale=320:568:force_original_aspect_ratio=increase,crop=320:568,setsar=1,fps=15'
             inp=['-stream_loop','-1','-i',str(src)]
         else:
-            vf="scale=320:569:force_original_aspect_ratio=increase,crop=320:569,setsar=1,zoompan=z='min(zoom+0.002,1.04)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=320x569:fps=15"
+            vf="scale=320:568:force_original_aspect_ratio=increase,crop=320:568,setsar=1,zoompan=z='min(zoom+0.002,1.04)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=320x568:fps=15"
             inp=['-loop','1','-i',str(src)]
         cmd=[ff,'-loglevel','error','-y']+inp+['-loop','1','-i',str(overlay),'-t',f'{beat["duration"]:.3f}',
              '-filter_complex',f'[0:v]{vf}[v];[1:v]format=rgba[o];[v][o]overlay=0:0:shortest=1[outv]',
