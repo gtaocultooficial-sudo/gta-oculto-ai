@@ -788,7 +788,7 @@ def _caption_overlay(path,caption,idx,total,W=320,H=568,highlight=None):
     line_h=30
     box_h=22+len(lines)*line_h
     y=H-box_h-45
-    d.rounded_rectangle((18,y,W-18,H-45),radius=13,fill=(3,5,9,205),outline=(225,30,48,220),width=1)
+    d.rounded_rectangle((18,y,W-18,H-45),radius=13,fill=(3,5,9,210),outline=(255,255,255,70),width=1)
     yy=y+8
     hi=(str(highlight or '').upper()).strip()
     for line in lines:
@@ -809,19 +809,46 @@ def _caption_overlay(path,caption,idx,total,W=320,H=568,highlight=None):
         yy += line_h
     im.save(path)
 
+def _clean_caption_phrase(text):
+    text=re.sub(r"\s+", " ", str(text)).strip(" .!?,:;-")
+    text=re.sub(r"^(?:gta\s*6\s*[:\-]\s*)", "", text, flags=re.I)
+    return text.upper()
+
+
+def _caption_phrases_from_sentence(sentence, max_words=7):
+    """Keep contiguous natural phrases; never rebuild a caption from random keywords."""
+    s=re.sub(r"\s+", " ", sentence).strip(" .!?\n")
+    if not s:
+        return []
+    # Prefer clauses that already sound natural when spoken.
+    clauses=[c.strip(" ,:;-\")('") for c in re.split(r"\s*(?:[:;]|,\s+(?:mas|e|porque|então|entao|porém|porem|só que|e isso|o que))\s*", s, flags=re.I) if c.strip()]
+    if len(clauses)==1:
+        clauses=[c.strip() for c in re.split(r"\s+(?:e|mas|porque|quando|se|que)\s+", s, maxsplit=1, flags=re.I) if c.strip()]
+    out=[]
+    for clause in clauses:
+        words=clause.split()
+        if len(words)<=max_words:
+            out.append(_clean_caption_phrase(clause))
+        else:
+            # Split at a natural midpoint, preserving the original word order.
+            mid=len(words)//2
+            left=' '.join(words[:mid]); right=' '.join(words[mid:])
+            if len(left.split())>=3: out.append(_clean_caption_phrase(left))
+            if len(right.split())>=2: out.append(_clean_caption_phrase(right))
+    return [x for x in out if 2<=len(x.split())<=max_words]
+
+
 def build_short_timeline(script, topic, duration, count=10):
-    """Build editorial captions from the actual story instead of generic subtitles.
-    Each beat is a short idea: hook -> evidence/detail -> implication -> payoff.
+    """Create cinematic editorial captions from complete phrases in the narration.
+    V25.6 deliberately avoids the old keyword-scrambling behavior. Captions are
+    derived from contiguous spoken phrases, then shortened only at natural
+    punctuation/conjunction boundaries.
     """
     narration=str(script.get('narration','')).strip()
     title=str(topic.get('title','GTA 6')).strip()
     kind=script.get('content_type','CURIOSIDADE')
-    words=re.findall(r"[A-Za-zÀ-ÿ0-9']+", narration)
-    if not words:
+    if not narration:
         return [{'text':'GTA 6','duration':duration,'highlight':'GTA'}]
-
-    stop={'a','o','e','de','do','da','em','no','na','que','um','uma','os','as','isso','para','com','por','mais','mas','como','esse','essa','este','esta','se','já','só','não','nao','até','ate','foi','ser','são','sao'}
-    sentences=[s.strip(' .!?') for s in re.split(r'[.!?]+',narration) if len(s.strip())>8]
 
     hooks={
         'RUMOR':'⚠️ ISSO AINDA NÃO FOI CONFIRMADO',
@@ -836,56 +863,65 @@ def build_short_timeline(script, topic, duration, count=10):
         'CURIOSIDADE':'VOCÊ JÁ TINHA PERCEBIDO?'
     }
 
-    beats=[]
-    beats.append({'text':hooks.get(kind,hooks['CURIOSIDADE']),'highlight':None})
+    beats=[{'text':hooks.get(kind,hooks['CURIOSIDADE']),'highlight':None}]
 
-    # Use title as the first factual anchor, but turn it into a compact editorial phrase.
-    title_words=[w for w in re.findall(r"[A-Za-zÀ-ÿ0-9']+",title) if w.lower() not in stop]
-    if title_words:
-        # Prefer named entities and the strongest nouns.
-        key=[w for w in title_words if w.lower() in {'gta','gta6','vi','leonida','jason','lucia','rockstar','vice','city','mapa','história','historia','detalhe'}]
-        chosen=(key+[w for w in title_words if w not in key])[:5]
-        beats.append({'text':' '.join(chosen).upper(),'highlight':(chosen[-1] if chosen else None).upper()})
+    # The title becomes a factual second beat, preserving its natural wording.
+    title_clean=_clean_caption_phrase(title)
+    if title_clean:
+        if len(title_clean.split())>7:
+            tw=title_clean.split()
+            # Keep the most informative half without reordering words.
+            title_clean=' '.join(tw[:7])
+        beats.append({'text':title_clean,'highlight':None})
 
-    # Convert each narration sentence into an editorial punchline, not a transcript.
+    # Spoken sentences -> natural short phrases.
+    sentences=[s.strip() for s in re.split(r'(?<=[.!?])\s+', narration) if len(s.strip())>8]
     for sent in sentences:
-        sw=re.findall(r"[A-Za-zÀ-ÿ0-9']+",sent)
-        meaningful=[w for w in sw if w.lower() not in stop and len(w)>3]
-        if len(meaningful)<2: continue
-        # Keep the strongest 3-5 words; preserve names when present.
-        preferred=[w for w in meaningful if w.lower() in {'rockstar','gta','gta6','jason','lucia','leonida','vice','city','detalhe','história','historia','confirmado','confirmou','rumor','teoria','mapa','mundo'}]
-        chosen=[]
-        for w in preferred+meaningful:
-            if w not in chosen: chosen.append(w)
-            if len(chosen)>=5: break
-        text=' '.join(chosen).upper()
-        if text and text not in [b['text'] for b in beats]:
-            hi=(preferred[0] if preferred else chosen[-1]).upper()
-            beats.append({'text':text,'highlight':hi})
-        if len(beats)>=count-1: break
+        for phrase in _caption_phrases_from_sentence(sent,7):
+            if phrase in {b['text'] for b in beats}:
+                continue
+            # Avoid captions that are just a weak connector.
+            if len(re.findall(r"[A-ZÀ-Ý0-9]+",phrase))<2:
+                continue
+            words=phrase.split()
+            # Highlight an important proper noun / GTA term, otherwise the final strong word.
+            preferred=[w for w in words if w.lower().strip('.,!?') in {
+                'gta','gta6','vi','rockstar','jason','lucia','leonida','vice','city','mapa','história','historia','detalhe','confirmado','confirmou','rumor','teoria'
+            }]
+            highlight=(preferred[0] if preferred else (words[-1] if len(words)>2 else None))
+            beats.append({'text':phrase,'highlight':highlight})
+            if len(beats)>=count-1:
+                break
+        if len(beats)>=count-1:
+            break
 
     beats.append({'text':endings.get(kind,endings['CURIOSIDADE']),'highlight':None})
-    beats=beats[:count]
 
-    # Split overly sparse timelines using narration chunks only as a fallback.
+    # Deduplicate while preserving narrative order.
+    unique=[]; seen=set()
+    for b in beats:
+        t=b['text']
+        if t and t not in seen:
+            seen.add(t); unique.append(b)
+    beats=unique[:count]
+
+    # If the story is short, add one or two contiguous sentence phrases—not keyword piles.
     if len(beats)<5:
-        chunks=[]
-        step=max(4,math.ceil(len(words)/max(4,count)))
-        for i in range(0,len(words),step):
-            ch=[w for w in words[i:i+step] if w.lower() not in stop]
-            if ch: chunks.append(' '.join(ch[:5]).upper())
-        for c in chunks:
-            if len(beats)>=count: break
-            if c not in [b['text'] for b in beats]: beats.insert(-1,{'text':c,'highlight':c.split()[-1]})
+        for sent in sentences:
+            phrase=_clean_caption_phrase(sent)
+            if 2<=len(phrase.split())<=9 and phrase not in seen:
+                beats.insert(-1,{'text':phrase,'highlight':None}); seen.add(phrase)
+            if len(beats)>=min(count,6): break
 
     beats=beats[:count]
     weights=[max(2,len(re.findall(r"\w+",b['text']))) for b in beats]
     durations=[duration*w/sum(weights) for w in weights]
-    for _ in range(4):
-        durations=[max(1.6,min(4.0,d)) for d in durations]
+    for _ in range(5):
+        durations=[max(1.65,min(4.0,d)) for d in durations]
         scale=duration/sum(durations)
         durations=[d*scale for d in durations]
-    for b,d in zip(beats,durations): b['duration']=d
+    for b,d in zip(beats,durations):
+        b['duration']=d
     return beats
 
 def _beat_keywords(text, topic_title):
