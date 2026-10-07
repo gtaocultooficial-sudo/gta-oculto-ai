@@ -23,7 +23,7 @@ WORK.mkdir(exist_ok=True)
 STATE_FILE = WORK / 'jobs.json'
 LOCK = threading.RLock()
 PROCESSING = False
-UA = 'GTA-Oculto-AI/Cloud-Final/1.3-V30.0'
+UA = 'GTA-Oculto-AI/Cloud-Final/1.4-V31.0'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
@@ -103,7 +103,7 @@ function drawState(d){
   if(ep){
     const decision=String(ep.editorial_decision||'PRODUZIR');
     const cls=decision==='PRODUZIR AGORA'?'now':(decision==='OBSERVAR'?'obs':'');
-    let epType=String(ep.content_type||'CURIOSIDADE').toUpperCase();let epMats=Number(ep.mentions||1);let epSources=Number(ep.source_count||1);let epConf=Math.max(0,Math.min(100,Number(ep.confidence||0)));let epScore=Number(ep.score||0);let epEd=Number(ep.editorial_score||0);let decisionClass=decision==='OBSERVAR'?'obs':'';let icon=epType==='RUMOR'?'⚠️':(epType==='NOTÍCIA'?'📰':'🔎');document.getElementById('editorPick').innerHTML=`<div class="editor-shell"><div class="editor-head"><div class="editor-brand"><div class="editor-icon">🧠</div><div><h2>EDITOR-CHEFE</h2><p>Analisa o Radar, escolhe a melhor pauta e prepara a produção.</p></div></div><div class="editor-actions"><div class="editor-status">✓ PAUTA SELECIONADA</div></div></div><div class="editor-grid-main"><div class="editor-cover"><div class="editor-cover-icon">${icon}</div></div><div class="editor-content"><span class="editor-tag">${esc(epType)}</span><div class="editor-title">${esc(ep.title)}</div><div class="editor-metrics"><div class="editor-metric"><small>SCORE RADAR</small><b class="metric-green">${epScore}/100</b></div><div class="editor-metric"><small>SCORE EDITORIAL</small><b class="metric-purple">${epEd}/100</b></div><div class="editor-metric"><small>CONFIANÇA</small><b>${epConf}%</b></div><div class="editor-metric"><small>MATÉRIAS</small><b>${epMats}</b></div><div class="editor-metric"><small>FONTES</small><b>${epSources}</b></div></div><div class="editor-copy"><div class="editor-hook"><b>⚡ HOOK DO VÍDEO</b><span>${esc(ep.editorial_hook||'')}</span></div><div class="editor-angle"><b>🎯 ÂNGULO EDITORIAL</b><span>${esc(ep.editorial_angle||'')}</span></div></div><div class="script-preview"><div class="script-head"><div><b>📝 ROTEIRO AUTOMÁTICO</b><span>V29.1 · roteiro → narração → legendas</span></div><div class="script-stats">${Number((ep.script_preview||{}).word_count||0)} palavras · ~${Number((ep.script_preview||{}).estimated_seconds||0)}s</div></div><div class="script-flow"><div><small>HOOK</small><span>${esc(((ep.script_preview||{}).sections||{}).hook||ep.editorial_hook||'')}</span></div><div><small>CONTEXTO</small><span>${esc(((ep.script_preview||{}).sections||{}).context||'')}</span></div><div><small>FATO / VERIFICAÇÃO</small><span>${esc(((ep.script_preview||{}).sections||{}).proof||'')}</span></div><div><small>PAYOFF</small><span>${esc(((ep.script_preview||{}).sections||{}).payoff||ep.editorial_angle||'')}</span></div><div><small>CTA</small><span>${esc(((ep.script_preview||{}).sections||{}).cta||'')}</span></div></div></div><div class="meta">${esc(ep.editorial_reason||'')}</div></div><div class="editor-decision ${decisionClass}"><div class="decision-check">${decision==='OBSERVAR'?'◌':'✓'}</div><div class="decision-word">${esc(decision)}</div><div class="decision-reason">${esc(ep.editorial_reason||'Pauta selecionada pelo Editor-Chefe.')}</div><button class="editor-produce" onclick="createShort('${ep.id||''}')">⚡ PRODUZIR AGORA</button></div></div></div>`;
+    let epType=String(ep.content_type||'CURIOSIDADE').toUpperCase();let epMats=Number(ep.mentions||1);let epSources=Number(ep.source_count||1);let epConf=Math.max(0,Math.min(100,Number(ep.confidence||0)));let epScore=Number(ep.score||0);let epEd=Number(ep.editorial_score||0);let decisionClass=decision==='OBSERVAR'?'obs':'';let icon=epType==='RUMOR'?'⚠️':(epType==='NOTÍCIA'?'📰':'🔎');document.getElementById('editorPick').innerHTML=`<div class="editor-shell"><div class="editor-head"><div class="editor-brand"><div class="editor-icon">🧠</div><div><h2>EDITOR-CHEFE</h2><p>Analisa o Radar, escolhe a melhor pauta e prepara a produção.</p></div></div><div class="editor-actions"><div class="editor-status">✓ PAUTA SELECIONADA</div></div></div><div class="editor-grid-main"><div class="editor-cover"><div class="editor-cover-icon">${icon}</div></div><div class="editor-content"><span class="editor-tag">${esc(epType)}</span><div class="editor-title">${esc(ep.title)}</div><div class="editor-metrics"><div class="editor-metric"><small>SCORE RADAR</small><b class="metric-green">${epScore}/100</b></div><div class="editor-metric"><small>SCORE EDITORIAL</small><b class="metric-purple">${epEd}/100</b></div><div class="editor-metric"><small>CONFIANÇA</small><b>${epConf}%</b></div><div class="editor-metric"><small>MATÉRIAS</small><b>${epMats}</b></div><div class="editor-metric"><small>FONTES</small><b>${epSources}</b></div></div><div class="editor-copy"><div class="editor-hook"><b>⚡ HOOK DO VÍDEO</b><span>${esc(ep.editorial_hook||'')}</span></div><div class="editor-angle"><b>🎯 ÂNGULO EDITORIAL</b><span>${esc(ep.editorial_angle||'')}</span></div></div><div class="script-preview"><div class="script-head"><div><b>📝 ROTEIRO AUTOMÁTICO</b><span>V31.0 · fatos → roteiro → voz → legendas</span></div><div class="script-stats">${Number((ep.script_preview||{}).word_count||0)} palavras · ~${Number((ep.script_preview||{}).estimated_seconds||0)}s</div></div><div class="script-flow"><div><small>HOOK</small><span>${esc(((ep.script_preview||{}).sections||{}).hook||ep.editorial_hook||'')}</span></div><div><small>CONTEXTO</small><span>${esc(((ep.script_preview||{}).sections||{}).context||'')}</span></div><div><small>FATO / VERIFICAÇÃO</small><span>${esc(((ep.script_preview||{}).sections||{}).proof||'')}</span></div><div><small>PAYOFF</small><span>${esc(((ep.script_preview||{}).sections||{}).payoff||ep.editorial_angle||'')}</span></div><div><small>CTA</small><span>${esc(((ep.script_preview||{}).sections||{}).cta||'')}</span></div></div></div><div class="meta">${esc(ep.editorial_reason||'')}</div></div><div class="editor-decision ${decisionClass}"><div class="decision-check">${decision==='OBSERVAR'?'◌':'✓'}</div><div class="decision-word">${esc(decision)}</div><div class="decision-reason">${esc(ep.editorial_reason||'Pauta selecionada pelo Editor-Chefe.')}</div><button class="editor-produce" onclick="createShort('${ep.id||''}')">⚡ PRODUZIR AGORA</button></div></div></div>`;
   } else { document.getElementById('editorPick').innerHTML='Aguardando o Radar.'; }
   renderJobs((d&&d.jobs)||[]);
 }
@@ -532,49 +532,108 @@ def _strip_publisher_suffix(text):
 
 
 def _source_evidence(topic):
-    """Collect only evidence actually present in the radar item."""
+    """V31: reúne somente evidências da própria pauta e, quando possível, do artigo."""
     title=_strip_publisher_suffix(topic.get('title',''))
     desc=re.sub(r'\s+',' ',str(topic.get('description','') or '').strip())
     source=re.sub(r'\s+',' ',str(topic.get('source','') or '').strip())
+    url=str(topic.get('url') or '').strip()
     if desc:
-        desc=re.sub(r'^\s*(?:[^|]{0,140}\|\s*)','',desc).strip()
+        desc=re.sub(r'^\s*(?:[^|]{0,180}\|\s*)','',desc).strip()
         desc=_strip_publisher_suffix(desc)
-        if desc.lower()==title.lower():
-            desc=''
-    return title,desc,source
+        if desc.lower()==title.lower(): desc=''
+    return title,desc,source,url
 
 
-def _evidence_sentences(desc):
-    parts=[x.strip() for x in re.split(r'(?<=[.!?])\s+',str(desc or '')) if len(x.strip())>=18]
-    clean=[]
-    for x in parts[:3]:
+def _clean_article_text(text):
+    """Remove ruído de páginas e preserva frases factuais curtas para o roteiro."""
+    text=BeautifulSoup(str(text or ''),'html.parser').get_text(' ', strip=True)
+    text=re.sub(r'https?://\S+',' ',text)
+    text=re.sub(r'\s+',' ',text).strip()
+    noise=re.compile(r'^(?:publicidade|menu|início|home|leia também|compartilhe|siga-nos|newsletter|cookies?)$',re.I)
+    parts=[x.strip(' -–—') for x in re.split(r'(?<=[.!?])\s+',text) if len(x.strip())>=35]
+    out=[]
+    for x in parts:
+        if noise.match(x): continue
+        x=_strip_publisher_suffix(x)
+        if x and x not in out: out.append(x)
+    return out
+
+
+def _fetch_topic_evidence(topic):
+    """Tenta obter descrição/meta/articleBody da matéria; falha silenciosamente."""
+    url=str(topic.get('url') or '').strip()
+    if not url or url.startswith(ROCKSTAR_VI): return []
+    try:
+        r=fetch(url,timeout=18); r.raise_for_status()
+        soup=BeautifulSoup(r.text,'html.parser')
+        candidates=[]
+        for sel in ('meta[name="description"]','meta[property="og:description"]','meta[name="twitter:description"]'):
+            tag=soup.select_one(sel)
+            if tag and tag.get('content'): candidates.append(tag.get('content'))
+        for tag in soup.find_all('script',type='application/ld+json')[:8]:
+            try:
+                obj=json.loads(tag.string or tag.get_text() or '{}')
+                objs=obj if isinstance(obj,list) else [obj]
+                for item in objs:
+                    if isinstance(item,dict):
+                        body=item.get('articleBody') or item.get('description')
+                        if body: candidates.append(body)
+            except Exception: pass
+        # Párrafos visíveis como último recurso.
+        paras=[p.get_text(' ',strip=True) for p in soup.find_all('p')]
+        candidates.append(' '.join(paras[:20]))
+        joined=' '.join(candidates)
+        return _clean_article_text(joined)[:8]
+    except Exception:
+        return []
+
+
+def _evidence_sentences(desc, article_lines=None, title=''):
+    raw=[]
+    raw.extend(_clean_article_text(desc))
+    raw.extend(article_lines or [])
+    title_norm=re.sub(r'[^a-z0-9à-ÿ ]',' ',title.lower())
+    title_words=set(w for w in title_norm.split() if len(w)>3)
+    seen=set(); clean=[]
+    for x in raw:
         x=re.sub(r'\s+',' ',x).strip(' -–—')
-        x=re.sub(r'^(?:segundo|conforme|de acordo com) (?:o|a) (?:material|conteúdo|publicação) (?:publicado|divulgado|disponível),?\s*','',x,flags=re.I)
-        if x and x not in clean:
-            clean.append(x)
-    return clean
+        if len(x)<30: continue
+        low=x.lower()
+        if any(bad in low for bad in ('leia também','publicidade','clique aqui','assine','cookies')): continue
+        # Prefere frases que falem do assunto, mas não exige repetição literal do título.
+        gta_relevance=any(k in low for k in ('gta 6','gta vi','grand theft auto vi','rockstar','vice city','jason','lucia','xbox cloud','cloud gaming'))
+        overlap=len(title_words.intersection(set(re.sub(r'[^a-z0-9à-ÿ ]',' ',low).split())))
+        if gta_relevance or overlap>=2:
+            key=re.sub(r'\W+',' ',low).strip()
+            if key not in seen:
+                seen.add(key); clean.append(x)
+    return clean[:4]
+
+
+def _fact_sentence(text):
+    text=re.sub(r'\s+',' ',str(text or '')).strip(' -–—')
+    text=_strip_publisher_suffix(text)
+    text=re.sub(r'^(?:segundo|conforme|de acordo com)\s+(?:o|a)\s+(?:material|conteúdo|publicação)[,:]?\s*','',text,flags=re.I)
+    return text
 
 
 def _safe_hook(title,kind):
     t=title.lower()
-    if kind=='RUMOR':
-        return 'ISSO SOBRE GTA 6 AINDA NÃO FOI CONFIRMADO'
+    if kind=='RUMOR': return 'ISSO SOBRE GTA 6 AINDA NÃO FOI CONFIRMADO'
     if kind=='NOTÍCIA':
         if any(k in t for k in ('confirm','confirma','oficial','revela','revelou','anuncia','anunciou')):
             return 'A ROCKSTAR ACABOU DE REVELAR UMA NOVIDADE'
         return 'UMA NOVA INFORMAÇÃO SOBRE GTA 6 CHAMOU ATENÇÃO'
-    if kind=='MISTÉRIO':
-        return 'ESSE DETALHE DE GTA 6 CHAMOU ATENÇÃO'
+    if kind=='MISTÉRIO': return 'ESSE DETALHE DE GTA 6 CHAMOU ATENÇÃO'
     return 'VOCÊ PERCEBEU ESSE DETALHE NO GTA 6?'
 
 
 def make_script(topic):
-    """V30 — roteiro factual: a fala do Short é sobre a pauta, nunca sobre o sistema.
-    Só usa título/descrição disponíveis no radar. Não narra score, fontes, confiança,
-    nomes de sites ou metadados internos. Quando a evidência é insuficiente, assume
-    explicitamente a limitação em vez de inventar fatos.
+    """V31 — motor editorial factual.
+    A narração nunca menciona Radar, score, fontes, sites ou metadados internos.
+    Primeiro tenta obter fatos do item do Radar e da própria matéria; só então escreve.
     """
-    title,desc,source=_source_evidence(topic)
+    title,desc,source,url=_source_evidence(topic)
     title=title or 'GTA 6'
     kind=str(topic.get('content_type') or 'CURIOSIDADE').upper()
     if kind not in ('RUMOR','MISTÉRIO','NOTÍCIA','CURIOSIDADE'):
@@ -584,57 +643,65 @@ def make_script(topic):
         elif any(k in tl for k in ('confirm','revel','anunci','atualização','update','novidade')): kind='NOTÍCIA'
         else: kind='CURIOSIDADE'
 
-    angle,_old_hook=_editorial_angle(topic)
+    article_lines=_fetch_topic_evidence(topic)
+    evidence=_evidence_sentences(desc,article_lines,title)
+    evidence=[_fact_sentence(x) for x in evidence]
+    evidence=[x for x in evidence if x]
+    angle,_=_editorial_angle(topic)
     hook=_safe_hook(title,kind)
-    evidence=_evidence_sentences(desc)
 
-    # Título limpo é a única base quando o RSS não trouxe texto descritivo.
+    # O roteiro não repete a manchete inteira. Usa a manchete apenas para identificar o assunto.
     headline=title.rstrip('.!?')
+    clean_topic=re.sub(r'^(?:GTA\s*6\s*[:\-]\s*)','',headline,flags=re.I).strip()
     if kind=='NOTÍCIA':
-        context=f"A novidade em destaque no GTA 6 é: {headline}."
+        context=(f"A Rockstar trouxe uma nova informação sobre GTA 6: {clean_topic}."
+                 if clean_topic else "Uma nova informação sobre GTA 6 chamou atenção.")
         if evidence:
             proof=' '.join(evidence[:2])
             if not proof.endswith(('.', '!', '?')): proof+='.'
-            payoff='O ponto mais importante é entender exatamente o que essa informação muda na experiência do jogo, sem ir além do que foi divulgado.'
+            payoff='O ponto importante é entender o que foi realmente confirmado e o que ainda depende de mais detalhes.'
         else:
-            proof='A pauta disponível confirma apenas essa informação da manchete; não há detalhes adicionais suficientes aqui para afirmar mais do que isso.'
-            payoff='Por isso, o melhor é tratar a novidade pelo que foi divulgado e esperar detalhes adicionais antes de tirar outras conclusões.'
+            proof='A informação disponível confirma apenas o ponto central da notícia, sem detalhes suficientes para afirmar outras mudanças no jogo.'
+            payoff='Por isso, o mais seguro é ficar com o que foi confirmado e não transformar interpretação em fato.'
         cta='Você gostaria de ver mais detalhes disso no GTA 6?'
     elif kind=='RUMOR':
-        context=f"Está circulando uma informação sobre GTA 6: {headline}."
-        proof=(' '.join(evidence[:2]) if evidence else 'Até aqui, o material disponível não traz confirmação oficial suficiente para tratar essa informação como fato.')
+        context=f"Está circulando uma informação sobre GTA 6: {clean_topic}."
+        proof=' '.join(evidence[:2]) if evidence else 'Até agora, não há evidência suficiente aqui para tratar essa informação como confirmação oficial.'
         if not proof.endswith(('.', '!', '?')): proof+='.'
-        payoff='O mais importante é separar o que foi divulgado do que ainda é especulação.'
+        payoff='O importante é separar o que foi divulgado do que ainda é especulação.'
         cta='Você acha que isso pode se confirmar?'
     elif kind=='MISTÉRIO':
-        context=f"Um detalhe de GTA 6 chamou atenção: {headline}."
-        proof=(' '.join(evidence[:2]) if evidence else 'O material disponível apresenta o detalhe, mas não traz informação suficiente para tratá-lo como confirmação oficial.')
+        context=f"Um detalhe de GTA 6 chamou atenção: {clean_topic}."
+        proof=' '.join(evidence[:2]) if evidence else 'O material disponível mostra o detalhe, mas não traz confirmação suficiente para explicar exatamente o que ele significa.'
         if not proof.endswith(('.', '!', '?')): proof+='.'
-        payoff='O interessante é observar o detalhe sem transformar uma interpretação em fato.'
+        payoff='A parte interessante é observar a pista sem transformar uma interpretação em confirmação.'
         cta='Você acha que existe algo por trás disso?'
     else:
-        context=f"Tem um detalhe de GTA 6 que merece atenção: {headline}."
-        proof=(' '.join(evidence[:2]) if evidence else 'A pauta chama atenção, mas os dados disponíveis não permitem afirmar detalhes além do que aparece na manchete.')
+        context=f"Tem um detalhe de GTA 6 que merece atenção: {clean_topic}."
+        proof=' '.join(evidence[:2]) if evidence else 'A informação chama atenção, mas os dados disponíveis não permitem afirmar detalhes além do ponto principal da pauta.'
         if not proof.endswith(('.', '!', '?')): proof+='.'
-        payoff='O mais interessante é conectar esse detalhe ao que já foi mostrado, sem transformar uma possibilidade em confirmação.'
+        payoff='O mais interessante é entender o que esse detalhe pode significar sem transformar possibilidade em certeza.'
         cta='Você já tinha percebido esse detalhe?'
 
     sections={'hook':hook,'context':context,'proof':proof,'payoff':payoff,'cta':cta}
     narration=' '.join(sections[k] for k in ('hook','context','proof','payoff','cta'))
-    # Remove qualquer vazamento acidental de metadados internos ou nomes de sites.
-    narration=re.sub(r'\b(?:score|confiança|confianca|matérias|materias|fontes)\s*[:=]?\s*\d+%?','',narration,flags=re.I)
+    # Nunca deixar escapar metadados internos ou nomes de veículos para a fala.
+    banned_patterns=[
+        r'\b(?:score|confiança|confianca|matérias|materias|fontes|menções|mencoes)\s*[:=]?\s*\d+%?',
+        r'\b(?:IGN\s*Brasil|TudoCelular(?:\.com)?|Canaltech|Olhar\s+Digital|Adrenaline|Omelete|Exame|UOL|TecMundo|Combo\s+Infinito|Rolling\s+Stone(?:\s+Brasil)?)\b',
+    ]
+    for pat in banned_patterns: narration=re.sub(pat,'',narration,flags=re.I)
     narration=re.sub(r'\s+',' ',narration).strip()
     word_count=len(re.findall(r"[A-Za-zÀ-ÿ0-9']+",narration))
     estimated_seconds=max(20,min(60,round(word_count/2.55)))
     return {
-        'title':title,'narration':narration,'source':str(topic.get('url') or ROCKSTAR_VI),
+        'title':title,'narration':narration,'source':url or str(topic.get('url') or ROCKSTAR_VI),
         'source_name':source or 'Fonte da pauta','content_type':kind,
         'editorial_angle':angle,'editorial_hook':hook,
         'editorial_score':topic.get('editorial_score'),'editorial_decision':topic.get('editorial_decision','PRODUZIR'),
         'editorial_reason':topic.get('editorial_reason',''),'sections':sections,
-        'word_count':word_count,'estimated_seconds':estimated_seconds,'script_version':'V30.0'
+        'evidence':evidence,'word_count':word_count,'estimated_seconds':estimated_seconds,'script_version':'V31.0'
     }
-
 
 def build_dynamic_captions(script, topic, count=9):
     """V30 — captions são apenas da fala real; sem título, fonte ou metadados extras."""
@@ -1012,13 +1079,31 @@ def duration_of_audio(path):
     except Exception: return 30.0
 
 async def make_tts(text,path):
+    """V31: gera áudio e captura WordBoundary reais do Edge-TTS."""
     if edge_tts is None: raise RuntimeError('edge-tts não disponível no servidor')
     last=None
     for voice in ['pt-BR-AntonioNeural','pt-BR-FranciscaNeural']:
-        try: await edge_tts.Communicate(text,voice,rate='+3%',pitch='-2Hz').save(str(path)); return
-        except Exception as e: last=e
+        try:
+            comm=edge_tts.Communicate(text,voice,rate='+3%',pitch='-2Hz')
+            cues=[]
+            with open(path,'wb') as fh:
+                async for chunk in comm.stream():
+                    typ=chunk.get('type')
+                    if typ=='audio':
+                        fh.write(chunk.get('data',b''))
+                    elif typ=='WordBoundary':
+                        try:
+                            cues.append({
+                                'word':str(chunk.get('text','')).strip(),
+                                'start':float(chunk.get('offset',0))/10_000_000.0,
+                                'duration':float(chunk.get('duration',0))/10_000_000.0,
+                            })
+                        except Exception: pass
+            if path.exists() and path.stat().st_size>1000:
+                return cues
+        except Exception as e:
+            last=e
     raise RuntimeError(f'falha na narração: {last}')
-
 
 def _safe_filename(name):
     return re.sub(r'[^a-zA-Z0-9._-]+','_',name).strip('_')[:100]
@@ -1362,63 +1447,125 @@ def _merge_caption_chunks(chunks, target_count=10, max_words=12):
     return chunks
 
 
-def build_short_timeline(script, topic, duration, count=10):
-    """V30.0 — legendas editoriais por unidades de sentido.
-    Primeiro respeita frases/pausas; depois divide apenas quando necessário.
-    Não usa janelas fixas de palavras e não remove palavras da narração.
-    """
+def _cue_clean(w):
+    return re.sub(r'\s+',' ',str(w or '')).strip()
+
+
+def _cue_bad_end(w):
+    return re.sub(r'[^A-Za-zÀ-ÿ]','',str(w or '')).lower() in {
+        'e','de','do','da','em','no','na','que','um','uma','o','a','os','as','para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa','sobre','entre','até','sem'
+    }
+
+
+def _cue_bad_start(w):
+    return re.sub(r'[^A-Za-zÀ-ÿ]','',str(w or '')).lower() in {
+        'e','mas','porque','porém','porem','então','entao','quando','enquanto','para','com','de','do','da','em','no','na','que'
+    }
+
+
+def _protected_pair(left,right):
+    a=re.sub(r'[^a-z0-9à-ÿ]','',left.lower())
+    b=re.sub(r'[^a-z0-9à-ÿ]','',right.lower())
+    return (a,b) in {('gta','6'),('gta','vi'),('vice','city'),('cloud','gaming'),('xbox','cloud'),('xbox','cloud','gaming')}
+
+
+def _build_timed_caption_beats(word_cues, duration, count=10):
+    """V31: legendas derivadas dos WordBoundary reais do TTS, não de janelas estimadas."""
+    cues=[c for c in (word_cues or []) if _cue_clean(c.get('word'))]
+    if not cues:
+        return []
+    beats=[]; cur=[]
+    max_words=9; min_words=3
+    for i,c in enumerate(cues):
+        cur.append(c)
+        word=_cue_clean(c['word'])
+        nextc=cues[i+1] if i+1<len(cues) else None
+        punct=bool(re.search(r'[.!?;:]$',word))
+        pause=(float(nextc['start'])-float(c['start'])) if nextc else 0
+        need=False
+        if len(cur)>=max_words: need=True
+        if punct and len(cur)>=min_words: need=True
+        if nextc and pause>=0.42 and len(cur)>=min_words: need=True
+        # Não corta expressões importantes nem deixa preposição/conjunção isolada.
+        if need and nextc:
+            if _cue_bad_end(word) or _cue_bad_start(nextc['word']): need=False
+            if _protected_pair(word,nextc['word']): need=False
+        if need:
+            beats.append(cur); cur=[]
+    if cur: beats.append(cur)
+
+    # Une blocos muito curtos sem apagar nenhuma palavra.
+    merged=[]
+    for b in beats:
+        if merged and len(b)<min_words and len(merged[-1])+len(b)<=max_words:
+            merged[-1].extend(b)
+        else: merged.append(b)
+    beats=merged
+
+    # Se houver blocos demais, funde pares vizinhos somente quando o sentido e o tamanho permitem.
+    while len(beats)>max(1,count):
+        best=None
+        for i in range(len(beats)-1):
+            a,b=beats[i],beats[i+1]
+            if len(a)+len(b)>max_words: continue
+            score=abs((len(a)+len(b))-6)
+            if _cue_bad_end(a[-1]['word']): score-=5
+            if _cue_bad_start(b[0]['word']): score-=3
+            gap=float(b[0]['start'])-float(a[-1]['start'])
+            if gap<0.6: score-=2
+            if best is None or score<best[0]: best=(score,i)
+        if best is None: break
+        i=best[1]; beats[i:i+2]=[beats[i]+beats[i+1]]
+
+    out=[]
+    for b in beats:
+        text=' '.join(_cue_clean(x['word']) for x in b)
+        text=_clean_caption_phrase(text)
+        start=float(b[0]['start']); end=max(start+0.35,float(b[-1]['start'])+max(0.25,float(b[-1].get('duration',0.25))))
+        end=min(duration,end)
+        ws=re.findall(r"[A-Za-zÀ-ÿ0-9']+",text)
+        preferred=[w for w in ws if w.lower() in {'gta','6','rockstar','jason','lucia','leonida','vice','city','cloud','gaming','xbox','realismo','novidades','microsoft'}]
+        highlight=preferred[0] if preferred else (ws[-1] if len(ws)>=5 else None)
+        out.append({'text':text,'highlight':highlight,'start':start,'end':end,'duration':max(0.35,end-start)})
+    # Corrige gaps/overlaps e garante cobertura até o fim real da fala.
+    for i in range(len(out)-1):
+        out[i]['end']=min(out[i]['end'],out[i+1]['start'])
+        out[i]['duration']=max(0.3,out[i]['end']-out[i]['start'])
+    if out:
+        out[-1]['end']=max(out[-1]['end'],min(duration,float(cues[-1]['start'])+float(cues[-1].get('duration',0.25))))
+        out[-1]['end']=min(duration,out[-1]['end'])
+        out[-1]['duration']=max(0.3,out[-1]['end']-out[-1]['start'])
+    return out
+
+
+def build_short_timeline(script, topic, duration, count=10, word_cues=None):
+    """V31: se houver WordBoundary, usa timestamps reais da voz; caso contrário usa fallback editorial."""
+    if word_cues:
+        timed=_build_timed_caption_beats(word_cues,duration,count)
+        if timed: return timed
     narration=re.sub(r'\s+',' ',str(script.get('narration','')).strip())
     if not narration:
-        return [{'text':'GTA 6','duration':duration,'highlight':'GTA'}]
-
-    # Mantém frases e pontuação como âncoras de sentido.
+        return [{'text':'GTA 6','duration':duration,'highlight':'GTA','start':0,'end':duration}]
     sentences=[s.strip() for s in re.split(r'(?<=[.!?])\s+',narration) if s.strip()]
-    if not sentences:
-        sentences=[narration]
-
     all_chunks=[]
-    for sent in sentences:
-        all_chunks.extend(_caption_phrase_chunks(sent,3,10))
-
-    if not all_chunks:
-        all_chunks=[_caption_words(narration)]
-
-    # Se houver blocos demais, junta apenas blocos vizinhos que ainda cabem confortavelmente.
+    for sent in sentences: all_chunks.extend(_caption_phrase_chunks(sent,3,10))
+    if not all_chunks: all_chunks=[_caption_words(narration)]
     all_chunks=_merge_caption_chunks(all_chunks,target_count=max(1,count),max_words=12)
-
     phrases=[]
     for ch in all_chunks:
         phrase=_clean_caption_phrase(' '.join(ch))
-        if phrase and len(re.findall(r"[A-Za-zÀ-ÿ0-9']+",phrase))>=2:
-            phrases.append(phrase)
-
-    # Garantia de cobertura: todas as palavras da narração precisam aparecer nas legendas.
-    if not phrases:
-        phrases=[_clean_caption_phrase(narration)]
-
-    preferred_words={
-        'gta','gta6','vi','rockstar','jason','lucia','leonida','vice','city','mapa',
-        'história','historia','detalhe','confirmado','confirmou','rumor','teoria',
-        'microsoft','cloud','gaming','realismo','novidades','xbox','playstation'
-    }
-    beats=[]
-    for phrase in phrases:
-        ws=re.findall(r"[A-Za-zÀ-ÿ0-9']+",phrase)
-        preferred=[w for w in ws if w.lower() in preferred_words]
-        highlight=preferred[0] if preferred else (ws[-1] if len(ws)>=5 else None)
-        beats.append({'text':phrase,'highlight':highlight})
-
-    # Tempo proporcional à fala; blocos muito curtos ganham tempo mínimo e o restante é redistribuído.
-    weights=[max(2,len(re.findall(r"[A-Za-zÀ-ÿ0-9']+",b['text']))) for b in beats]
+        if phrase and len(re.findall(r"[A-Za-zÀ-ÿ0-9']+",phrase))>=2: phrases.append(phrase)
+    if not phrases: phrases=[_clean_caption_phrase(narration)]
+    weights=[max(2,len(re.findall(r"[A-Za-zÀ-ÿ0-9']+",p))) for p in phrases]
     total=sum(weights) or 1
     raw=[duration*w/total for w in weights]
     if len(raw)>1:
-        raw=[max(1.25,min(4.8,x)) for x in raw]
-        scale=duration/sum(raw)
-        raw=[x*scale for x in raw]
-    diff=duration-sum(raw)
-    raw[-1]=max(1.1,raw[-1]+diff)
-    for b,d in zip(beats,raw): b['duration']=d
+        raw=[max(1.25,min(4.8,x)) for x in raw]; scale=duration/sum(raw); raw=[x*scale for x in raw]
+    beats=[]; t=0
+    for phrase,d in zip(phrases,raw):
+        ws=re.findall(r"[A-Za-zÀ-ÿ0-9']+",phrase); preferred=[w for w in ws if w.lower() in {'gta','rockstar','jason','lucia','leonida','vice','city','cloud','gaming','xbox','realismo','novidades'}]
+        h=preferred[0] if preferred else (ws[-1] if len(ws)>=5 else None)
+        beats.append({'text':phrase,'highlight':h,'duration':d,'start':t,'end':t+d}); t+=d
     return beats
 
 def _beat_keywords(text, topic_title):
@@ -1583,7 +1730,7 @@ def produce_job(jid):
         topics,urls,_=research_official(); topics=topics or FALLBACK_TOPICS
         job=load_jobs()[jid]; topic=editor_chief_select([job['opportunity']]) or job['opportunity']; job['opportunity']=topic; jobs=load_jobs(); jobs[jid]['opportunity']=topic; save_jobs(jobs)
         update_job(jid,stage='ANÁLISE',progress=16,log=f'EDITOR-CHEFE: {topic.get("editorial_decision","PRODUZIR")} — {topic["title"]} | ângulo: {topic.get("editorial_angle","")}')
-        update_job(jid,stage='ROTEIRO',progress=28,log='EDITOR-CHEFE → ROTEIRISTA V30: criando hook, contexto, verificação, payoff e CTA...'); script=make_script(topic)
+        update_job(jid,stage='ROTEIRO',progress=28,log='EDITOR-CHEFE → MOTOR EDITORIAL V31: criando hook, contexto, verificação, payoff e CTA...'); script=make_script(topic)
         jobdir=WORK/jid; jobdir.mkdir(parents=True,exist_ok=True)
         update_job(jid,script=script,stage='VISUAIS',progress=40,log='Baixando visuais oficiais e montando cenas verticais...')
         paths=download_visuals(urls,jobdir/'visuals',topic['title'])
@@ -1593,8 +1740,10 @@ def produce_job(jid):
         # somente depois que temos a duração real da narração.
         for i,src in enumerate(image_order):
             dst=jobdir/f'image_{i}.jpg'; prepare_scene(src,dst,'',i,10); image_scenes.append(dst)
-        update_job(jid,stage='NARRAÇÃO',progress=60,log='Gerando narração PT-BR a partir do roteiro completo...'); audio=jobdir/'narracao.mp3'; asyncio.run(make_tts(script['narration'],audio)); duration=duration_of_audio(audio)
-        beats=build_short_timeline(script,topic,duration,10)
+        update_job(jid,stage='NARRAÇÃO',progress=60,log='Gerando narração PT-BR e capturando timestamps reais da fala...'); audio=jobdir/'narracao.mp3'; word_cues=asyncio.run(make_tts(script['narration'],audio)); duration=duration_of_audio(audio)
+        if not word_cues: raise RuntimeError('A voz foi gerada, mas o Edge-TTS não retornou timestamps de palavras para sincronizar as legendas.')
+        (jobdir/'word_cues.json').write_text(json.dumps(word_cues,ensure_ascii=False,indent=2),encoding='utf-8')
+        beats=build_short_timeline(script,topic,duration,10,word_cues=word_cues)
         caps=[b['text'] for b in beats]
         update_job(jid,progress=66,log=f'Narração pronta: {script.get("word_count",0)} palavras / {duration:.1f}s. Legendas sincronizadas por blocos naturais de fala ({len(beats)} blocos).')
         update_job(jid,stage='EDIÇÃO',progress=74,log=f'Obtendo vídeos oficiais da Rockstar e montando timeline com movimento real / {duration:.1f}s...')
@@ -1608,12 +1757,11 @@ def produce_job(jid):
             make_fallback(fallback_cover,0,topic['title'])
             image_scenes=[fallback_cover]
         cover=jobdir/'CAPA.jpg'; make_cover(image_scenes[0],topic['title'],cover)
-        update_job(jid,stage='AVALIAÇÃO',progress=92,log='Avaliando hook, ritmo, visuais, duração, formato e legendas...'); visual_quality=100
+        update_job(jid,stage='AVALIAÇÃO',progress=92,log='Avaliando hook, ritmo, visuais, duração e sincronização real das legendas...'); visual_quality=100
         for sp in image_scenes:
             q=_image_quality(sp); visual_quality=min(visual_quality, max(0,q))
-        beats=build_short_timeline(script,topic,duration,10)
         score=evaluate(script,duration,len(beats),visual_quality,beats,len(selected_videos),len(image_scenes))
-        meta={'title':topic['title'].upper()+' 👀','description':script['narration']+'\n\n🔎 GTA Oculto — onde os segredos vêm à tona.','hashtags':['#GTA6','#GTAVI','#GTAOculto','#RockstarGames','#GTA'],'tags':['GTA 6','GTA VI','GTA 6 Brasil','GTA 6 teorias','GTA 6 segredos','Rockstar Games','GTA Oculto'],'score':score}
+        meta={'title':topic['title'].upper()+' 👀','description':script['narration']+'\n\n🔎 GTA Oculto — onde os segredos vêm à tona.','hashtags':['#GTA6','#GTAVI','#GTAOculto','#RockstarGames','#GTA'],'tags':['GTA 6','GTA VI','GTA 6 Brasil','GTA 6 teorias','GTA 6 segredos','Rockstar Games','GTA Oculto'],'score':score,'script_version':script.get('script_version','V31.0')}
         (jobdir/'metadata.json').write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding='utf-8')
         update_job(jid,status='DONE',stage='PRONTO',progress=100,log=f'PRONTO — Short gerado e avaliado em {score}/100.',video=f'{jid}/GTA_OCULTO_SHORT.mp4',cover=f'{jid}/CAPA.jpg',score=score,metadata=meta)
     except Exception as e:
@@ -1652,7 +1800,7 @@ def processor_loop():
 @APP.get('/')
 def home(): return render_template_string(PAGE)
 @APP.get('/health')
-def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V30.0-ROTEIRO-LEGENDAS',processor='cloud')
+def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V31.0-EDITORIAL-TIMED-CAPTIONS',processor='cloud')
 @APP.get('/api/state')
 def state():
     with LOCK:
