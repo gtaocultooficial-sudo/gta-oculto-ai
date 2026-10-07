@@ -15,6 +15,13 @@ try:
 except Exception:
     edge_tts = None
 
+# Google News URL decoder: Google News RSS uses encoded redirect URLs that plain requests
+# may not resolve. We install/use the maintained decoder only for resolving the source URL.
+try:
+    from googlenewsdecoder import gnewsdecoder as _gnewsdecoder
+except Exception:
+    _gnewsdecoder = None
+
 APP = Flask(__name__)
 app = APP
 BASE = Path(__file__).resolve().parent
@@ -23,7 +30,7 @@ WORK.mkdir(exist_ok=True)
 STATE_FILE = WORK / 'jobs.json'
 LOCK = threading.RLock()
 PROCESSING = False
-UA = 'GTA-Oculto-AI/Cloud-Final/1.7-V34.0'
+UA = 'GTA-Oculto-AI/Cloud-Final/1.7-V35.0'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
@@ -560,22 +567,56 @@ def _clean_article_text(text):
 
 
 def _resolve_article_url(url):
-    """V32: resolve redirects (especialmente Google News) para obter a URL da matéria escolhida."""
+    """V35: resolve Google News RSS links to the publisher's real article URL.
+
+    Google News RSS does not expose the publisher URL directly. A normal
+    requests.get(..., allow_redirects=True) can remain on news.google.com, so
+    V34 correctly blocked it but could not produce. V35 first uses the
+    maintained googlenewsdecoder package, then a normal redirect attempt as
+    a fallback. If neither yields a publisher URL, the source remains blocked.
+    """
     url=str(url or '').strip()
     if not url:
         return ''
+    if not _is_google_news_url(url):
+        return url
+
+    # 1) Preferred: Google's current encoded-link decoder.
+    global _gnewsdecoder
+    if _gnewsdecoder is None:
+        try:
+            subprocess.run(
+                [sys.executable, '-m', 'pip', 'install', '--disable-pip-version-check',
+                 '--no-input', 'googlenewsdecoder==0.1.7'],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                timeout=45, check=False
+            )
+            from googlenewsdecoder import gnewsdecoder as _decoder
+            _gnewsdecoder=_decoder
+        except Exception:
+            _gnewsdecoder=None
+
+    if _gnewsdecoder is not None:
+        try:
+            result=_gnewsdecoder(url, interval=0.4, timeout=18)
+            if isinstance(result, dict):
+                decoded=str(result.get('decoded_url') or result.get('url') or '').strip()
+                ok=bool(result.get('success') or result.get('status'))
+                if ok and decoded and not _is_google_news_url(decoded):
+                    return decoded
+        except Exception:
+            pass
+
+    # 2) Cheap fallback for cases where Google actually exposes a redirect.
     try:
-        host=urlparse(url).netloc.lower()
-        if 'news.google.com' not in host:
-            return url
         r=fetch(url, timeout=18)
         final=str(getattr(r, 'url', '') or '').strip()
-        if final and 'news.google.com' not in urlparse(final).netloc.lower():
+        if final and not _is_google_news_url(final):
             return final
     except Exception:
         pass
-    return url
 
+    return url
 
 def _is_google_news_url(url):
     try:
@@ -585,7 +626,7 @@ def _is_google_news_url(url):
 
 
 def _fetch_topic_evidence(topic):
-    """V34 FINAL: extrai exclusivamente o corpo da matéria original.
+    """V35 FINAL: extrai exclusivamente o corpo da matéria original.
 
     Regras duras:
     1) resolve a URL do Google News;
@@ -831,7 +872,7 @@ def make_script(topic):
         'editorial_score':topic.get('editorial_score'),'editorial_decision':topic.get('editorial_decision','PRODUZIR'),
         'editorial_reason':topic.get('editorial_reason',''),'sections':sections,
         'evidence':evidence[:3],'word_count':word_count,'estimated_seconds':estimated_seconds,
-        'script_version':'V34.0-SOURCE-LOCK-FINAL','extraction_method':extraction_method
+        'script_version':'V35.0-SOURCE-LOCK-FINAL','extraction_method':extraction_method
     }
 
 def build_dynamic_captions(script, topic, count=9):
@@ -1954,7 +1995,7 @@ def processor_loop():
 @APP.get('/')
 def home(): return render_template_string(PAGE)
 @APP.get('/health')
-def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V34.0-SOURCE-LOCK-FINAL',processor='cloud')
+def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V35.0-SOURCE-LOCK-FINAL',processor='cloud')
 @APP.get('/api/state')
 def state():
     with LOCK:
