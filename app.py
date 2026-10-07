@@ -394,7 +394,7 @@ def _smart_crop(im,W,H,variant=0):
 
 
 def prepare_scene(src,dst,caption,idx,total):
-    W,H=720,1280
+    W,H=360,640
     im=Image.open(src).convert('RGB')
     im=_smart_crop(im,W,H,idx)
     zooms=[1.00,1.035,1.065,1.02,1.055,1.085,1.015,1.045,1.075,1.025,1.06,1.09]
@@ -584,8 +584,8 @@ def download_official_video_clips(outdir, jid=None):
                         if not chunk: break
                         dst.write(chunk)
                 run_cmd([ff,'-y','-i',str(raw),'-t','5',
-                         '-vf','scale=360:640:force_original_aspect_ratio=increase,crop=360:640,setsar=1,fps=24',
-                         '-an','-c:v','libx264','-preset','ultrafast','-crf','28','-threads','1',
+                         '-vf','scale=160:284:force_original_aspect_ratio=increase,crop=160:284,setsar=1,fps=12',
+                         '-an','-c:v','libx264','-preset','ultrafast','-crf','32','-threads','1','-filter_threads','1','-filter_complex_threads','1','-x264-params','threads=1:lookahead-threads=1',
                          '-pix_fmt','yuv420p','-movflags','+faststart',str(target)],90)
                 try: raw.unlink()
                 except Exception: pass
@@ -647,12 +647,12 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
     per=max(2.5,duration/len(assets)); scene_files=[]
     for i,(kind,src) in enumerate(assets):
         scene=work/f'scene_{i:02d}.mp4'; overlay=work/f'overlay_{i:02d}.png'
-        _caption_overlay(overlay,captions[i % len(captions)],i,len(assets),240,426)
+        _caption_overlay(overlay,captions[i % len(captions)],i,len(assets),160,284)
         if kind=='video':
-            vf='scale=240:426:force_original_aspect_ratio=increase,crop=240:426,setsar=1,fps=20'
+            vf='scale=160:284:force_original_aspect_ratio=increase,crop=160:284,setsar=1,fps=12'
             inp=['-stream_loop','-1','-i',str(src)]
         else:
-            vf="scale=240:426:force_original_aspect_ratio=increase,crop=240:426,setsar=1,zoompan=z='min(zoom+0.002,1.035)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=240x426:fps=20"
+            vf="scale=240:426:force_original_aspect_ratio=increase,crop=240:426,setsar=1,zoompan=z='min(zoom+0.0015,1.02)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=160x284:fps=12"
             inp=['-loop','1','-i',str(src)]
         cmd=[ff,'-loglevel','error','-y']+inp+['-loop','1','-i',str(overlay),'-t',f'{per:.3f}',
              '-filter_complex',f'[0:v]{vf}[v];[1:v]format=rgba[o];[v][o]overlay=0:0:shortest=1[outv]',
@@ -666,10 +666,10 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
     listfile=work/'timeline.txt'
     with listfile.open('w',encoding='utf-8') as f:
         for sf in scene_files: f.write(f"file '{sf.as_posix()}'\n")
-    # Final encode at 540x960: still a valid 9:16 Short, dramatically lower RAM than 1080x1920.
+    # Final encode at 480x854: conservative 9:16 output for Render Free 512 MB.
     run_cmd([ff,'-loglevel','error','-y','-f','concat','-safe','0','-i',str(listfile),'-i',str(audio),
-             '-t',f'{duration:.2f}','-vf','scale=540:960:flags=fast_bilinear,format=yuv420p','-r','20',
-             '-c:v','libx264','-preset','ultrafast','-crf','31','-threads','1',
+             '-t',f'{duration:.2f}','-vf','scale=480:854:flags=fast_bilinear,format=yuv420p','-r','12',
+             '-c:v','libx264','-preset','ultrafast','-crf','33','-threads','1','-filter_threads','1','-filter_complex_threads','1',
              '-x264-params','threads=1:lookahead-threads=1','-c:a','aac','-b:a','80k',
              '-movflags','+faststart','-shortest',str(out)],180)
     for p in scene_files:
