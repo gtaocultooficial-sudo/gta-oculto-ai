@@ -23,7 +23,7 @@ WORK.mkdir(exist_ok=True)
 STATE_FILE = WORK / 'jobs.json'
 LOCK = threading.RLock()
 PROCESSING = False
-UA = 'GTA-Oculto-AI/Cloud-Final/1.4-V31.0'
+UA = 'GTA-Oculto-AI/Cloud-Final/1.5-V31.1'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
@@ -1079,8 +1079,11 @@ def duration_of_audio(path):
     except Exception: return 30.0
 
 async def make_tts(text,path):
-    """V31: gera áudio e captura WordBoundary reais do Edge-TTS."""
-    if edge_tts is None: raise RuntimeError('edge-tts não disponível no servidor')
+    """V31.1: gera áudio PT-BR e tenta capturar WordBoundary; se a versão do
+    edge-tts instalada no Render não expuser esses eventos, a produção continua
+    usando o fallback editorial sincronizado pela duração real do áudio."""
+    if edge_tts is None:
+        raise RuntimeError('edge-tts não disponível no servidor')
     last=None
     for voice in ['pt-BR-AntonioNeural','pt-BR-FranciscaNeural']:
         try:
@@ -1088,17 +1091,24 @@ async def make_tts(text,path):
             cues=[]
             with open(path,'wb') as fh:
                 async for chunk in comm.stream():
-                    typ=chunk.get('type')
+                    typ=str(chunk.get('type',''))
+                    low=typ.lower().replace('_','')
                     if typ=='audio':
                         fh.write(chunk.get('data',b''))
-                    elif typ=='WordBoundary':
+                        continue
+                    # Edge-TTS já mudou a forma/nome desses eventos em algumas
+                    # versões. Aceitamos variações sem quebrar a produção.
+                    if 'wordboundary' in low or low in ('word','wordbound'):
                         try:
-                            cues.append({
-                                'word':str(chunk.get('text','')).strip(),
-                                'start':float(chunk.get('offset',0))/10_000_000.0,
-                                'duration':float(chunk.get('duration',0))/10_000_000.0,
-                            })
-                        except Exception: pass
+                            word=str(chunk.get('text') or chunk.get('word') or '').strip()
+                            offset=chunk.get('offset',chunk.get('start',0))
+                            dur=chunk.get('duration',chunk.get('length',0))
+                            start=float(offset)/10_000_000.0
+                            duration=float(dur)/10_000_000.0
+                            if word:
+                                cues.append({'word':word,'start':start,'duration':duration})
+                        except Exception:
+                            pass
             if path.exists() and path.stat().st_size>1000:
                 return cues
         except Exception as e:
@@ -1741,11 +1751,11 @@ def produce_job(jid):
         for i,src in enumerate(image_order):
             dst=jobdir/f'image_{i}.jpg'; prepare_scene(src,dst,'',i,10); image_scenes.append(dst)
         update_job(jid,stage='NARRAÇÃO',progress=60,log='Gerando narração PT-BR e capturando timestamps reais da fala...'); audio=jobdir/'narracao.mp3'; word_cues=asyncio.run(make_tts(script['narration'],audio)); duration=duration_of_audio(audio)
-        if not word_cues: raise RuntimeError('A voz foi gerada, mas o Edge-TTS não retornou timestamps de palavras para sincronizar as legendas.')
         (jobdir/'word_cues.json').write_text(json.dumps(word_cues,ensure_ascii=False,indent=2),encoding='utf-8')
         beats=build_short_timeline(script,topic,duration,10,word_cues=word_cues)
         caps=[b['text'] for b in beats]
-        update_job(jid,progress=66,log=f'Narração pronta: {script.get("word_count",0)} palavras / {duration:.1f}s. Legendas sincronizadas por blocos naturais de fala ({len(beats)} blocos).')
+        sync_mode='timestamps reais do Edge-TTS' if word_cues else 'fallback editorial pela duração real do áudio'
+        update_job(jid,progress=66,log=f'Narração pronta: {script.get("word_count",0)} palavras / {duration:.1f}s. Legendas em {len(beats)} blocos — {sync_mode}.')
         update_job(jid,stage='EDIÇÃO',progress=74,log=f'Obtendo vídeos oficiais da Rockstar e montando timeline com movimento real / {duration:.1f}s...')
         official_videos=download_official_video_clips(jobdir/'official_videos', jid)
         selected_videos=select_video_clips(official_videos,topic['title'],6)
@@ -1761,7 +1771,7 @@ def produce_job(jid):
         for sp in image_scenes:
             q=_image_quality(sp); visual_quality=min(visual_quality, max(0,q))
         score=evaluate(script,duration,len(beats),visual_quality,beats,len(selected_videos),len(image_scenes))
-        meta={'title':topic['title'].upper()+' 👀','description':script['narration']+'\n\n🔎 GTA Oculto — onde os segredos vêm à tona.','hashtags':['#GTA6','#GTAVI','#GTAOculto','#RockstarGames','#GTA'],'tags':['GTA 6','GTA VI','GTA 6 Brasil','GTA 6 teorias','GTA 6 segredos','Rockstar Games','GTA Oculto'],'score':score,'script_version':script.get('script_version','V31.0')}
+        meta={'title':topic['title'].upper()+' 👀','description':script['narration']+'\n\n🔎 GTA Oculto — onde os segredos vêm à tona.','hashtags':['#GTA6','#GTAVI','#GTAOculto','#RockstarGames','#GTA'],'tags':['GTA 6','GTA VI','GTA 6 Brasil','GTA 6 teorias','GTA 6 segredos','Rockstar Games','GTA Oculto'],'score':score,'script_version':script.get('script_version','V31.1')}
         (jobdir/'metadata.json').write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding='utf-8')
         update_job(jid,status='DONE',stage='PRONTO',progress=100,log=f'PRONTO — Short gerado e avaliado em {score}/100.',video=f'{jid}/GTA_OCULTO_SHORT.mp4',cover=f'{jid}/CAPA.jpg',score=score,metadata=meta)
     except Exception as e:
@@ -1800,7 +1810,7 @@ def processor_loop():
 @APP.get('/')
 def home(): return render_template_string(PAGE)
 @APP.get('/health')
-def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V31.0-EDITORIAL-TIMED-CAPTIONS',processor='cloud')
+def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V31.1-EDITORIAL-TIMED-CAPTIONS-FALLBACK',processor='cloud')
 @APP.get('/api/state')
 def state():
     with LOCK:
