@@ -611,7 +611,7 @@ def make_script(topic):
         'editorial_angle':angle,'editorial_hook':hook,
         'editorial_score':topic.get('editorial_score'),'editorial_decision':topic.get('editorial_decision','PRODUZIR'),
         'editorial_reason':topic.get('editorial_reason',''),'sections':sections,
-        'word_count':word_count,'estimated_seconds':estimated_seconds,'script_version':'V29.1'
+        'word_count':word_count,'estimated_seconds':estimated_seconds,'script_version':'V29.2'
     }
 
 def build_dynamic_captions(script, topic, count=9):
@@ -1309,63 +1309,164 @@ def _caption_phrases_from_sentence(sentence, max_words=7):
     return [x for x in out if 3<=len(x.split())<=max_words]
 
 
+def _caption_words(text):
+    """Tokeniza preservando pontuação para decidir cortes linguísticos naturais."""
+    return re.findall(r"[^\s]+", re.sub(r'\s+', ' ', str(text)).strip())
+
+
+def _caption_clean_word(word):
+    return re.sub(r'^[\"“”‘’(\[]+|[\"“”‘’),.;:!?\]]+$', '', word).lower()
+
+
+def _caption_is_bad_start(word):
+    return _caption_clean_word(word) in {
+        'e','de','do','da','em','no','na','que','um','uma','o','a','os','as',
+        'para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa'
+    }
+
+
+def _caption_is_bad_end(word):
+    return _caption_clean_word(word) in {
+        'e','de','do','da','em','no','na','que','um','uma','o','a','os','as',
+        'para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa'
+    }
+
+
+def _caption_phrase_chunks(sentence, min_words=3, max_words=7):
+    """Divide uma frase em blocos contíguos de 3–7 palavras.
+    O corte privilegia pontuação, conectores e unidades linguísticas, evitando
+    deixar preposição/conjunção pendurada no fim ou iniciar o próximo bloco com ela.
+    Nenhuma palavra é criada ou removida.
+    """
+    tokens=_caption_words(sentence)
+    if len(tokens)<min_words:
+        return []
+    chunks=[]; i=0
+    while i < len(tokens):
+        remaining=len(tokens)-i
+        if remaining <= max_words:
+            candidate=tokens[i:]
+            if len(candidate) < min_words and chunks:
+                # Reequilibra o último par para evitar um bloco de 1–2 palavras.
+                prev=chunks.pop()
+                merged=prev+candidate
+                split=max(min_words, min(max_words, round(len(merged)/2)))
+                a=merged[:split]; b=merged[split:]
+                if len(b)>=min_words:
+                    chunks.extend([a,b])
+                else:
+                    chunks.append(merged)
+            else:
+                chunks.append(candidate)
+            break
+
+        target=max(min_words, min(max_words, round(remaining/2)))
+        lo=max(i+min_words, i+target-2)
+        hi=min(i+max_words, i+target+2, len(tokens)-1)
+        best=None
+        for cut in range(lo, hi+1):
+            left=tokens[i:cut]; right=tokens[cut:]
+            if len(left)<min_words or len(left)>max_words:
+                continue
+            score=abs(len(left)-target)*2.0
+            # Pontuação é o melhor ponto de corte.
+            last=left[-1]
+            if re.search(r'[.!?,;:]$', last): score-=8
+            elif re.search(r'[.!?,;:]$', tokens[cut-1]): score-=3
+            # Não termine com palavra funcional e não comece o próximo bloco com ela.
+            if _caption_is_bad_end(last): score+=12
+            if _caption_is_bad_start(right[0]): score+=12
+            # Evita separar pares/expressões muito comuns.
+            left_pair=' '.join(_caption_clean_word(x) for x in left[-2:])
+            right_pair=' '.join(_caption_clean_word(x) for x in right[:2])
+            if left_pair in {'de gta','do gta','no gta','na gta','gta 6','vice city','cloud gaming'}: score+=5
+            if right_pair in {'6 no','6 na','6 do','6 da','gta 6'}: score+=7
+            # Conectores são bons pontos de corte quando ficam no bloco seguinte.
+            if _caption_clean_word(right[0]) in {'e','mas','porque','porém','porem','então','entao','quando','enquanto'}: score-=3
+            if best is None or score<best[0]: best=(score,cut)
+        cut=best[1] if best else i+target
+        chunks.append(tokens[i:cut]); i=cut
+
+    # Segunda passada: rebalanceia blocos curtos e remove pontuação da borda.
+    out=[]
+    for ch in chunks:
+        if not ch: continue
+        if len(ch)<min_words and out:
+            merged=out.pop()+ch
+            if len(merged)<=max_words:
+                out.append(merged)
+            else:
+                split=len(merged)//2
+                while split<min_words: split+=1
+                while len(merged)-split<min_words and split>min_words: split-=1
+                out.extend([merged[:split],merged[split:]])
+        else:
+            out.append(ch)
+    return [' '.join(x).strip(' ,;:') for x in out if len(x)>=min_words]
+
+
 def build_short_timeline(script, topic, duration, count=10):
-    """V29.1: legendas naturais sincronizadas com a narração real.
-    Usa exatamente as palavras narradas, preserva a ordem e evita cortes em artigos,
-    preposições e expressões curtas. O primeiro bloco pode ser um hook completo.
+    """V29.2: timeline de legendas editoriais, natural e sincronizada.
+    Usa somente palavras realmente narradas, preserva a ordem e procura cortes
+    em pontuação/pausas e unidades linguísticas. O tempo é proporcional à fala.
     """
     narration=re.sub(r'\s+',' ',str(script.get('narration','')).strip())
     if not narration:
         return [{'text':'GTA 6','duration':duration,'highlight':'GTA'}]
 
-    sentences=[s.strip() for s in re.split(r'(?<=[.!?])\s+',narration) if len(s.strip())>3]
+    # Divide primeiro por frases reais; isso evita misturar o fim de uma ideia com o início da próxima.
+    sentences=[s.strip() for s in re.split(r'(?<=[.!?])\s+', narration) if len(s.strip())>=3]
     if not sentences: sentences=[narration]
-    beats=[]; seen=set()
+    candidates=[]
     for sent in sentences:
-        for phrase in _caption_phrases_from_sentence(sent,7):
+        for phrase in _caption_phrase_chunks(sent,3,7):
             phrase=_clean_caption_phrase(phrase)
-            if not phrase or phrase in seen: continue
-            ws=re.findall(r"[A-Za-zÀ-ÿ0-9']+",phrase)
-            if len(ws)<3: continue
-            # Evita começar/terminar bloco com palavras funcionais isoladas.
-            bad={'e','de','do','da','em','no','na','que','um','uma','o','a','os','as','para','com','por','mas','se'}
-            if ws[0].lower() in bad or ws[-1].lower() in bad:
-                continue
-            preferred=[w for w in ws if w.lower() in {
-                'gta','gta6','vi','rockstar','jason','lucia','leonida','vice','city','mapa','história','historia','detalhe','confirmado','confirmou','rumor','teoria','microsoft','cloud'
-            }]
-            highlight=preferred[0] if preferred else (ws[-1] if len(ws)>=5 else None)
-            beats.append({'text':phrase,'highlight':highlight}); seen.add(phrase)
-            if len(beats)>=count: break
-        if len(beats)>=count: break
+            if phrase and len(re.findall(r"[A-Za-zÀ-ÿ0-9']+",phrase))>=3:
+                candidates.append(phrase)
 
-    # Se poucas frases resultarem, usamos blocos contíguos da narração inteira.
-    if len(beats)<3:
-        words=narration.split(); beats=[]; seen=set(); i=0
-        while i<len(words) and len(beats)<count:
-            chunk=words[i:i+6]
-            if len(chunk)<3: break
-            phrase=_clean_caption_phrase(' '.join(chunk))
-            if phrase not in seen:
-                beats.append({'text':phrase,'highlight':None}); seen.add(phrase)
-            i+=6
+    # Remove duplicadas sem alterar a ordem.
+    uniq=[]; seen=set()
+    for phrase in candidates:
+        key=phrase.lower()
+        if key not in seen:
+            seen.add(key); uniq.append(phrase)
 
-    if not beats:
-        beats=[{'text':_clean_caption_phrase(narration),'highlight':None}]
+    # Mantém até count blocos, mas se houver poucos, usa mais blocos da fala inteira.
+    if len(uniq)<3:
+        words=narration.split(); uniq=[]
+        for i in range(0,len(words),6):
+            ch=words[i:i+6]
+            if len(ch)>=3: uniq.append(_clean_caption_phrase(' '.join(ch)))
+            if len(uniq)>=count: break
 
-    # Distribui o tempo pela quantidade de palavras, respeitando leitura confortável.
+    uniq=uniq[:count]
+    if not uniq:
+        uniq=[_clean_caption_phrase(narration)]
+
+    preferred_words={
+        'gta','gta6','vi','rockstar','jason','lucia','leonida','vice','city','mapa',
+        'história','historia','detalhe','confirmado','confirmou','rumor','teoria',
+        'microsoft','cloud','gaming','realismo','novidades'
+    }
+    beats=[]
+    for phrase in uniq:
+        ws=re.findall(r"[A-Za-zÀ-ÿ0-9']+",phrase)
+        preferred=[w for w in ws if w.lower() in preferred_words]
+        highlight=preferred[0] if preferred else (ws[-1] if len(ws)>=5 else None)
+        beats.append({'text':phrase,'highlight':highlight})
+
+    # Tempo proporcional às palavras, com limites confortáveis.
     weights=[max(3,len(re.findall(r"[A-Za-zÀ-ÿ0-9']+",b['text']))) for b in beats]
     total=sum(weights) or 1
     raw=[duration*w/total for w in weights]
-    # Mantém blocos em torno de 1.5–3.6 s quando houver vários blocos.
     if len(raw)>1:
-        raw=[max(1.45,min(3.6,x)) for x in raw]
+        raw=[max(1.35,min(3.8,x)) for x in raw]
         scale=duration/sum(raw)
         raw=[x*scale for x in raw]
     diff=duration-sum(raw)
     raw[-1]=max(1.1,raw[-1]+diff)
     for b,d in zip(beats,raw): b['duration']=d
-    return beats[:count]
+    return beats
 
 def _beat_keywords(text, topic_title):
     blob=(str(text)+' '+str(topic_title)).lower()
@@ -1598,7 +1699,7 @@ def processor_loop():
 @APP.get('/')
 def home(): return render_template_string(PAGE)
 @APP.get('/health')
-def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V29.1-ROTEIRO-NARRACAO-LEGENDAS',processor='cloud')
+def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V29.2-LEGENDAS-EDITORIAIS',processor='cloud')
 @APP.get('/api/state')
 def state():
     with LOCK:
