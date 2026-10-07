@@ -1,20 +1,37 @@
-# GTA Oculto AI — Primeiro Short Qualidade V2
+# GTA Oculto AI — Primeiro Short Qualidade FINAL
 
-Versão de acabamento sobre a build que já gera MP4 no Render Free.
+Versão de acabamento do produtor cloud do GTA Oculto AI.
 
-- mantém o processamento de baixo consumo de RAM;
-- mantém 540x960 / 15 FPS para estabilidade;
-- remove poluição visual de contador de cena no overlay;
-- alterna vídeos reais e imagens;
-- termina com um vídeo real em movimento para evitar quadro congelado no final;
-- mantém mídia oficial da Rockstar e execução em nuvem.
+## Pipeline
+- Pesquisa automática
+- Análise e escolha de pauta
+- Roteiro
+- Narração PT-BR
+- Visuais
+- Edição vertical 9:16
+- Legendas únicas e limpas
+- Avaliação
+- MP4 final
 
-## Deploy Render
-Build: `pip install -r requirements.txt`
-Start: `gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 2 --timeout 300`
+## Mídia oficial
+- Usa vídeos oficiais disponibilizados pela Rockstar Games.
+- Não usa YouTube.
+- Não usa yt-dlp.
+- Não depende do PC do usuário.
+- Processa a mídia sequencialmente para respeitar o limite de memória do Render Free.
+- Usa até 6 clipes oficiais reais por Short, alternados com 3 visuais preparados.
+- Os clipes intermediários são preparados em baixa resolução e a montagem final é feita em 540x960/15 FPS para manter estabilidade no Render Free.
+- O vídeo final usa compressão melhorada sem aumentar o número de processos concorrentes.
 
+## Render
+Build:
+`pip install -r requirements.txt`
 
-### V3 acabamento
-- Remove contador de cenas e legendas duplicadas nas imagens.
-- Mantém 540x960 / 15 FPS para o Render Free 512 MB.
-- Faz o overlay de legenda apenas uma vez na timeline final.
+Start:
+`gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 2 --timeout 300`
+
+## Arquivos
+- app.py
+- requirements.txt
+- Procfile
+- README.md

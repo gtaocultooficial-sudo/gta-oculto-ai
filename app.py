@@ -534,8 +534,8 @@ def download_official_video_clips(outdir, jid=None):
     outdir.mkdir(parents=True, exist_ok=True)
     cache=WORK/'official_video_cache'; cache.mkdir(parents=True, exist_ok=True)
     clips=sorted([p for p in cache.glob('rockstar_real_*.mp4') if p.stat().st_size>20000])
-    if len(clips)>=3:
-        return clips[:3]
+    if len(clips)>=6:
+        return clips[:6]
 
     zip_path=cache/'GTAVI_Videos_full.zip'
     part=cache/'GTAVI_Videos_full.zip.part'
@@ -567,8 +567,8 @@ def download_official_video_clips(outdir, jid=None):
             preferred=[]
             for key in ('Jason','Lucia','Cal','Boobie','Raul','Brian','Real','Dre'):
                 preferred += [n for n in names if key.lower() in Path(n).stem.lower() and n not in preferred]
-            chosen=(preferred+[n for n in names if n not in preferred])[:3]
-            if len(chosen)<3:
+            chosen=(preferred+[n for n in names if n not in preferred])[:6]
+            if len(chosen)<6:
                 raise RuntimeError(f'A mídia oficial possui apenas {len(chosen)} vídeos utilizáveis.')
             ff=str(__import__('imageio_ffmpeg').get_ffmpeg_exe())
             for i,name in enumerate(chosen):
@@ -588,11 +588,11 @@ def download_official_video_clips(outdir, jid=None):
                 try: raw.unlink()
                 except Exception: pass
         clips=sorted([p for p in cache.glob('rockstar_real_*.mp4') if p.stat().st_size>20000])
-        if len(clips)<3:
+        if len(clips)<6:
             raise RuntimeError(f'Apenas {len(clips)} clipes reais foram preparados.')
         try: zip_path.unlink()
         except Exception: pass
-        return clips[:3]
+        return clips[:6]
     except Exception as e:
         try:
             if part.exists(): part.unlink()
@@ -642,7 +642,7 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
     # Alterna movimento e imagens, mas termina com vídeo real para evitar
     # sensação de quadro congelado no encerramento.
     assets=[]
-    order=[('video',0),('image',0),('video',1),('image',1),('image',2),('video',2)]
+    order=[('video',0),('image',0),('video',1),('image',1),('video',2),('image',2),('video',3),('video',4),('video',5)]
     for kind,idx in order:
         if kind=='video' and idx < len(video_clips):
             assets.append(('video',video_clips[idx]))
@@ -660,7 +660,7 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
             inp=['-loop','1','-i',str(src)]
         cmd=[ff,'-loglevel','error','-y']+inp+['-loop','1','-i',str(overlay),'-t',f'{per:.3f}',
              '-filter_complex',f'[0:v]{vf}[v];[1:v]format=rgba[o];[v][o]overlay=0:0:shortest=1[outv]',
-             '-map','[outv]','-an','-c:v','libx264','-preset','ultrafast','-crf','31',
+             '-map','[outv]','-an','-c:v','libx264','-preset','ultrafast','-crf','29',
              '-threads','1','-filter_threads','1','-filter_complex_threads','1',
              '-x264-params','threads=1:lookahead-threads=1','-pix_fmt','yuv420p','-movflags','+faststart',str(scene)]
         run_cmd(cmd,75)
@@ -673,8 +673,8 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
     # Final encode at 480x854: conservative 9:16 output for Render Free 512 MB.
     run_cmd([ff,'-loglevel','error','-y','-f','concat','-safe','0','-i',str(listfile),'-i',str(audio),
              '-t',f'{duration:.2f}','-vf','scale=540:960:flags=fast_bilinear,format=yuv420p','-r','15',
-             '-c:v','libx264','-preset','ultrafast','-crf','30','-threads','1','-filter_threads','1','-filter_complex_threads','1',
-             '-x264-params','threads=1:lookahead-threads=1','-c:a','aac','-b:a','80k',
+             '-c:v','libx264','-preset','ultrafast','-crf','27','-threads','1','-filter_threads','1','-filter_complex_threads','1',
+             '-x264-params','threads=1:lookahead-threads=1','-c:a','aac','-b:a','96k',
              '-movflags','+faststart','-shortest',str(out)],180)
     for p in scene_files:
         try: p.unlink()
@@ -723,22 +723,22 @@ def produce_job(jid):
         jobdir=WORK/jid; jobdir.mkdir(parents=True,exist_ok=True)
         update_job(jid,script=script,stage='VISUAIS',progress=40,log='Baixando visuais oficiais e montando cenas verticais...')
         paths=download_visuals(urls,jobdir/'visuals',topic['title'])
-        caps=['A ROCKSTAR PODE TER ESCONDIDO ISSO.','JASON E LUCIA SÃO O CENTRO DA HISTÓRIA.','MAS NÃO É SÓ VICE CITY.','A CONSPIRAÇÃO SE ESPALHA POR LEONIDA.','O MAPA PODE ESCONDER OUTRAS HISTÓRIAS.','CADA REGIÃO PODE TER UMA PISTA.','E A ROCKSTAR JÁ MOSTROU ALGUMAS.','QUAL DETALHE VOCÊ PERCEBEU?']
+        caps=['A ROCKSTAR PODE TER ESCONDIDO ISSO.','JASON E LUCIA ESTÃO NO CENTRO DA HISTÓRIA.','MAS NÃO É SÓ VICE CITY.','LEONIDA PODE GUARDAR OUTRAS PISTAS.','O MAPA TEM DETALHES QUE MERECEM ATENÇÃO.','CADA REGIÃO PODE ESCONDER UMA HISTÓRIA.','A ROCKSTAR JÁ MOSTROU PARTE DESSE MUNDO.','MAS O QUE AINDA NÃO FOI REVELADO?','QUAL DETALHE VOCÊ PERCEBEU?']
         image_order=select_visuals(paths,topic['title'],3)
         image_scenes=[]
         for i,src in enumerate(image_order):
-            dst=jobdir/f'image_{i}.jpg'; prepare_scene(src,dst,caps[min(i,len(caps)-1)],i,8); image_scenes.append(dst)
+            dst=jobdir/f'image_{i}.jpg'; prepare_scene(src,dst,caps[min(i,len(caps)-1)],i,9); image_scenes.append(dst)
         update_job(jid,stage='NARRAÇÃO',progress=60,log='Gerando narração PT-BR...'); audio=jobdir/'narracao.mp3'; asyncio.run(make_tts(script['narration'],audio)); duration=duration_of_audio(audio)
         update_job(jid,stage='EDIÇÃO',progress=74,log=f'Obtendo vídeos oficiais da Rockstar e montando timeline com movimento real / {duration:.1f}s...')
         official_videos=download_official_video_clips(jobdir/'official_videos', jid)
-        selected_videos=select_video_clips(official_videos,topic['title'],3)
+        selected_videos=select_video_clips(official_videos,topic['title'],6)
         update_job(jid,log=f'{len(selected_videos)} vídeos oficiais disponíveis. Editando cortes reais em 9:16 / {duration:.1f}s...')
         video=jobdir/'GTA_OCULTO_SHORT.mp4'; make_multimedia_video(selected_videos,image_scenes,audio,video,duration,caps)
         cover=jobdir/'CAPA.jpg'; make_cover(image_scenes[0],topic['title'],cover)
         update_job(jid,stage='AVALIAÇÃO',progress=92,log='Avaliando hook, ritmo, visuais, duração, formato e legendas...'); visual_quality=100
         for sp in image_scenes:
             q=_image_quality(sp); visual_quality=min(visual_quality, max(0,q))
-        score=evaluate(script,duration,6,visual_quality)
+        score=evaluate(script,duration,9,visual_quality)
         meta={'title':topic['title'].upper()+' 👀','description':script['narration']+'\n\n🔎 GTA Oculto — onde os segredos vêm à tona.','hashtags':['#GTA6','#GTAVI','#GTAOculto','#RockstarGames','#GTA'],'tags':['GTA 6','GTA VI','GTA 6 Brasil','GTA 6 teorias','GTA 6 segredos','Rockstar Games','GTA Oculto'],'score':score}
         (jobdir/'metadata.json').write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding='utf-8')
         update_job(jid,status='DONE',stage='PRONTO',progress=100,log=f'PRONTO — Short gerado e avaliado em {score}/100.',video=f'{jid}/GTA_OCULTO_SHORT.mp4',cover=f'{jid}/CAPA.jpg',score=score,metadata=meta)
