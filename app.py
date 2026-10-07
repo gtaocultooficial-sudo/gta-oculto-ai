@@ -47,9 +47,41 @@ PAGE = '''<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta na
 </div><script>
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
 function stageIndex(s){return {PESQUISA:0,ANÁLISE:1,ROTEIRO:2,VISUAIS:3,NARRAÇÃO:4,EDIÇÃO:5,AVALIAÇÃO:6,PRONTO:7}[s]??-1}
-async function load(){try{let d=await(await fetch('/api/state')).json();document.getElementById('opps').textContent=d.opportunities.length;document.getElementById('assuntos').textContent=d.opportunities.length;document.getElementById('produzidos').textContent=d.produced;document.getElementById('fila').textContent=d.queue;document.getElementById('oppList').innerHTML=d.opportunities.map(o=>`<div class="row"><div class="score">${o.score}</div><div><div class="title">${esc(o.title)}</div><div class="source">${esc(o.source)}</div></div><div class="pill">${esc(o.priority)}</div><div class="pill">${esc(o.status||'PRODUZIR')}</div><button class="produce" onclick="createShort('${o.id}')">PRODUZIR</button></div>`).join('');renderJobs(d.jobs)}catch(e){}}
+const LOCAL_OPPORTUNITIES=[
+{id:'leonida',score:96,priority:'ALTA',title:'GTA 6: o detalhe de Leonida que pode mudar a história',source:'Rockstar Games'},
+{id:'jason-lucia',score:93,priority:'ALTA',title:'Jason e Lucia: o que a Rockstar já confirmou oficialmente',source:'Rockstar Games'},
+{id:'estado-leonida',score:90,priority:'ALTA',title:'A história de GTA 6 vai muito além de Vice City',source:'Rockstar Games'},
+{id:'detalhes',score:84,priority:'MÉDIA',title:'Os detalhes escondidos que a Rockstar colocou em GTA 6',source:'Rockstar Games'}
+];
+function drawState(d){
+  const opportunities=(d&&Array.isArray(d.opportunities)&&d.opportunities.length)?d.opportunities:LOCAL_OPPORTUNITIES;
+  document.getElementById('opps').textContent=opportunities.length;
+  document.getElementById('assuntos').textContent=opportunities.length;
+  document.getElementById('produzidos').textContent=(d&&d.produced)||0;
+  document.getElementById('fila').textContent=(d&&d.queue)||0;
+  document.getElementById('oppList').innerHTML=opportunities.map(o=>`<div class="row"><div class="score">${o.score}</div><div><div class="title">${esc(o.title)}</div><div class="source">${esc(o.source)}</div></div><div class="pill">${esc(o.priority)}</div><div class="pill">${esc(o.status||'PRODUZIR')}</div><button class="produce" onclick="createShort('${o.id}')">PRODUZIR</button></div>`).join('');
+  renderJobs((d&&d.jobs)||[]);
+}
+async function load(){
+  try{
+    const r=await fetch('/api/state',{cache:'no-store'});
+    if(!r.ok) throw new Error('API /api/state retornou '+r.status);
+    drawState(await r.json());
+  }catch(e){
+    drawState({opportunities:LOCAL_OPPORTUNITIES,jobs:[],produced:0,queue:0});
+  }
+}
 function renderJobs(js){if(!js.length){document.getElementById('jobs').textContent='Nenhuma produção iniciada.';return}js=js.slice().reverse();document.getElementById('jobs').innerHTML=js.map(j=>{let p=Math.round(j.progress||0);return `<div class="job"><div class="jobhead"><b>${esc(j.title)}</b><span>${esc(j.status)}</span></div><div class="muted">${esc(j.stage)} — ${p}%</div><div class="bar"><i style="width:${p}%"></i></div><div class="log">${esc(j.log||'')}</div>${j.score?`<div class="meta">Avaliação: ${j.score}/100</div>`:''}${j.video?`<div class="result"><a href="/output/${encodeURIComponent(j.video)}" target="_blank">▶ ABRIR SHORT</a><a href="/output/${encodeURIComponent(j.cover||'')}" target="_blank">🖼️ CAPA</a><a href="/api/job/${j.id}" target="_blank">JSON</a></div>`:''}</div>`}).join('');for(let i=0;i<8;i++)document.getElementById('step-'+i).classList.toggle('active',js[0]&&i===stageIndex(js[0].stage))}
-async function createShort(id){let topic=document.getElementById('topic').value;let r=await fetch('/api/produce',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id||null,topic})});let d=await r.json();if(!r.ok){alert(d.error||'Erro');return}document.getElementById('topic').value='';load()}
+async function createShort(id){
+  try{
+    let topic=document.getElementById('topic').value;
+    let r=await fetch('/api/produce',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id||null,topic})});
+    let d=await r.json();
+    if(!r.ok){alert(d.error||'Erro ao iniciar produção');return}
+    document.getElementById('topic').value='';
+    load();
+  }catch(e){alert('Não foi possível iniciar a produção. Verifique se o servidor terminou de iniciar e tente novamente.')}
+}
 async function research(){let r=await fetch('/api/research',{method:'POST'});let d=await r.json();if(d.error)alert(d.error);load()}
 load();setInterval(load,3000);
 </script></body></html>'''
@@ -1065,7 +1097,7 @@ def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V25-NARRATION-
 def state():
     with LOCK:
         js=list(load_jobs().values())[-30:]
-        return jsonify(opportunities=FALLBACK_TOPICS,jobs=js,produced=sum(x.get('status')=='DONE' for x in js),queue=sum(x.get('status') in ('QUEUED','RUNNING') for x in js))
+        return jsonify(opportunities=list(FALLBACK_TOPICS),jobs=js,produced=sum(x.get('status')=='DONE' for x in js),queue=sum(x.get('status') in ('QUEUED','RUNNING') for x in js))
 @APP.post('/api/research')
 def research():
     try:
@@ -1073,7 +1105,12 @@ def research():
     except Exception as e: return jsonify(error=str(e)),502
 @APP.post('/api/produce')
 def produce():
-    data=request.get_json(silent=True) or {}; topics,_,_=research_official(); topics=topics or FALLBACK_TOPICS; topic=choose_topic(data,topics); jid=uuid.uuid4().hex[:10]
+    data=request.get_json(silent=True) or {}
+    # Produção imediata: não bloqueia o botão esperando a Rockstar responder.
+    # A pesquisa externa fica isolada no endpoint /api/research.
+    topics=FALLBACK_TOPICS
+    topic=choose_topic(data,topics)
+    jid=uuid.uuid4().hex[:10]
     job={'id':jid,'title':topic['title'],'opportunity':topic,'status':'QUEUED','stage':'FILA','progress':0,'log':'Tarefa recebida. A produção cloud começará automaticamente.','video':None,'cover':None,'created_at':now_iso()}
     with LOCK: jobs=load_jobs(); jobs[jid]=job; save_jobs(jobs)
     return jsonify(ok=True,job_id=jid,title=topic['title'])
