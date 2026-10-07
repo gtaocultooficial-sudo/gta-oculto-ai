@@ -678,7 +678,7 @@ def download_official_video_clips(outdir, jid=None):
     import zipfile
     outdir.mkdir(parents=True, exist_ok=True)
     cache=WORK/'official_video_cache'; cache.mkdir(parents=True, exist_ok=True)
-    clips=sorted([p for p in cache.glob('rockstar_real_*.mp4') if p.stat().st_size>20000])
+    clips=sorted([p for p in cache.glob('rockstar_real_v25_*.mp4') if p.stat().st_size>20000])
     if len(clips)>=6:
         return clips[:6]
 
@@ -686,7 +686,7 @@ def download_official_video_clips(outdir, jid=None):
     part=cache/'GTAVI_Videos_full.zip.part'
     try:
         if not zip_path.exists() or zip_path.stat().st_size<100000:
-            if jid: update_job(jid,log='Baixando o pacote oficial de vídeos da Rockstar (1 vez, em cache)...')
+            if jid: update_job(jid,log='Baixando o pacote oficial de vídeos da Rockstar (cache V25)...')
             if part.exists():
                 try: part.unlink()
                 except Exception: pass
@@ -717,22 +717,22 @@ def download_official_video_clips(outdir, jid=None):
                 raise RuntimeError(f'A mídia oficial possui apenas {len(chosen)} vídeos utilizáveis.')
             ff=str(__import__('imageio_ffmpeg').get_ffmpeg_exe())
             for i,name in enumerate(chosen):
-                target=cache/f'rockstar_real_{i}.mp4'
+                target=cache/f'rockstar_real_v25_{i}.mp4'
                 if target.exists() and target.stat().st_size>20000: continue
                 raw=cache/f'raw_{i}.mp4'
-                if jid: update_job(jid,log=f'Preparando clipe oficial {i+1}/3: {Path(name).stem}...')
+                if jid: update_job(jid,log=f'Preparando clipe oficial {i+1}/6: {Path(name).stem}...')
                 with zf.open(name) as src, raw.open('wb') as dst:
                     while True:
                         chunk=src.read(1024*1024)
                         if not chunk: break
                         dst.write(chunk)
                 run_cmd([ff,'-y','-i',str(raw),'-t','5',
-                         '-vf','scale=160:284:force_original_aspect_ratio=increase,crop=160:284,setsar=1,fps=12',
-                         '-an','-c:v','libx264','-preset','ultrafast','-crf','32','-threads','1','-filter_threads','1','-filter_complex_threads','1','-x264-params','threads=1:lookahead-threads=1',
+                         '-vf','scale=360:640:force_original_aspect_ratio=increase,crop=360:640,setsar=1,fps=15',
+                         '-an','-c:v','libx264','-preset','ultrafast','-crf','29','-threads','1','-filter_threads','1','-filter_complex_threads','1','-x264-params','threads=1:lookahead-threads=1',
                          '-pix_fmt','yuv420p','-movflags','+faststart',str(target)],90)
                 try: raw.unlink()
                 except Exception: pass
-        clips=sorted([p for p in cache.glob('rockstar_real_*.mp4') if p.stat().st_size>20000])
+        clips=sorted([p for p in cache.glob('rockstar_real_v25_*.mp4') if p.stat().st_size>20000])
         if len(clips)<6:
             raise RuntimeError(f'Apenas {len(clips)} clipes reais foram preparados.')
         try: zip_path.unlink()
@@ -758,54 +758,193 @@ def select_video_clips(videos,title,count=5):
     return ranked[:count]
 
 
-def _caption_overlay(path,caption,idx,total,W=240,H=426):
-    # Single clean overlay. No scene counter and no baked duplicate caption.
+
+def _caption_overlay(path,caption,idx,total,W=360,H=640,highlight=None):
+    """Shorts-style caption: compact phrase, highlighted keyword, crisp at scene resolution."""
     im=Image.new('RGBA',(W,H),(0,0,0,0)); d=ImageDraw.Draw(im)
-    d.rectangle((0,0,W,42),fill=(0,0,0,125))
-    d.text((12,10),'GTA OCULTO',font=font(15,True),fill='white')
-    f=font(18,True); lines=wrap_text(d,str(caption),f,W-34)[:3]
-    box_h=18+len(lines)*24; y=H-box_h-16
-    d.rounded_rectangle((10,y,W-10,H-16),radius=10,fill=(7,9,13,215),outline=(215,28,45),width=1)
-    yy=y+8
+    # subtle brand bar
+    d.rectangle((0,0,W,46),fill=(0,0,0,120))
+    d.text((14,11),'GTA OCULTO',font=font(16,True),fill='white')
+    f=font(25,True)
+    text=re.sub(r'\s+',' ',str(caption)).strip().upper()
+    words=text.split()
+    # Keep captions punchy: maximum two lines.
+    lines=[]; cur=''
+    for w in words:
+        test=(cur+' '+w).strip()
+        if d.textbbox((0,0),test,font=f)[2] <= W-48:
+            cur=test
+        else:
+            if cur: lines.append(cur)
+            cur=w
+    if cur: lines.append(cur)
+    lines=lines[:2]
+    if not lines: return im.save(path)
+    line_h=34
+    box_h=24+len(lines)*line_h
+    y=H-box_h-54
+    d.rounded_rectangle((16,y,W-16,H-54),radius=16,fill=(4,7,12,225),outline=(225,30,48,235),width=2)
+    yy=y+10
+    hi=(str(highlight or '').upper()).strip()
     for line in lines:
-        d.text((17,yy),line,font=f,fill='white',stroke_width=1,stroke_fill='black'); yy+=24
+        # Center the whole line; highlight one important word if present.
+        parts=line.split()
+        if hi and hi in parts:
+            widths=[d.textlength(w,font=f) for w in parts]
+            spaces=d.textlength(' ',font=f)
+            totalw=sum(widths)+spaces*(len(parts)-1)
+            x=(W-totalw)/2
+            for w,ww in zip(parts,widths):
+                fill=(255,45,60) if w==hi else 'white'
+                d.text((x,yy),w,font=f,fill=fill,stroke_width=2,stroke_fill='black')
+                x += ww+spaces
+        else:
+            bb=d.textbbox((0,0),line,font=f,stroke_width=2)
+            x=(W-(bb[2]-bb[0]))/2
+            d.text((x,yy),line,font=f,fill='white',stroke_width=2,stroke_fill='black')
+        yy += line_h
     im.save(path)
 
+def build_short_timeline(script, topic, duration, count=12):
+    """Split narration into short, punchy caption beats with proportional timing.
+    Timing is estimated from word count because Edge-TTS does not expose word
+    timestamps in this pipeline.
+    """
+    narration=str(script.get('narration','')).strip()
+    words=re.findall(r"[A-Za-zÀ-ÿ0-9']+", narration)
+    if not words:
+        return [{'text':'GTA 6','duration':duration,'highlight':'GTA'}]
+    # 3-5 words per beat; prefer natural sentence boundaries.
+    raw=[]
+    sentences=[s.strip() for s in re.split(r'(?<=[.!?])\s+', narration) if s.strip()]
+    for sent in sentences:
+        sw=re.findall(r"[A-Za-zÀ-ÿ0-9']+", sent)
+        for i in range(0,len(sw),4):
+            chunk=sw[i:i+4]
+            if chunk: raw.append(chunk)
+    # Merge tiny tail chunks so the screen does not flash a 1-word caption.
+    merged=[]
+    for ch in raw:
+        if merged and len(ch)<2:
+            merged[-1].extend(ch)
+        else:
+            merged.append(ch)
+    if len(merged)>count:
+        # Re-chunk globally to keep the number of cuts predictable.
+        merged=[]
+        step=max(3,math.ceil(len(words)/count))
+        for i in range(0,len(words),step):
+            merged.append(words[i:i+step])
+    merged=merged[:count]
+    # If too few beats, split long ones.
+    while len(merged)<min(count,8) and any(len(x)>=7 for x in merged):
+        i=max(range(len(merged)),key=lambda j:len(merged[j]))
+        x=merged.pop(i); mid=max(3,len(x)//2)
+        merged.insert(i,x[:mid]); merged.insert(i+1,x[mid:])
+    # Proportional durations with sane visual rhythm.
+    weights=[max(2,len(x)) for x in merged]
+    total_w=sum(weights)
+    durations=[duration*w/total_w for w in weights]
+    # Clamp to 1.7-3.8s, then normalize a few times.
+    for _ in range(4):
+        durations=[max(1.7,min(3.8,d)) for d in durations]
+        scale=duration/sum(durations)
+        durations=[d*scale for d in durations]
+    kind=script.get('content_type','CURIOSIDADE')
+    stop={'a','o','e','de','do','da','em','no','na','que','um','uma','os','as','isso','para','com','por','mais','mas','como','esse','essa','este','esta'}
+    beats=[]
+    for ch,dur in zip(merged,durations):
+        txt=' '.join(ch).upper()
+        meaningful=[w for w in ch if w.lower() not in stop and len(w)>3]
+        highlight=(meaningful[-1] if meaningful else ch[-1]).upper()
+        beats.append({'text':txt,'duration':dur,'highlight':highlight})
+    # Stronger first beat for the hook.
+    if beats:
+        opener={'RUMOR':'⚠️ RUMOR OU PISTA REAL?','MISTÉRIO':'👁️ OLHA ESSE DETALHE','NOTÍCIA':'🚨 A ROCKSTAR CONFIRMOU','CURIOSIDADE':'😳 VOCÊ PERCEBEU?'}
+        beats[0]['text']=opener.get(kind,'😳 VOCÊ PERCEBEU?')
+        beats[0]['highlight']=None
+    return beats
 
-def _ffmpeg_text(s):
-    return s.replace('\\','\\\\').replace(':','\\:').replace("'","\\'").replace('%','\\%').replace('\n',' ')
+def _beat_keywords(text, topic_title):
+    blob=(str(text)+' '+str(topic_title)).lower()
+    groups=[
+        ('lucia',['lucia']),
+        ('jason',['jason']),
+        ('vice',['vice city','vice']),
+        ('leonida',['leonida']),
+        ('carro',['car','carro','veículo','veiculo','road','estrada']),
+        ('noite',['night','noite','sunset']),
+        ('mapa',['map','mapa','cidade','city']),
+        ('rockstar',['rockstar','confirm','oficial']),
+        ('gta',['gta 6','gta vi','gta'])
+    ]
+    return [name for name,ks in groups if any(k in blob for k in ks)]
 
+def _asset_relevance(path, title, beat_text, kind):
+    txt=(str(path)+' '+str(title)+' '+str(beat_text)).lower()
+    score=0
+    for k,v in [('jason',16),('lucia',16),('vice',12),('leonida',12),('car',7),('night',6),('map',7),('city',5),('rockstar',4),('gta',3)]:
+        if k in txt: score+=v
+    # Video filenames are more informative than generic image filenames.
+    if kind=='video': score+=3
+    return score
 
-def make_multimedia_video(video_clips, image_paths, audio, out, duration, captions):
-    """Ultra-low-memory editor for Render Free 512 MB.
-    Builds one 240x426 scene at a time and produces a 540x960 vertical MP4.
-    540x960 is the quality target; scenes are built sequentially at 240x426 to stay within the free RAM limit.
+def _choose_timeline_assets(video_clips, image_paths, beats, topic_title):
+    """Assign unique assets where possible and avoid repetitive adjacent shots."""
+    pool=[]
+    for p in video_clips: pool.append(('video',p))
+    for p in image_paths: pool.append(('image',p))
+    chosen=[]; used=set()
+    for bi,beat in enumerate(beats):
+        ranked=[]
+        for idx,(kind,p) in enumerate(pool):
+            if idx in used:
+                continue
+            s=_asset_relevance(p,topic_title,beat['text'],kind)
+            # Prefer video on hook and then alternate motion/still where possible.
+            if bi==0 and kind=='video': s+=25
+            if chosen and chosen[-1][1]==p: s-=100
+            if bi%2==0 and kind=='video': s+=5
+            ranked.append((s,kind,p,idx))
+        if not ranked:
+            # Reuse the least-recent asset only when unique assets are exhausted.
+            ranked=[(_asset_relevance(p,topic_title,beat['text'],kind),kind,p,idx) for idx,(kind,p) in enumerate(pool)]
+        ranked.sort(key=lambda x:x[0],reverse=True)
+        _,kind,p,idx=ranked[0]
+        chosen.append((kind,p))
+        used.add(idx)
+    return chosen
+
+def make_multimedia_video(video_clips, image_paths, audio, out, duration, captions, script=None, topic_title='GTA 6'):
+    """V25 editor: narration-driven timeline, 12 short beats, real clips + images.
+    Still optimized for Render Free by encoding one scene at a time.
     """
     ff=str(__import__('imageio_ffmpeg').get_ffmpeg_exe())
     work=out.parent/'timeline'; work.mkdir(exist_ok=True)
-    if len(video_clips)<3: raise RuntimeError('A edição precisa de pelo menos 3 vídeos reais.')
-    # Alterna movimento e imagens, mas termina com vídeo real para evitar
-    # sensação de quadro congelado no encerramento.
-    assets=[]
-    order=[('video',0),('image',0),('video',1),('image',1),('video',2),('image',2),('video',3),('video',4),('video',5)]
-    for kind,idx in order:
-        if kind=='video' and idx < len(video_clips):
-            assets.append(('video',video_clips[idx]))
-        elif kind=='image' and idx < len(image_paths):
-            assets.append(('image',image_paths[idx]))
-    per=max(2.5,duration/len(assets)); scene_files=[]
-    for i,(kind,src) in enumerate(assets):
+    if len(video_clips)<3:
+        raise RuntimeError('A edição precisa de pelo menos 3 vídeos reais.')
+    if script is None:
+        script={'narration':' '.join(captions)}
+    beats=build_short_timeline(script, {'title':topic_title}, duration, count=12)
+    # Use up to six images so the timeline can reach 10-12 cuts without repeating shots.
+    imgs=list(image_paths)[:6]
+    assets=_choose_timeline_assets(video_clips,imgs,beats,topic_title)
+    # Keep the exact audio length by adjusting the final beat.
+    diff=duration-sum(b['duration'] for b in beats)
+    beats[-1]['duration']=max(1.0,beats[-1]['duration']+diff)
+    scene_files=[]
+    for i,(beat,(kind,src)) in enumerate(zip(beats,assets)):
         scene=work/f'scene_{i:02d}.mp4'; overlay=work/f'overlay_{i:02d}.png'
-        _caption_overlay(overlay,captions[i % len(captions)],i,len(assets),240,426)
+        _caption_overlay(overlay,beat['text'],i,len(beats),360,640,beat.get('highlight'))
         if kind=='video':
-            vf='scale=240:426:force_original_aspect_ratio=increase,crop=240:426,setsar=1,fps=15'
+            vf='scale=360:640:force_original_aspect_ratio=increase,crop=360:640,setsar=1,fps=15'
             inp=['-stream_loop','-1','-i',str(src)]
         else:
-            vf="scale=240:426:force_original_aspect_ratio=increase,crop=240:426,setsar=1,zoompan=z='min(zoom+0.0015,1.02)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=240x426:fps=15"
+            vf="scale=360:640:force_original_aspect_ratio=increase,crop=360:640,setsar=1,zoompan=z='min(zoom+0.002,1.04)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=360x640:fps=15"
             inp=['-loop','1','-i',str(src)]
-        cmd=[ff,'-loglevel','error','-y']+inp+['-loop','1','-i',str(overlay),'-t',f'{per:.3f}',
+        cmd=[ff,'-loglevel','error','-y']+inp+['-loop','1','-i',str(overlay),'-t',f'{beat["duration"]:.3f}',
              '-filter_complex',f'[0:v]{vf}[v];[1:v]format=rgba[o];[v][o]overlay=0:0:shortest=1[outv]',
-             '-map','[outv]','-an','-c:v','libx264','-preset','ultrafast','-crf','29',
+             '-map','[outv]','-an','-c:v','libx264','-preset','ultrafast','-crf','28',
              '-threads','1','-filter_threads','1','-filter_complex_threads','1',
              '-x264-params','threads=1:lookahead-threads=1','-pix_fmt','yuv420p','-movflags','+faststart',str(scene)]
         run_cmd(cmd,75)
@@ -815,11 +954,10 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
     listfile=work/'timeline.txt'
     with listfile.open('w',encoding='utf-8') as f:
         for sf in scene_files: f.write(f"file '{sf.as_posix()}'\n")
-    # Final encode at 480x854: conservative 9:16 output for Render Free 512 MB.
     run_cmd([ff,'-loglevel','error','-y','-f','concat','-safe','0','-i',str(listfile),'-i',str(audio),
-             '-t',f'{duration:.2f}','-vf','scale=540:960:flags=fast_bilinear,format=yuv420p','-r','15',
-             '-c:v','libx264','-preset','ultrafast','-crf','27','-threads','1','-filter_threads','1','-filter_complex_threads','1',
-             '-x264-params','threads=1:lookahead-threads=1','-c:a','aac','-b:a','96k',
+             '-t',f'{duration:.2f}','-vf','scale=540:960:flags=lanczos,format=yuv420p','-r','15',
+             '-c:v','libx264','-preset','ultrafast','-crf','26','-threads','1','-filter_threads','1','-filter_complex_threads','1',
+             '-x264-params','threads=1:lookahead-threads=1','-c:a','aac','-b:a','128k',
              '-movflags','+faststart','-shortest',str(out)],180)
     for p in scene_files:
         try: p.unlink()
@@ -841,20 +979,40 @@ def make_video(scenes,audio,out,duration):
              '-crf','22','-threads','2','-profile:v','high','-pix_fmt','yuv420p',
              '-c:a','aac','-b:a','128k','-movflags','+faststart','-shortest',str(out)],300)
 
-def make_cover(scene,title,out):
-    im=Image.open(scene).convert('RGB'); d=ImageDraw.Draw(im,'RGBA'); d.rectangle((45,500,1035,1330),fill=(0,0,0,165),outline=(225,25,45),width=5); f=font(72,True); y=610
-    for line in wrap_text(d,title,f,880)[:6]: d.text((100,y),line,font=f,fill='white',stroke_width=2,stroke_fill='black'); y+=88
-    d.text((100,120),'GTA OCULTO',font=font(42,True),fill='white'); im.save(out,quality=92)
 
-def evaluate(script,duration,scene_count,visual_quality):
+def make_cover(scene,title,out):
+    im=Image.open(scene).convert('RGB')
+    im=im.resize((1080,1920),Image.Resampling.LANCZOS)
+    d=ImageDraw.Draw(im,'RGBA')
+    d.rectangle((45,500,1035,1330),fill=(0,0,0,175),outline=(225,25,45),width=5)
+    f=font(72,True); y=610
+    for line in wrap_text(d,title,f,880)[:6]:
+        d.text((100,y),line,font=f,fill='white',stroke_width=2,stroke_fill='black'); y+=88
+    d.text((100,120),'GTA OCULTO',font=font(42,True),fill='white')
+    im.save(out,quality=92)
+
+def evaluate(script,duration,scene_count,visual_quality,beats=None,video_count=0,image_count=0):
+    """V25 quality gate: checks pacing, caption density, visual variety and hook."""
     score=100
-    if duration<24: score-=5
-    if duration>38: score-=5
-    if len(script['narration'])<300: score-=5
-    if '?' not in script['narration'][:190]: score-=4
-    if scene_count<8: score-=15
-    elif scene_count<10: score-=6
-    score += max(-15,min(5,int((visual_quality-70)/4)))
+    narration=str(script.get('narration','')).strip()
+    words=re.findall(r"[A-Za-zÀ-ÿ0-9']+",narration)
+    if duration<24 or duration>38: score-=7
+    if len(words)<70: score-=8
+    if '?' not in narration[:210]: score-=4
+    if scene_count<10: score-=10
+    if scene_count<12: score-=4
+    if video_count<4: score-=8
+    if image_count<4: score-=4
+    if visual_quality<60: score-=12
+    elif visual_quality<70: score-=7
+    elif visual_quality<80: score-=3
+    if beats:
+        avg=sum(b.get('duration',0) for b in beats)/max(1,len(beats))
+        if avg>3.3: score-=5
+        if avg<1.9: score-=3
+        # Penalize very long caption phrases.
+        long_caps=sum(1 for b in beats if len(str(b.get('text','')).split())>6)
+        score-=min(8,long_caps*2)
     return max(0,min(100,score))
 
 def produce_job(jid):
@@ -868,17 +1026,17 @@ def produce_job(jid):
         jobdir=WORK/jid; jobdir.mkdir(parents=True,exist_ok=True)
         update_job(jid,script=script,stage='VISUAIS',progress=40,log='Baixando visuais oficiais e montando cenas verticais...')
         paths=download_visuals(urls,jobdir/'visuals',topic['title'])
-        caps=build_dynamic_captions(script, topic, 9)
-        image_order=select_visuals(paths,topic['title'],3)
+        caps=build_dynamic_captions(script, topic, 12)
+        image_order=select_visuals(paths,topic['title'],6)
         image_scenes=[]
         for i,src in enumerate(image_order):
-            dst=jobdir/f'image_{i}.jpg'; prepare_scene(src,dst,caps[min(i,len(caps)-1)],i,9); image_scenes.append(dst)
+            dst=jobdir/f'image_{i}.jpg'; prepare_scene(src,dst,caps[min(i,len(caps)-1)],i,12); image_scenes.append(dst)
         update_job(jid,stage='NARRAÇÃO',progress=60,log='Gerando narração PT-BR...'); audio=jobdir/'narracao.mp3'; asyncio.run(make_tts(script['narration'],audio)); duration=duration_of_audio(audio)
         update_job(jid,stage='EDIÇÃO',progress=74,log=f'Obtendo vídeos oficiais da Rockstar e montando timeline com movimento real / {duration:.1f}s...')
         official_videos=download_official_video_clips(jobdir/'official_videos', jid)
         selected_videos=select_video_clips(official_videos,topic['title'],6)
         update_job(jid,log=f'{len(selected_videos)} vídeos oficiais disponíveis. Editando cortes reais em 9:16 / {duration:.1f}s...')
-        video=jobdir/'GTA_OCULTO_SHORT.mp4'; make_multimedia_video(selected_videos,image_scenes,audio,video,duration,caps)
+        video=jobdir/'GTA_OCULTO_SHORT.mp4'; make_multimedia_video(selected_videos,image_scenes,audio,video,duration,caps,script,topic['title'])
         # Nunca deixe a capa derrubar uma produção já renderizada.
         if not image_scenes:
             fallback_cover=jobdir/'cover_fallback.jpg'
@@ -888,7 +1046,8 @@ def produce_job(jid):
         update_job(jid,stage='AVALIAÇÃO',progress=92,log='Avaliando hook, ritmo, visuais, duração, formato e legendas...'); visual_quality=100
         for sp in image_scenes:
             q=_image_quality(sp); visual_quality=min(visual_quality, max(0,q))
-        score=evaluate(script,duration,9,visual_quality)
+        beats=build_short_timeline(script,topic,duration,12)
+        score=evaluate(script,duration,len(beats),visual_quality,beats,len(selected_videos),len(image_scenes))
         meta={'title':topic['title'].upper()+' 👀','description':script['narration']+'\n\n🔎 GTA Oculto — onde os segredos vêm à tona.','hashtags':['#GTA6','#GTAVI','#GTAOculto','#RockstarGames','#GTA'],'tags':['GTA 6','GTA VI','GTA 6 Brasil','GTA 6 teorias','GTA 6 segredos','Rockstar Games','GTA Oculto'],'score':score}
         (jobdir/'metadata.json').write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding='utf-8')
         update_job(jid,status='DONE',stage='PRONTO',progress=100,log=f'PRONTO — Short gerado e avaliado em {score}/100.',video=f'{jid}/GTA_OCULTO_SHORT.mp4',cover=f'{jid}/CAPA.jpg',score=score,metadata=meta)
@@ -928,7 +1087,7 @@ def processor_loop():
 @APP.get('/')
 def home(): return render_template_string(PAGE)
 @APP.get('/health')
-def health(): return jsonify(ok=True,app='GTA Oculto AI',version='CLOUD-VIDEO-REAL-RAM-ULTIMATE',processor='cloud')
+def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V25-NARRATION-TIMELINE',processor='cloud')
 @APP.get('/api/state')
 def state():
     with LOCK:
