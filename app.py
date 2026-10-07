@@ -685,7 +685,7 @@ def _ffmpeg_text(s):
 def make_multimedia_video(video_clips, image_paths, audio, out, duration, captions):
     """Quality-first vertical editor, still designed for Render Free 512 MB.
     Official source clips are preserved; timeline scenes are rendered at 540x960
-    and the final delivery is 1080x1920/24fps with a higher-quality H.264 encode.
+    and the final delivery is 1080x1920/20fps with a higher-quality H.264 encode.
     Processing remains sequential to keep peak RAM under control.
     """
     ff=str(__import__('imageio_ffmpeg').get_ffmpeg_exe())
@@ -708,9 +708,9 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
             inp=['-loop','1','-i',str(src)]
         cmd=[ff,'-loglevel','error','-y']+inp+['-loop','1','-i',str(overlay),'-t',f'{per:.3f}',
              '-filter_complex',f'[0:v]{vf}[v];[1:v]format=rgba[o];[v][o]overlay=0:0:shortest=1[outv]',
-             '-map','[outv]','-an','-c:v','libx264','-preset','veryfast','-crf','20',
+             '-map','[outv]','-an','-c:v','libx264','-preset','ultrafast','-crf','21',
              '-threads','1','-filter_threads','1','-filter_complex_threads','1',
-             '-x264-params','threads=1:lookahead-threads=1','-profile:v','high','-pix_fmt','yuv420p','-movflags','+faststart',str(scene)]
+             '-x264-params','threads=1:lookahead-threads=1:rc-lookahead=0:ref=1:bframes=0','-profile:v','high','-pix_fmt','yuv420p','-movflags','+faststart',str(scene)]
         run_cmd(cmd,120)
         scene_files.append(scene)
         try: overlay.unlink()
@@ -718,11 +718,11 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
     listfile=work/'timeline.txt'
     with listfile.open('w',encoding='utf-8') as f:
         for sf in scene_files: f.write(f"file '{sf.as_posix()}'\n")
-    # Final delivery: true 1080x1920 vertical, 24fps, higher bitrate/quality.
+    # Final delivery: true 1080x1920 vertical, 20fps, higher bitrate/quality.
     run_cmd([ff,'-loglevel','error','-y','-f','concat','-safe','0','-i',str(listfile),'-i',str(audio),
-             '-t',f'{duration:.2f}','-vf','scale=1080:1920:flags=lanczos,format=yuv420p','-r','24',
-             '-c:v','libx264','-preset','veryfast','-crf','19','-threads','1','-filter_threads','1','-filter_complex_threads','1',
-             '-x264-params','threads=1:lookahead-threads=1','-profile:v','high','-level','4.2',
+             '-t',f'{duration:.2f}','-vf','scale=1080:1920:flags=lanczos,format=yuv420p','-r','20',
+             '-c:v','libx264','-preset','ultrafast','-crf','20','-threads','1','-filter_threads','1','-filter_complex_threads','1',
+             '-x264-params','threads=1:lookahead-threads=1:rc-lookahead=0:ref=1:bframes=0','-profile:v','high','-level','4.2',
              '-c:a','aac','-b:a','128k','-movflags','+faststart','-shortest',str(out)],300)
     for p in scene_files:
         try: p.unlink()
