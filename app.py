@@ -615,16 +615,19 @@ def select_video_clips(videos,title,count=5):
     return ranked[:count]
 
 
-def _caption_overlay(path,caption,idx,total,W=720,H=1280):
+def _caption_overlay(path,caption,idx,total,W=240,H=426):
+    # Overlay leve e legível mesmo depois do upscale para 540x960.
     im=Image.new('RGBA',(W,H),(0,0,0,0)); d=ImageDraw.Draw(im)
-    d.rectangle((0,0,W,95),fill=(0,0,0,125))
-    d.text((30,25),'GTA OCULTO',font=font(26,True),fill='white')
-    d.text((W-85,27),f'{idx+1:02d}/{total:02d}',font=font(20,True),fill=(225,35,50))
-    f=font(30,True); lines=wrap_text(d,caption,f,W-100)[:3]; box_h=70+len(lines)*39; y=H-box_h-40
-    d.rounded_rectangle((28,y,W-28,H-40),radius=18,fill=(7,9,13,215),outline=(215,28,45),width=2)
-    yy=y+22
+    d.rectangle((0,0,W,42),fill=(0,0,0,145))
+    d.text((12,10),'GTA OCULTO',font=font(15,True),fill='white')
+    # Sem contador de cena: reduz poluição visual.
+    f=font(18,True); lines=wrap_text(d,str(caption),f,W-34)[:4]
+    box_h=18+len(lines)*24; y=H-box_h-16
+    d.rounded_rectangle((10,y,W-10,H-16),radius=10,fill=(7,9,13,220),outline=(215,28,45),width=1)
+    yy=y+8
     for line in lines:
-        d.text((52,yy),line,font=f,fill='white'); yy+=39
+        # contorno discreto para leitura sobre vídeo.
+        d.text((17,yy),line,font=f,fill='white',stroke_width=1,stroke_fill='black'); yy+=24
     im.save(path)
 
 
@@ -635,7 +638,7 @@ def _ffmpeg_text(s):
 def make_multimedia_video(video_clips, image_paths, audio, out, duration, captions):
     """Ultra-low-memory editor for Render Free 512 MB.
     Builds one 240x426 scene at a time and produces a 540x960 vertical MP4.
-    540x960 is intentional: it keeps the entire pipeline inside the free RAM limit.
+    540x960 is the quality target; scenes are built sequentially at 240x426 to stay within the free RAM limit.
     """
     ff=str(__import__('imageio_ffmpeg').get_ffmpeg_exe())
     work=out.parent/'timeline'; work.mkdir(exist_ok=True)
@@ -647,12 +650,12 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
     per=max(2.5,duration/len(assets)); scene_files=[]
     for i,(kind,src) in enumerate(assets):
         scene=work/f'scene_{i:02d}.mp4'; overlay=work/f'overlay_{i:02d}.png'
-        _caption_overlay(overlay,captions[i % len(captions)],i,len(assets),160,284)
+        _caption_overlay(overlay,captions[i % len(captions)],i,len(assets),240,426)
         if kind=='video':
-            vf='scale=160:284:force_original_aspect_ratio=increase,crop=160:284,setsar=1,fps=12'
+            vf='scale=240:426:force_original_aspect_ratio=increase,crop=240:426,setsar=1,fps=15'
             inp=['-stream_loop','-1','-i',str(src)]
         else:
-            vf="scale=240:426:force_original_aspect_ratio=increase,crop=240:426,setsar=1,zoompan=z='min(zoom+0.0015,1.02)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=160x284:fps=12"
+            vf="scale=240:426:force_original_aspect_ratio=increase,crop=240:426,setsar=1,zoompan=z='min(zoom+0.0015,1.02)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=240x426:fps=15"
             inp=['-loop','1','-i',str(src)]
         cmd=[ff,'-loglevel','error','-y']+inp+['-loop','1','-i',str(overlay),'-t',f'{per:.3f}',
              '-filter_complex',f'[0:v]{vf}[v];[1:v]format=rgba[o];[v][o]overlay=0:0:shortest=1[outv]',
@@ -668,8 +671,8 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
         for sf in scene_files: f.write(f"file '{sf.as_posix()}'\n")
     # Final encode at 480x854: conservative 9:16 output for Render Free 512 MB.
     run_cmd([ff,'-loglevel','error','-y','-f','concat','-safe','0','-i',str(listfile),'-i',str(audio),
-             '-t',f'{duration:.2f}','-vf','scale=480:854:flags=fast_bilinear,format=yuv420p','-r','12',
-             '-c:v','libx264','-preset','ultrafast','-crf','33','-threads','1','-filter_threads','1','-filter_complex_threads','1',
+             '-t',f'{duration:.2f}','-vf','scale=540:960:flags=fast_bilinear,format=yuv420p','-r','15',
+             '-c:v','libx264','-preset','ultrafast','-crf','30','-threads','1','-filter_threads','1','-filter_complex_threads','1',
              '-x264-params','threads=1:lookahead-threads=1','-c:a','aac','-b:a','80k',
              '-movflags','+faststart','-shortest',str(out)],180)
     for p in scene_files:
