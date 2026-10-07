@@ -74,7 +74,7 @@ function drawState(d){
   document.getElementById('assuntos').textContent=opportunities.length;
   document.getElementById('produzidos').textContent=(d&&d.produced)||0;
   document.getElementById('fila').textContent=(d&&d.queue)||0; document.getElementById('radarStatus').textContent=(d&&d.radar_updated)?('Última varredura: '+new Date(d.radar_updated).toLocaleString('pt-BR')+' — '+opportunities.length+' oportunidades.'):('Radar local ativo — '+opportunities.length+' oportunidades disponíveis.');
-  document.getElementById('oppList').innerHTML=opportunities.map(o=>`<div class="row"><div class="score">${o.score}</div><div><div class="title">${esc(o.title)}</div><div class="source">${esc(o.source)}</div></div><div class="pill">${esc(o.priority)}</div><div class="pill">${esc(o.status||'PRODUZIR')}</div><button class="produce" onclick="createShort('${o.id}')">PRODUZIR</button></div>`).join('');
+  document.getElementById('oppList').innerHTML=opportunities.map(o=>`<div class="row"><div class="score">${o.score}</div><div><div class="title">${esc(o.title)}</div><div class="source">${esc(o.source)} · ${esc(o.content_type||'CURIOSIDADE')} · confiança ${esc(o.confidence||'-')}% · ${esc(o.reason||'')}</div></div><div class="pill">${esc(o.priority)}</div><div class="pill">${esc(o.status||'PRODUZIR')}</div><button class="produce" onclick="createShort('${o.id}')">PRODUZIR</button></div>`).join('');
   renderJobs((d&&d.jobs)||[]);
 }
 function load(){
@@ -97,7 +97,7 @@ async function createShort(id){
 async function research(){try{let r=await fetch('/api/research',{method:'POST'});let d=await r.json();if(!r.ok||d.error){alert(d.error||'Falha no radar');return}drawState(d);alert('Radar atualizado: '+(d.opportunities||[]).length+' oportunidades encontradas.')}catch(e){alert('Não foi possível atualizar o radar agora. O fallback continua disponível.')}}
 load();setInterval(load,3000);
 </script></body></html>'''
-PAGE = PAGE.replace('__OPPORTUNITIES__', ''.join(f'<div class="row"><div class="score">{o["score"]}</div><div><div class="title">{o["title"]}</div><div class="source">{o["source"]}</div></div><div class="pill">{o["priority"]}</div><div class="pill">PRODUZIR</div><button class="produce" onclick="createShort(\'{o["id"]}\')">PRODUZIR</button></div>' for o in FALLBACK_TOPICS))
+PAGE = PAGE.replace('__OPPORTUNITIES__', ''.join(f'<div class="row"><div class="score">{o["score"]}</div><div><div class="title">{o["title"]}</div><div class="source">{o["source"]} · {o.get("content_type","CURIOSIDADE")} · confiança {o.get("confidence","-")} % · {o.get("reason","")}</div></div><div class="pill">{o["priority"]}</div><div class="pill">{o.get("status","PRODUZIR")}</div><button class="produce" onclick="createShort(\'{o["id"]}\')">PRODUZIR</button></div>' for o in FALLBACK_TOPICS))
 
 def now_iso(): return datetime.now(timezone.utc).isoformat()
 
@@ -176,19 +176,79 @@ def _parse_pubdate(s):
     except Exception: return None
 
 
-def _radar_score(item, duplicate_count=1):
-    title=item.get('title','').lower()
+def _normalize_topic_text(text):
+    text=(text or '').lower()
+    text=BeautifulSoup(text,'html.parser').get_text(' ',strip=True)
+    text=re.sub(r'https?://\S+',' ',text)
+    # Remove generic editorial words so the clustering compares the actual subject.
+    stop={
+        'gta','gta6','gta','vi','grand','theft','auto','rockstar','games','game',
+        'confirma','confirmou','revela','revelou','anuncia','anunciou','explica',
+        'novo','nova','novas','novos','detalhes','detalhe','segundo','sobre',
+        'pode','ser','será','vai','agora','ainda','já','ja','que','para','com','como',
+        'de','da','do','das','dos','em','no','na','nos','nas','e','ou','um','uma',
+        'os','as','o','a','por','mais','se','ao','aos','é','e','the','of','and','to'
+    }
+    words=[]
+    for w in re.findall(r'[a-z0-9à-ÿ]{3,}',text):
+        if w not in stop and not w.isdigit(): words.append(w)
+    return words
+
+
+def _topic_similarity(a,b):
+    sa=set(_normalize_topic_text(a))
+    sb=set(_normalize_topic_text(b))
+    if not sa or not sb: return 0.0
+    return len(sa & sb)/max(1,len(sa | sb))
+
+
+def _classify_content(title):
+    t=(title or '').lower()
+    if any(k in t for k in ('rumor','rumour','vazamento','vazou','leak','suposto','suposta','não confirmado','nao confirmado')):
+        return 'RUMOR'
+    if any(k in t for k in ('mistério','misterio','segredo','teoria','pista','easter egg','detalhe escondido')):
+        return 'MISTÉRIO'
+    if any(k in t for k in ('confirm','revel','anunci','pré-venda','pre-order','album','álbum','lançamento','release','adiado','data')):
+        return 'NOTÍCIA'
+    return 'CURIOSIDADE'
+
+
+def _source_trust(source):
+    s=(source or '').lower()
+    high=('rockstar','take-two','take two','the verge','ign','gamesradar','eurogamer','polygon','pc gamer','axios','guardian','uol','omelete','tecmundo','rolling stone')
+    medium=('adrenaline','olhar digital','tudocelular','canaltech','terra','g1','forbes','gamevicio','meups','flow games')
+    if any(x in s for x in high): return 14
+    if any(x in s for x in medium): return 10
+    return 6
+
+
+def _clickbait_penalty(title):
+    t=(title or '').lower()
+    penalty=0
+    if t.count('!')>=2: penalty+=3
+    if t.count('?')>=2: penalty+=2
+    if any(k in t for k in ('chocante','inacreditável','incrível','absurdo','ninguém esperava','vai mudar tudo','você não vai acreditar','bombou','surpreende')): penalty+=4
+    if any(k in t for k in ('afirma','acredita','pode ser','seria','talvez','suposto')): penalty+=1
+    return min(8,penalty)
+
+
+def _radar_score(item, duplicate_count=1, source_count=1):
+    title=item.get('title','')
     dt=_parse_pubdate(item.get('published',''))
     age_hours=999
     if dt:
         age_hours=max(0,(datetime.now(timezone.utc)-dt).total_seconds()/3600)
-    recency=30 if age_hours<=12 else 26 if age_hours<=24 else 21 if age_hours<=48 else 15 if age_hours<=96 else 8 if age_hours<=168 else 3
-    keywords=sum(v for k,v in RADAR_KEYWORDS.items() if k in title)
-    source=item.get('source','').lower()
-    trust=10 if any(x in source for x in ('rockstar','take-two','take two','verge','ign','gamesradar','eurogamer','polygon','pc gamer','axios','guardian','uol','omelete','tecmundo')) else 6
-    cross=min(15,(duplicate_count-1)*5)
-    freshness=8 if age_hours<=48 else 4 if age_hours<=168 else 0
-    return int(min(99,max(35,recency+min(25,keywords)+trust+cross+freshness)))
+    recency=34 if age_hours<=12 else 30 if age_hours<=24 else 26 if age_hours<=48 else 20 if age_hours<=96 else 12 if age_hours<=168 else 5
+    title_low=title.lower()
+    keyword_bonus=sum(v for k,v in RADAR_KEYWORDS.items() if k in title_low)
+    trust=_source_trust(item.get('source',''))
+    mentions=min(14,max(0,(duplicate_count-1)*4))
+    diversity=min(8,max(0,(source_count-1)*3))
+    content_bonus=5 if _classify_content(title) in ('NOTÍCIA','MISTÉRIO') else 3
+    penalty=_clickbait_penalty(title)
+    # Editorial score: recency + relevance + source quality + independent confirmation.
+    raw=recency+min(22,keyword_bonus)+trust+mentions+diversity+content_bonus-penalty
+    return int(min(99,max(35,raw)))
 
 
 def _make_radar_title(headline):
@@ -196,8 +256,20 @@ def _make_radar_title(headline):
     return h if len(h)<=115 else h[:112].rsplit(' ',1)[0]+'…'
 
 
+def _merge_radar_candidates(items):
+    groups=[]
+    for item in items:
+        placed=False
+        for group in groups:
+            # A high similarity means the sources are reporting the same story.
+            if max(_topic_similarity(item.get('title',''), x.get('title','')) for x in group) >= 0.48:
+                group.append(item); placed=True; break
+        if not placed: groups.append([item])
+    return groups
+
+
 def radar_scan():
-    """Radar gratuito: Google News RSS + Rockstar Newswire, sem API paga."""
+    """Radar V26.1: coleta, agrupa, valida e pontua oportunidades GTA VI com fontes públicas gratuitas."""
     raw=[]
     for name,url in RADAR_FEEDS:
         raw.extend(_parse_rss(url,name))
@@ -211,34 +283,65 @@ def radar_scan():
                 raw.append({'title':t,'url':href,'published':'','source':'Rockstar Games','feed':'Rockstar Newswire','description':''})
     except Exception:
         pass
+
     allowed=('gta 6','gta vi','grand theft auto vi','rockstar games','rockstar','vice city','leonida','jason','lucia')
-    filtered=[x for x in raw if any(k in x.get('title','').lower() for k in allowed)]
-    groups={}
-    for x in filtered:
-        norm=re.sub(r'[^a-z0-9à-ÿ ]',' ',x['title'].lower())
-        norm=re.sub(r'\s+',' ',norm).strip()
-        key=' '.join(norm.split()[:18])
-        groups.setdefault(key,[]).append(x)
+    filtered=[]
+    seen_urls=set()
+    for x in raw:
+        title=x.get('title','').strip()
+        url=x.get('url','').strip()
+        if not title or url in seen_urls: continue
+        if any(k in title.lower() for k in allowed):
+            filtered.append(x); seen_urls.add(url)
+
+    groups=_merge_radar_candidates(filtered)
     ranked=[]
-    for group in groups.values():
-        best=max(group,key=lambda x:_radar_score(x,len(group)))
-        score=_radar_score(best,len(group))
-        if score<48 and best.get('source')!='Rockstar Games': continue
-        low=best['title'].lower()
-        if any(k in low for k in ('rumor','rumour','vazamento','leak','suposto')): typ='RUMOR'
-        elif any(k in low for k in ('trailer','revel','anunci','confirm','album','álbum','pré-venda','pre-order')): typ='NOTÍCIA'
-        elif any(k in low for k in ('detalhe','teoria','segredo','mistério','misterio')): typ='MISTÉRIO'
-        else: typ='CURIOSIDADE'
-        ranked.append({'id':'radar-'+uuid.uuid4().hex[:8],'score':score,'priority':'ALTA' if score>=82 else 'MÉDIA' if score>=65 else 'BAIXA','title':_make_radar_title(best['title']),'source':best.get('source') or 'Fonte','url':best['url'],'published':best.get('published',''),'mentions':len(group),'content_type':typ,'description':best.get('description',''),'radar':True})
-    ranked.sort(key=lambda x:(x['score'],x.get('mentions',1)),reverse=True)
+    for group in groups:
+        sources={str(x.get('source','')).strip().lower() for x in group if x.get('source')}
+        best=max(group,key=lambda x:_radar_score(x,len(group),len(sources)))
+        score=_radar_score(best,len(group),len(sources))
+        typ=_classify_content(best.get('title',''))
+        # Confidence is different from viral potential: it rewards independent confirmation.
+        confidence=min(99,45 + min(25,(len(group)-1)*8) + min(20,(len(sources)-1)*10) + (10 if best.get('source')=='Rockstar Games' else 0))
+        if typ=='RUMOR': confidence=max(25,confidence-18)
+        # Keep the radar clean: weak, old and unconfirmed items are not opportunities.
+        if score<52 and best.get('source')!='Rockstar Games': continue
+        if confidence<38 and score<70: continue
+        if best.get('source')=='Rockstar Games': confidence=max(confidence,85)
+        status='PRODUZIR' if score>=70 and confidence>=55 else 'OBSERVAR'
+        if score>=82 and confidence>=70: status='PRODUZIR AGORA'
+        reason=[]
+        if len(group)>=2: reason.append(f'{len(group)} fontes')
+        if len(sources)>=2: reason.append('confirmação cruzada')
+        if _parse_pubdate(best.get('published','')) and score>=70: reason.append('recente')
+        if best.get('source')=='Rockstar Games': reason.append('fonte oficial')
+        if typ=='RUMOR': reason.append('tratar como rumor')
+        ranked.append({
+            'id':'radar-'+uuid.uuid4().hex[:8],
+            'score':score,
+            'priority':'ALTA' if score>=82 else 'MÉDIA' if score>=65 else 'BAIXA',
+            'status':status,
+            'title':_make_radar_title(best['title']),
+            'source':best.get('source') or 'Fonte',
+            'url':best['url'],
+            'published':best.get('published',''),
+            'mentions':len(group),
+            'source_count':len(sources),
+            'confidence':confidence,
+            'content_type':typ,
+            'reason':', '.join(reason) or 'relevância editorial',
+            'description':best.get('description',''),'radar':True
+        })
+
+    ranked.sort(key=lambda x:(x['score'],x.get('confidence',0),x.get('mentions',1)),reverse=True)
     if not ranked:
-        ranked=[dict(x,radar=False) for x in FALLBACK_TOPICS]
+        ranked=[dict(x,radar=False,status='PRODUZIR',confidence=70,reason='fallback editorial') for x in FALLBACK_TOPICS]
     else:
+        # Fallbacks only fill the radar when public sources return too few items.
         for f in FALLBACK_TOPICS:
             if len(ranked)>=10: break
-            ranked.append(dict(f,radar=False))
+            ranked.append(dict(f,radar=False,status='OBSERVAR',confidence=65,reason='fallback editorial'))
     return _save_radar(ranked[:10])
-
 
 def current_opportunities():
     d=_load_radar(); ops=d.get('opportunities') or []
@@ -1279,7 +1382,7 @@ def processor_loop():
 @APP.get('/')
 def home(): return render_template_string(PAGE)
 @APP.get('/health')
-def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V26.0-RADAR',processor='cloud')
+def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V26.1-RADAR-INTELIGENTE',processor='cloud')
 @APP.get('/api/state')
 def state():
     with LOCK:
