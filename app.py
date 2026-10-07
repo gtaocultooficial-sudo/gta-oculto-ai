@@ -23,7 +23,7 @@ WORK.mkdir(exist_ok=True)
 STATE_FILE = WORK / 'jobs.json'
 LOCK = threading.RLock()
 PROCESSING = False
-UA = 'GTA-Oculto-AI/Cloud-Final/1.2-V28'
+UA = 'GTA-Oculto-AI/Cloud-Final/1.2-V28.1'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
@@ -520,7 +520,7 @@ def choose_topic(data,topics):
 
 
 def make_script(topic):
-    """V28 — Roteirista automático: cria um roteiro editorial estruturado, curto e narrável em PT-BR."""
+    """V28.1 — Roteirista automático estruturado para o painel e para a narração."""
     title=str(topic.get('title','GTA 6')).strip()
     t=title.lower()
     kind=str(topic.get('content_type') or 'CURIOSIDADE').upper()
@@ -536,65 +536,42 @@ def make_script(topic):
     source_count=int(topic.get('source_count',1) or 1)
     mentions=int(topic.get('mentions',1) or 1)
     source_name=str(topic.get('source','Radar GTA VI')).strip()
-    conf_text=f'As informações reunidas pelo Radar aparecem em {mentions} matéria(s), de {source_count} fonte(s), com confiança estimada em {confidence}%.' if confidence is not None else ''
+    verification=(f'A pauta aparece em {mentions} matéria(s), de {source_count} fonte(s), com confiança estimada em {confidence}%.'
+                  if confidence is not None else '')
 
-    # O roteiro não inventa detalhes ausentes da pauta. Ele trabalha com o título,
-    # classificação e sinais de verificação disponíveis no Radar.
     if kind=='RUMOR':
-        opening=hook
         context=f'Está circulando a seguinte informação sobre GTA 6: {title}.'
-        proof='O Radar encontrou sinais de repercussão, mas isso não transforma a informação em confirmação oficial.'
-        payoff=f'{angle} O ponto aqui é separar o que foi noticiado do que ainda é especulação.'
+        proof=f'{verification} Isso mostra repercussão, mas não transforma o conteúdo em confirmação oficial.' if verification else 'A informação ganhou repercussão, mas isso não transforma o conteúdo em confirmação oficial.'
+        payoff=f'{angle} O ponto principal é separar o que foi noticiado daquilo que ainda é especulação.'
         cta='Se isso se confirmar, você acha que muda alguma coisa importante no jogo?'
     elif kind=='NOTÍCIA':
-        opening=hook
-        context=f'A pauta que está chamando atenção é esta: {title}.'
-        proof=f'{conf_text} O mais importante é entender exatamente o que a notícia sustenta, sem aumentar a manchete.'
-        payoff=f'{angle} Isso dá um contexto melhor para entender por que o assunto está repercutindo agora.'
+        context=f'A pauta que está chamando atenção agora é: {title}.'
+        proof=f'{verification} O mais importante é entender o que a notícia realmente sustenta, sem aumentar a manchete.' if verification else 'O mais importante é entender o que a notícia realmente sustenta, sem aumentar a manchete.'
+        payoff=f'{angle} Isso ajuda a entender por que o assunto está repercutindo agora.'
         cta='Você acha que essa novidade vai fazer diferença em GTA 6?'
     elif kind=='MISTÉRIO':
-        opening=hook
         context=f'Existe um detalhe que chamou atenção em GTA 6: {title}.'
-        proof='O detalhe pode gerar interpretações, mas interpretação não deve ser apresentada como confirmação.'
+        proof=f'{verification} O detalhe pode gerar interpretações, mas interpretação não deve ser apresentada como confirmação.' if verification else 'O detalhe pode gerar interpretações, mas interpretação não deve ser apresentada como confirmação.'
         payoff=f'{angle} O interessante é observar a conexão sem transformar uma hipótese em fato.'
         cta='Coincidência ou pista? Quero saber a sua teoria.'
     else:
-        opening=hook
         context=f'Olha esse detalhe de GTA 6: {title}.'
-        proof=f'{conf_text} O assunto ganhou destaque porque pode ser conectado ao que já foi mostrado sobre o jogo.' if conf_text else 'O assunto ganhou destaque porque pode ser conectado ao que já foi mostrado sobre o jogo.'
+        proof=f'{verification} O assunto ganhou destaque e pode ser conectado ao que já foi mostrado sobre o jogo.' if verification else 'O assunto ganhou destaque e pode ser conectado ao que já foi mostrado sobre o jogo.'
         payoff=f'{angle} E é justamente essa conexão que deixa a pauta interessante.'
         cta='Você já tinha percebido esse detalhe?'
 
-    # Evita excesso de contexto e mantém o vídeo em faixa curta de Shorts.
-    body=[opening, context, proof, payoff, cta]
-    narration=' '.join(x.strip() for x in body if x.strip())
+    sections={'hook':hook,'context':context,'proof':proof,'payoff':payoff,'cta':cta}
+    narration=' '.join(x.strip() for x in sections.values() if x and x.strip())
     words=len(re.findall(r"\b[\wÀ-ÿ'’-]+\b", narration))
-    # Velocidade aproximada de narração PT-BR; o áudio real continua sendo a referência.
-    estimated_seconds=max(22, min(58, round(words/2.35)))
-
+    estimated_seconds=max(22,min(58,round(words/2.35)))
     return {
-        'title':title,
-        'narration':narration,
-        'source':topic.get('url',ROCKSTAR_VI),
-        'source_name':source_name,
-        'content_type':kind,
-        'editorial_angle':angle,
-        'editorial_hook':hook,
-        'editorial_score':topic.get('editorial_score'),
-        'editorial_decision':topic.get('editorial_decision','PRODUZIR'),
-        'editorial_reason':topic.get('editorial_reason',''),
-        'sections':{
-            'hook':opening,
-            'context':context,
-            'proof':proof,
-            'payoff':payoff,
-            'cta':cta,
-        },
-        'word_count':words,
-        'estimated_seconds':estimated_seconds,
-        'script_version':'V28'
+        'title':title,'narration':narration,
+        'source':topic.get('url',ROCKSTAR_VI),'source_name':source_name,
+        'content_type':kind,'editorial_angle':angle,'editorial_hook':hook,
+        'editorial_score':topic.get('editorial_score'),'editorial_decision':topic.get('editorial_decision','PRODUZIR'),
+        'editorial_reason':topic.get('editorial_reason',''),'sections':sections,
+        'word_count':words,'estimated_seconds':estimated_seconds,'script_version':'V28.1'
     }
-
 
 def build_dynamic_captions(script, topic, count=9):
     """Cria textos de tela a partir do assunto e do roteiro, variando por conteúdo."""
@@ -1676,7 +1653,7 @@ def processor_loop():
 @APP.get('/')
 def home(): return render_template_string(PAGE)
 @APP.get('/health')
-def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V28-ROTEIRO-AUTOMATICO',processor='cloud')
+def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V28.1-ROTEIRO-AUTOMATICO',processor='cloud')
 @APP.get('/api/state')
 def state():
     with LOCK:
