@@ -118,12 +118,15 @@ def choose_topic(data,topics):
     return max(topics,key=lambda x:x['score'])
 
 def make_script(topic):
-    """Cria roteiro adaptado ao assunto, sem reutilizar um roteiro fixo."""
+    """Editor-chefe: classifica o assunto e cria roteiro específico para ele."""
     title=str(topic.get('title','GTA 6')).strip()
     t=title.lower()
+
     if any(k in t for k in ('rumor','leak','vazamento','suposto')):
         kind='RUMOR'
-    elif any(k in t for k in ('teoria','theory','pista','mistério','misterio','segredo','detalhe','escond')):
+    elif any(k in t for k in ('teoria','theory')):
+        kind='TEORIA'
+    elif any(k in t for k in ('mistério','misterio','segredo','detalhe','escond','pista')):
         kind='MISTÉRIO'
     elif any(k in t for k in ('confirm','revel','anunci','news','notícia','noticia','atualização','update')):
         kind='NOTÍCIA'
@@ -134,71 +137,144 @@ def make_script(topic):
         narration=(f'Existe uma informação circulando sobre GTA 6 que chamou atenção: {title}. '
         'Mas existe uma diferença importante entre rumor e confirmação oficial. '
         'Até aqui, o que podemos tratar como fato é apenas o que foi apresentado ou confirmado pela Rockstar. '
-        'O restante precisa ser analisado com cuidado. Mesmo assim, o detalhe mais curioso dessa história é o que ele pode significar para o jogo. '
-        'Se essa informação se confirmar, ela pode mudar a forma como enxergamos GTA 6. Você acha que isso faz sentido ou é só mais um rumor?')
+        'O restante precisa ser analisado com cuidado. '
+        'Mesmo assim, esse detalhe pode levantar uma possibilidade interessante para o jogo. '
+        'Se a informação se confirmar, ela pode mudar a forma como enxergamos GTA 6. '
+        'Você acha que faz sentido ou é só mais um rumor?')
+    elif kind=='TEORIA':
+        narration=(f'Uma teoria sobre GTA 6 ganhou força por causa deste detalhe: {title}. '
+        'A Rockstar já mostrou elementos que podem ser relacionados a essa ideia, mas isso não significa que a teoria esteja confirmada. '
+        'O ponto mais interessante é a conexão entre esses detalhes e o que pode acontecer em Leonida. '
+        'Pode ser apenas uma coincidência, ou pode existir algo maior por trás. '
+        'Por enquanto, a melhor forma de tratar isso é como especulação. '
+        'Você acha que essa teoria faz sentido?')
     elif kind=='MISTÉRIO':
         narration=(f'Existe um detalhe em GTA 6 que merece muito mais atenção: {title}. '
         'A Rockstar costuma esconder informações importantes nos próprios materiais do jogo, e esse ponto pode ter passado despercebido. '
         'O mais interessante é que ele pode se conectar com outros elementos já apresentados oficialmente. '
         'Isso não prova uma teoria, mas cria uma possibilidade muito curiosa. '
-        'E se esse detalhe estiver apontando para algo maior dentro de Leonida? Qual é a sua teoria?')
+        'E se esse detalhe estiver apontando para algo maior dentro de Leonida? '
+        'Qual é a sua teoria?')
     elif kind=='NOTÍCIA':
         narration=(f'A Rockstar trouxe uma novidade que merece atenção em GTA 6: {title}. '
-        'O ponto mais importante é entender exatamente o que foi confirmado e o que ainda é interpretação. '
-        'Essa informação ajuda a revelar como a Rockstar está construindo o mundo de GTA 6 e pode ter impacto em personagens, mapa ou gameplay. '
-        'E existe um detalhe nessa novidade que pode ter passado despercebido. Agora fica a pergunta: o que essa informação pode significar para GTA 6?')
+        'O ponto mais importante é separar o que foi confirmado do que ainda é interpretação. '
+        'Essa informação ajuda a entender como a Rockstar está construindo o mundo de GTA 6. '
+        'Existe ainda um detalhe que pode ter passado despercebido. '
+        'Agora fica a pergunta: o que essa novidade pode significar para GTA 6?')
     else:
         narration=(f'Você reparou neste detalhe de GTA 6? {title}. '
         'À primeira vista parece apenas mais uma informação sobre o jogo, mas existe algo interessante por trás disso. '
         'Quando juntamos esse detalhe com o que a Rockstar já mostrou oficialmente, surgem novas possibilidades para o mundo de Leonida. '
-        'Não significa que uma teoria esteja confirmada, mas é exatamente esse tipo de detalhe que faz GTA 6 gerar tanta discussão. Você tinha percebido isso?')
+        'Isso não significa que uma teoria esteja confirmada, mas é exatamente esse tipo de detalhe que faz GTA 6 gerar tanta discussão. '
+        'Você já tinha percebido isso?')
 
     return {'title':title,'narration':narration,'source':topic.get('url',ROCKSTAR_VI),
             'source_name':topic.get('source','Pesquisa editorial'),'content_type':kind}
 
-
 def build_dynamic_captions(script, topic, count=9):
-    """Cria textos de tela a partir do assunto e do roteiro, variando por conteúdo."""
-    narration=str(script.get('narration','')).strip()
-    title=str(topic.get('title','')).strip()
+    """Transforma o roteiro em chamadas editoriais curtas e específicas.
+    Não usa emojis, não repete um template fixo e não copia frases longas do narrador.
+    """
+    title=re.sub(r'\s+',' ',str(topic.get('title','GTA 6')).strip())
     kind=script.get('content_type','CURIOSIDADE')
-    openers={
-        'RUMOR':'⚠️ ISSO AINDA NÃO FOI CONFIRMADO',
-        'MISTÉRIO':'👁️ NINGUÉM ESTÁ FALANDO DESSE DETALHE',
-        'NOTÍCIA':'🚨 A ROCKSTAR ACABOU DE REVELAR ISSO',
-        'CURIOSIDADE':'😳 VOCÊ PERCEBEU ESSE DETALHE?'
+    narration=str(script.get('narration','')).strip()
+
+    # Remove prefixos editoriais comuns para obter o assunto central.
+    subject=re.sub(r'^(GTA\s*6\s*:\s*)','',title,flags=re.I).strip()
+    subject_words=re.findall(r"[A-Za-zÀ-ÿ0-9']+",subject)
+    subject_words=[w for w in subject_words if len(w)>=3]
+    short_subject=' '.join(subject_words[:5]).upper()
+
+    templates={
+        'NOTÍCIA':[
+            'A ROCKSTAR REVELOU ISSO',
+            short_subject,
+            'OLHA ESSE DETALHE',
+            'ISSO FOI MOSTRADO OFICIALMENTE',
+            'MAS TEM MAIS UMA COISA',
+            'ESSE PONTO PODE MUDAR TUDO',
+            'AGORA A QUESTÃO É OUTRA',
+            'O QUE ISSO MUDA NO GTA 6?',
+            'VOCÊ TINHA PERCEBIDO?'
+        ],
+        'MISTÉRIO':[
+            'NINGUÉM ESTÁ FALANDO DISSO',
+            short_subject,
+            'OLHA A PISTA',
+            'ESSE DETALHE CHAMA ATENÇÃO',
+            'ISSO NÃO PROVA A TEORIA',
+            'MAS CRIA UMA POSSIBILIDADE',
+            'E SE FOR DE PROPÓSITO?',
+            'A PISTA PODE ESTAR AQUI',
+            'QUAL É A SUA TEORIA?'
+        ],
+        'TEORIA':[
+            'ESSA TEORIA GANHOU FORÇA',
+            short_subject,
+            'OLHA A CONEXÃO',
+            'OS DETALHES BATEM',
+            'MAS AINDA NÃO FOI CONFIRMADO',
+            'PODE SER SÓ COINCIDÊNCIA',
+            'OU TEM ALGO MAIOR AQUI',
+            'TEORIA OU PISTA REAL?',
+            'O QUE VOCÊ ACHA?'
+        ],
+        'RUMOR':[
+            'ISSO ESTÁ CIRCULANDO',
+            short_subject,
+            'MAS ATENÇÃO',
+            'NÃO FOI CONFIRMADO',
+            'SE FOR VERDADE...',
+            'ISSO MUDARIA O GTA 6',
+            'POR ENQUANTO É SÓ RUMOR',
+            'RUMOR OU PISTA REAL?',
+            'VOCÊ ACREDITA?'
+        ],
+        'CURIOSIDADE':[
+            'VOCÊ JÁ TINHA VISTO ISSO?',
+            short_subject,
+            'OLHA ESSE DETALHE',
+            'PARECE PEQUENO, MAS...',
+            'A ROCKSTAR FEZ ISSO',
+            'E TEM UMA EXPLICAÇÃO',
+            'ESSE DETALHE NÃO É À TOA',
+            'VOCÊ PERCEBEU?',
+            'COMENTA O QUE VOCÊ ACHA'
+        ]
     }
-    endings={
-        'RUMOR':'RUMOR OU PISTA REAL?',
-        'MISTÉRIO':'E SE ISSO NÃO FOR COINCIDÊNCIA?',
-        'NOTÍCIA':'O QUE ISSO MUDA NO GTA 6?',
-        'CURIOSIDADE':'VOCÊ JÁ TINHA PERCEBIDO?'
-    }
-    caps=[openers.get(kind,openers['CURIOSIDADE'])]
-    title_words=[w for w in re.findall(r"[A-Za-zÀ-ÿ0-9']+",title) if len(w)>=4]
-    if title_words:
-        caps.append(' '.join(title_words[:5]).upper())
-    stop={'a','o','e','de','do','da','em','no','na','que','um','uma','os','as','isso','para','com','por','mais','mas','como','esse','essa'}
-    sentences=[s.strip(' .!?') for s in re.split(r'[.!?]+',narration) if len(s.strip())>8]
+
+    caps=templates.get(kind,templates['CURIOSIDADE'])
+
+    # Tenta substituir frases genéricas por uma ideia concreta do próprio roteiro.
+    sentences=[s.strip(' .!?') for s in re.split(r'[.!?]+',narration) if len(s.strip())>15]
+    stop={'a','o','e','de','do','da','em','no','na','que','um','uma','os','as','isso','para','com','por','mais','mas','como','esse','essa','não','foi'}
+    concrete=[]
     for s in sentences:
         words=re.findall(r"[A-Za-zÀ-ÿ0-9']+",s)
         meaningful=[w for w in words if w.lower() not in stop]
-        if len(meaningful)>=2:
+        if len(meaningful)>=3:
             phrase=' '.join(meaningful[:5]).upper()
-            if phrase not in caps:
-                caps.append(phrase)
-        if len(caps)>=count-1:
-            break
-    caps.append(endings.get(kind,endings['CURIOSIDADE']))
-    out=[]; seen=set()
-    for c in caps:
-        c=re.sub(r'\s+',' ',c).strip()
-        if c and c not in seen:
-            seen.add(c); out.append(c)
-    while len(out)<count:
-        out.append(out[-1])
-    return out[:count]
+            if phrase not in concrete and phrase not in caps:
+                concrete.append(phrase)
+    if concrete:
+        # Put one concrete sentence in the middle without destroying the editorial ending.
+        caps[2]=concrete[0]
+        if len(concrete)>1:
+            caps[4]=concrete[1]
 
+    out=[]
+    seen=set()
+    for c in caps:
+        c=re.sub(r'[^A-Z0-9ÁÉÍÓÚÃÕÇ?!.:\- ]','',c.upper())
+        c=re.sub(r'\s+',' ',c).strip()
+        if not c or c in seen: continue
+        # Keep the overlay punchy.
+        if len(c.split())>6:
+            c=' '.join(c.split()[:6])
+        seen.add(c); out.append(c)
+    while len(out)<count:
+        out.append(out[-1] if out else 'GTA 6')
+    return out[:count]
 
 def wrap_text(draw,text,f,max_width):
     lines=[]; cur=''
@@ -214,7 +290,7 @@ def wrap_text(draw,text,f,max_width):
 def make_fallback(path,idx,title):
     im=Image.new('RGB',(1080,1920),(8,10,15)); d=ImageDraw.Draw(im)
     for y in range(1920): d.line((0,y,1080,y),fill=(10+int(18*y/1920),8,15+int(20*y/1920)))
-    d.rectangle((65,90,1015,1830),outline=(170,25,40),width=3); d.text((80,120),f'ARQUIVO {idx+1:02d}',font=font(34,True),fill=(230,40,55)); d.text((80,1760),'GTA OCULTO',font=font(42,True),fill='white')
+    d.rectangle((65,90,1015,1830),outline=(170,25,40),width=3); d.text((80,120),f'ARQUIVO {idx+1:02d}',font=font(34,True),fill=(230,40,55))
     y=720
     for line in wrap_text(d,title,font(70,True),880)[:5]: d.text((80,y),line,font=font(70,True),fill='white'); y+=88
     im.save(path,quality=88)
@@ -466,7 +542,7 @@ def wrap_text(draw,text,f,max_width):
 def make_fallback(path,idx,title):
     im=Image.new('RGB',(1080,1920),(8,10,15)); d=ImageDraw.Draw(im)
     for y in range(1920): d.line((0,y,1080,y),fill=(10+int(18*y/1920),8,15+int(20*y/1920)))
-    d.rectangle((65,90,1015,1830),outline=(170,25,40),width=3); d.text((80,120),f'ARQUIVO {idx+1:02d}',font=font(34,True),fill=(230,40,55)); d.text((80,1760),'GTA OCULTO',font=font(42,True),fill='white')
+    d.rectangle((65,90,1015,1830),outline=(170,25,40),width=3); d.text((80,120),f'ARQUIVO {idx+1:02d}',font=font(34,True),fill=(230,40,55))
     y=720
     for line in wrap_text(d,title,font(70,True),880)[:5]: d.text((80,y),line,font=font(70,True),fill='white'); y+=88
     im.save(path,quality=90)
@@ -539,8 +615,8 @@ def _smart_crop(im,W,H,variant=0):
 
 
 def prepare_scene(src,dst,caption,idx,total):
-    """Prepare a clean background image for the final editor overlay.
-    No scene counter and no baked-in caption: the final timeline draws captions once.
+    """Prepara apenas o fundo; toda a identidade textual é desenhada uma única vez
+    por _caption_overlay durante a montagem final.
     """
     W,H=360,640
     im=Image.open(src).convert('RGB')
@@ -552,13 +628,8 @@ def prepare_scene(src,dst,caption,idx,total):
     max_l=max(0,nw-W); max_t=max(0,nh-H)
     x=int(max_l*((idx*0.23)%1.0)); y=int(max_t*(0.28+0.44*((idx*0.37)%1.0)))
     im=im.crop((x,y,x+W,y+H))
-    ov=Image.new('RGBA',(W,H),(0,0,0,0)); od=ImageDraw.Draw(ov)
-    od.rectangle((0,0,W,42),fill=(0,0,0,120))
-    od.text((12,10),'GTA OCULTO',font=font(15,True),fill='white')
-    im=Image.alpha_composite(im.convert('RGBA'),ov).convert('RGB')
     im.save(dst,quality=84,optimize=True)
-    im.close(); ov.close()
-
+    im.close()
 
 def run_cmd(cmd,timeout=240):
     # Render Free has only 512 MB. Never retain FFmpeg's stderr in Python memory.
@@ -759,18 +830,55 @@ def select_video_clips(videos,title,count=5):
 
 
 def _caption_overlay(path,caption,idx,total,W=240,H=426):
-    # Single clean overlay. No scene counter and no baked duplicate caption.
-    im=Image.new('RGBA',(W,H),(0,0,0,0)); d=ImageDraw.Draw(im)
-    d.rectangle((0,0,W,42),fill=(0,0,0,125))
-    d.text((12,10),'GTA OCULTO',font=font(15,True),fill='white')
-    f=font(18,True); lines=wrap_text(d,str(caption),f,W-34)[:3]
-    box_h=18+len(lines)*24; y=H-box_h-16
-    d.rounded_rectangle((10,y,W-10,H-16),radius=10,fill=(7,9,13,215),outline=(215,28,45),width=1)
-    yy=y+8
-    for line in lines:
-        d.text((17,yy),line,font=f,fill='white',stroke_width=1,stroke_fill='black'); yy+=24
-    im.save(path)
+    """Overlay editorial do GTA Oculto: sem título fixo, sem emojis e com destaque."""
+    im=Image.new('RGBA',(W,H),(0,0,0,0))
+    d=ImageDraw.Draw(im)
+    text=re.sub(r'[^A-Z0-9ÁÉÍÓÚÃÕÇ?!.:\- ]','',str(caption).upper())
+    text=re.sub(r'\s+',' ',text).strip()
 
+    # No máximo duas linhas; preserva chamadas curtas.
+    f=font(18,True)
+    lines=wrap_text(d,text,f,W-34)[:2]
+    if not lines:
+        lines=['GTA 6']
+
+    line_h=23
+    box_h=18+len(lines)*line_h
+    y=H-box_h-30
+
+    # Caixa editorial discreta com borda vermelha.
+    d.rounded_rectangle((9,y,W-9,y+box_h),radius=9,
+                        fill=(5,7,11,215),outline=(225,28,45,185),width=1)
+
+    stop={'A','O','E','DE','DO','DA','EM','NO','NA','QUE','UM','UMA','OS','AS',
+          'ISSO','PARA','COM','MAS','NÃO','FOI','TEM','MAIS'}
+    yy=y+6
+    for line in lines:
+        words=line.split()
+        # Palavra-chave: a mais informativa da linha.
+        keyword=None
+        for w in reversed(words):
+            clean=re.sub(r'[^A-Z0-9ÁÉÍÓÚÃÕÇ]','',w)
+            if len(clean)>=5 and clean not in stop:
+                keyword=clean
+                break
+        x=14
+        for w in words:
+            clean=re.sub(r'[^A-Z0-9ÁÉÍÓÚÃÕÇ]','',w)
+            fill=(238,36,50,255) if keyword and clean==keyword else (255,255,255,255)
+            d.text((x,yy),w,font=f,fill=fill,stroke_width=1,stroke_fill=(0,0,0,235))
+            x=d.textbbox((x,yy),w+' ',font=f)[2]
+        yy+=line_h
+
+    # Marca-d'água pequena; nunca um cabeçalho.
+    wm='GTA OCULTO'
+    wf=font(9,True)
+    bb=d.textbbox((0,0),wm,font=wf)
+    ww=bb[2]-bb[0]; wh=bb[3]-bb[1]
+    wx=W-ww-8; wy=H-wh-8
+    d.rounded_rectangle((wx-4,wy-2,W-5,H-4),radius=4,fill=(0,0,0,70))
+    d.text((wx,wy),wm,font=wf,fill=(255,255,255,105))
+    im.save(path)
 
 def _ffmpeg_text(s):
     return s.replace('\\','\\\\').replace(':','\\:').replace("'","\\'").replace('%','\\%').replace('\n',' ')
