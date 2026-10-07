@@ -23,7 +23,7 @@ WORK.mkdir(exist_ok=True)
 STATE_FILE = WORK / 'jobs.json'
 LOCK = threading.RLock()
 PROCESSING = False
-UA = 'GTA-Oculto-AI/Cloud-Final/1.2-V29'
+UA = 'GTA-Oculto-AI/Cloud-Final/1.3-V29.3'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
@@ -611,7 +611,7 @@ def make_script(topic):
         'editorial_angle':angle,'editorial_hook':hook,
         'editorial_score':topic.get('editorial_score'),'editorial_decision':topic.get('editorial_decision','PRODUZIR'),
         'editorial_reason':topic.get('editorial_reason',''),'sections':sections,
-        'word_count':word_count,'estimated_seconds':estimated_seconds,'script_version':'V29.2'
+        'word_count':word_count,'estimated_seconds':estimated_seconds,'script_version':'V29.3'
     }
 
 def build_dynamic_captions(script, topic, count=9):
@@ -1332,135 +1332,192 @@ def _caption_is_bad_end(word):
     }
 
 
-def _caption_phrase_chunks(sentence, min_words=3, max_words=7):
-    """Divide uma frase em blocos contíguos de 3–7 palavras.
-    O corte privilegia pontuação, conectores e unidades linguísticas, evitando
-    deixar preposição/conjunção pendurada no fim ou iniciar o próximo bloco com ela.
-    Nenhuma palavra é criada ou removida.
+def _caption_phrase_chunks(sentence, min_words=3, max_words=10):
+    """V29.3 — divide a fala em unidades de sentido, não em janelas fixas.
+    Prioriza pontuação, pausas e fronteiras linguísticas. Mantém expressões
+    conhecidas juntas e aceita blocos maiores quando isso preserva o sentido.
+    Todas as palavras da fala são preservadas na mesma ordem.
     """
-    tokens=_caption_words(sentence)
-    if len(tokens)<min_words:
+    raw=re.sub(r'\s+',' ',str(sentence)).strip()
+    if not raw:
         return []
+
+    tokens=_caption_words(raw)
+    if len(tokens)<min_words:
+        return [tokens] if tokens else []
+
+    bad_end={
+        'e','de','do','da','em','no','na','que','um','uma','o','a','os','as',
+        'para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa',
+        'sobre','entre','até','sem','como','pelo','pela','pelos','pelas','mais'
+    }
+    bad_start=bad_end | {'porque','porém','porem','então','entao','quando','enquanto'}
+    strong_right={'e','mas','porque','porém','porem','então','entao','quando','enquanto','além','alem'}
+    protected={
+        ('gta','6'), ('gta','vi'), ('vice','city'), ('cloud','gaming'),
+        ('xbox','cloud'), ('xbox','cloud','gaming'), ('jason','e','lucia'),
+        ('nível','inédito','de','realismo'), ('nivel','inedito','de','realismo'),
+        ('sistema','de','moral'), ('mecânica','de','relacionamento'),
+        ('mecanica','de','relacionamento'), ('grand','theft','auto'),
+        ('playstation','5'), ('xbox','series')
+    }
+
+    def norm(w):
+        return _caption_clean_word(w).replace('í','i').replace('é','e').replace('ã','a').replace('á','a').replace('ç','c')
+
+    def breaks_protected(cut):
+        left=[norm(x) for x in tokens[max(0,cut-4):cut]]
+        right=[norm(x) for x in tokens[cut:cut+4]]
+        for phrase in protected:
+            n=len(phrase)
+            for i in range(len(left)-n+1):
+                if tuple(left[i:i+n])==phrase and i+n==len(left):
+                    return True
+            for i in range(len(right)-n+1):
+                if tuple(right[i:i+n])==phrase and i==0:
+                    return True
+        return False
+
     chunks=[]; i=0
     while i < len(tokens):
         remaining=len(tokens)-i
         if remaining <= max_words:
-            candidate=tokens[i:]
-            if len(candidate) < min_words and chunks:
-                # Reequilibra o último par para evitar um bloco de 1–2 palavras.
-                prev=chunks.pop()
-                merged=prev+candidate
-                split=max(min_words, min(max_words, round(len(merged)/2)))
-                a=merged[:split]; b=merged[split:]
-                if len(b)>=min_words:
-                    chunks.extend([a,b])
-                else:
-                    chunks.append(merged)
-            else:
-                chunks.append(candidate)
+            chunks.append(tokens[i:])
             break
 
-        target=max(min_words, min(max_words, round(remaining/2)))
-        lo=max(i+min_words, i+target-2)
-        hi=min(i+max_words, i+target+2, len(tokens)-1)
+        # Procuramos a melhor fronteira numa faixa razoável, sem obrigar 3–7 palavras.
+        target=7 if remaining >= 14 else max(5, round(remaining/2))
+        lo=max(i+min_words, i+4)
+        hi=min(len(tokens)-1, i+max_words)
         best=None
-        for cut in range(lo, hi+1):
-            left=tokens[i:cut]; right=tokens[cut:]
-            if len(left)<min_words or len(left)>max_words:
+        for cut in range(lo,hi+1):
+            left=tokens[i:cut]
+            right=tokens[cut:]
+            if len(right)<min_words and len(right)>0:
                 continue
-            score=abs(len(left)-target)*2.0
-            # Pontuação é o melhor ponto de corte.
             last=left[-1]
-            if re.search(r'[.!?,;:]$', last): score-=8
-            elif re.search(r'[.!?,;:]$', tokens[cut-1]): score-=3
-            # Não termine com palavra funcional e não comece o próximo bloco com ela.
-            if _caption_is_bad_end(last): score+=12
-            if _caption_is_bad_start(right[0]): score+=12
-            # Evita separar pares/expressões muito comuns.
-            left_pair=' '.join(_caption_clean_word(x) for x in left[-2:])
-            right_pair=' '.join(_caption_clean_word(x) for x in right[:2])
-            if left_pair in {'de gta','do gta','no gta','na gta','gta 6','vice city','cloud gaming'}: score+=5
-            if right_pair in {'6 no','6 na','6 do','6 da','gta 6'}: score+=7
-            # Conectores são bons pontos de corte quando ficam no bloco seguinte.
-            if _caption_clean_word(right[0]) in {'e','mas','porque','porém','porem','então','entao','quando','enquanto'}: score-=3
-            if best is None or score<best[0]: best=(score,cut)
-        cut=best[1] if best else i+target
-        chunks.append(tokens[i:cut]); i=cut
+            first=right[0] if right else ''
+            score=abs(len(left)-target)*1.25
 
-    # Segunda passada: rebalanceia blocos curtos e remove pontuação da borda.
+            # Pontuação/pausa é a melhor fronteira.
+            if re.search(r'[,:;.!?]$', last): score-=14
+            # Vírgula interna é especialmente boa se não deixar palavra funcional pendurada.
+            if re.search(r'[,:;]$', last): score-=4
+
+            lw=norm(last); rw=norm(first)
+            if lw in bad_end: score+=18
+            if rw in bad_start: score+=18
+            if rw in strong_right: score-=5
+            if breaks_protected(cut): score+=30
+
+            # Não corta no meio de expressões compostas comuns.
+            pair_left=' '.join(norm(x) for x in left[-2:])
+            pair_right=' '.join(norm(x) for x in right[:2])
+            if pair_left in {'gta 6','vice city','cloud gaming','xbox cloud','jason e','sistema de','nivel inedito','nível inédito'}:
+                score+=10
+            if pair_right in {'6 no','6 na','6 do','6 da','6 via','city agora','gaming no','gaming da'}:
+                score+=10
+
+            # Se o trecho ficar grande demais, penaliza; se ficar curto, também.
+            if len(left)>max_words: score+=100
+            if len(left)<min_words: score+=100
+
+            if best is None or score<best[0]:
+                best=(score,cut)
+
+        cut=best[1] if best else min(i+target,len(tokens))
+        chunks.append(tokens[i:cut])
+        i=cut
+
+    # Rebalanceamento final: não cria blocos de 1–2 palavras se puder unir ao vizinho.
     out=[]
     for ch in chunks:
         if not ch: continue
-        if len(ch)<min_words and out:
-            merged=out.pop()+ch
-            if len(merged)<=max_words:
-                out.append(merged)
-            else:
-                split=len(merged)//2
-                while split<min_words: split+=1
-                while len(merged)-split<min_words and split>min_words: split-=1
-                out.extend([merged[:split],merged[split:]])
+        if len(ch)<min_words and out and len(out[-1])+len(ch)<=max_words:
+            out[-1].extend(ch)
         else:
             out.append(ch)
-    return [' '.join(x).strip(' ,;:') for x in out if len(x)>=min_words]
+
+    # Se houver muitos blocos, funde os pares menos problemáticos até o limite solicitado pelo caller.
+    # A função não corta novamente; preserva unidades de sentido.
+    return out
+
+
+def _merge_caption_chunks(chunks, target_count=10, max_words=12):
+    """Reduz a quantidade de blocos sem destruir unidades de sentido."""
+    chunks=[list(c) for c in chunks if c]
+    while len(chunks)>target_count:
+        best_idx=None; best_score=None
+        for i in range(len(chunks)-1):
+            merged=chunks[i]+chunks[i+1]
+            if len(merged)>max_words:
+                continue
+            score=abs(len(merged)-8)
+            last=_caption_clean_word(chunks[i][-1])
+            first=_caption_clean_word(chunks[i+1][0])
+            if last in {'e','de','do','da','em','no','na','que','para','com','por','mas'}: score-=4
+            if first in {'e','mas','porque','porém','porem','então','entao'}: score-=2
+            if best_score is None or score<best_score:
+                best_score=score; best_idx=i
+        if best_idx is None:
+            # Último recurso: funde o par mais próximo mesmo que fique um pouco maior.
+            best_idx=min(range(len(chunks)-1), key=lambda i: abs(len(chunks[i])+len(chunks[i+1])-9))
+        chunks[best_idx:best_idx+2]=[chunks[best_idx]+chunks[best_idx+1]]
+    return chunks
 
 
 def build_short_timeline(script, topic, duration, count=10):
-    """V29.2: timeline de legendas editoriais, natural e sincronizada.
-    Usa somente palavras realmente narradas, preserva a ordem e procura cortes
-    em pontuação/pausas e unidades linguísticas. O tempo é proporcional à fala.
+    """V29.3 — legendas editoriais por unidades de sentido.
+    Primeiro respeita frases/pausas; depois divide apenas quando necessário.
+    Não usa janelas fixas de palavras e não remove palavras da narração.
     """
     narration=re.sub(r'\s+',' ',str(script.get('narration','')).strip())
     if not narration:
         return [{'text':'GTA 6','duration':duration,'highlight':'GTA'}]
 
-    # Divide primeiro por frases reais; isso evita misturar o fim de uma ideia com o início da próxima.
-    sentences=[s.strip() for s in re.split(r'(?<=[.!?])\s+', narration) if len(s.strip())>=3]
-    if not sentences: sentences=[narration]
-    candidates=[]
+    # Mantém frases e pontuação como âncoras de sentido.
+    sentences=[s.strip() for s in re.split(r'(?<=[.!?])\s+',narration) if s.strip()]
+    if not sentences:
+        sentences=[narration]
+
+    all_chunks=[]
     for sent in sentences:
-        for phrase in _caption_phrase_chunks(sent,3,7):
-            phrase=_clean_caption_phrase(phrase)
-            if phrase and len(re.findall(r"[A-Za-zÀ-ÿ0-9']+",phrase))>=3:
-                candidates.append(phrase)
+        all_chunks.extend(_caption_phrase_chunks(sent,3,10))
 
-    # Remove duplicadas sem alterar a ordem.
-    uniq=[]; seen=set()
-    for phrase in candidates:
-        key=phrase.lower()
-        if key not in seen:
-            seen.add(key); uniq.append(phrase)
+    if not all_chunks:
+        all_chunks=[_caption_words(narration)]
 
-    # Mantém até count blocos, mas se houver poucos, usa mais blocos da fala inteira.
-    if len(uniq)<3:
-        words=narration.split(); uniq=[]
-        for i in range(0,len(words),6):
-            ch=words[i:i+6]
-            if len(ch)>=3: uniq.append(_clean_caption_phrase(' '.join(ch)))
-            if len(uniq)>=count: break
+    # Se houver blocos demais, junta apenas blocos vizinhos que ainda cabem confortavelmente.
+    all_chunks=_merge_caption_chunks(all_chunks,target_count=max(1,count),max_words=12)
 
-    uniq=uniq[:count]
-    if not uniq:
-        uniq=[_clean_caption_phrase(narration)]
+    phrases=[]
+    for ch in all_chunks:
+        phrase=_clean_caption_phrase(' '.join(ch))
+        if phrase and len(re.findall(r"[A-Za-zÀ-ÿ0-9']+",phrase))>=2:
+            phrases.append(phrase)
+
+    # Garantia de cobertura: todas as palavras da narração precisam aparecer nas legendas.
+    if not phrases:
+        phrases=[_clean_caption_phrase(narration)]
 
     preferred_words={
         'gta','gta6','vi','rockstar','jason','lucia','leonida','vice','city','mapa',
         'história','historia','detalhe','confirmado','confirmou','rumor','teoria',
-        'microsoft','cloud','gaming','realismo','novidades'
+        'microsoft','cloud','gaming','realismo','novidades','xbox','playstation'
     }
     beats=[]
-    for phrase in uniq:
+    for phrase in phrases:
         ws=re.findall(r"[A-Za-zÀ-ÿ0-9']+",phrase)
         preferred=[w for w in ws if w.lower() in preferred_words]
         highlight=preferred[0] if preferred else (ws[-1] if len(ws)>=5 else None)
         beats.append({'text':phrase,'highlight':highlight})
 
-    # Tempo proporcional às palavras, com limites confortáveis.
-    weights=[max(3,len(re.findall(r"[A-Za-zÀ-ÿ0-9']+",b['text']))) for b in beats]
+    # Tempo proporcional à fala; blocos muito curtos ganham tempo mínimo e o restante é redistribuído.
+    weights=[max(2,len(re.findall(r"[A-Za-zÀ-ÿ0-9']+",b['text']))) for b in beats]
     total=sum(weights) or 1
     raw=[duration*w/total for w in weights]
     if len(raw)>1:
-        raw=[max(1.35,min(3.8,x)) for x in raw]
+        raw=[max(1.25,min(4.8,x)) for x in raw]
         scale=duration/sum(raw)
         raw=[x*scale for x in raw]
     diff=duration-sum(raw)
