@@ -1,4 +1,5 @@
 import struct
+import zlib
 import os, json, uuid, threading, time, asyncio, subprocess, shutil, re, sys, struct
 from pathlib import Path
 from datetime import datetime, timezone
