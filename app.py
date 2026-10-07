@@ -52,10 +52,10 @@ RADAR_KEYWORDS = {
 PAGE = '''<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GTA OCULTO AI</title><style>
 *{box-sizing:border-box}body{margin:0;background:#07080b;color:#f4f5f7;font-family:Arial,Helvetica,sans-serif}.wrap{max-width:1380px;margin:auto;padding:22px}.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}.brand{font-size:30px;font-weight:950}.brand span{color:#e21c2a}.status{border:1px solid #303640;background:#11141a;border-radius:999px;padding:9px 13px;color:#72e69a;font-size:12px;font-weight:900}.hero,.panel,.stat{background:#101318;border:1px solid #282e37;border-radius:15px}.hero{padding:22px;display:flex;justify-content:space-between;gap:20px;align-items:center}.eyebrow{color:#e21c2a;font-size:11px;font-weight:950;letter-spacing:1.3px}.hero h1{font-size:28px;margin:8px 0}.muted{color:#8d96a4}.buttons{display:flex;gap:10px}.btn{border:0;border-radius:9px;padding:13px 17px;background:#222730;color:#fff;font-weight:900;cursor:pointer}.btn.red{background:#df1727}.control{margin-top:12px;padding:12px;background:#0d1015;border:1px solid #242a33;border-radius:12px;display:flex;gap:10px}.control input{flex:1;background:#181c23;border:1px solid #2b323c;border-radius:8px;color:#fff;padding:13px}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:16px 0}.stat{padding:17px}.stat small{color:#929aa7;font-weight:800}.stat b{display:block;font-size:29px;margin-top:6px}.panel{margin:16px 0;padding:18px}.steps{display:grid;grid-template-columns:repeat(8,1fr);gap:7px}.step{background:#191d24;border-radius:8px;padding:12px 4px;text-align:center;font-size:10px;font-weight:950;color:#9ba3af}.step.active{background:#3b151a;color:#ff5c68;border:1px solid #7e202b}.row{display:grid;grid-template-columns:55px 1fr 110px 110px 95px;gap:12px;align-items:center;padding:14px 0;border-bottom:1px solid #242a32}.score{font-size:21px;font-weight:950}.title{font-weight:850}.source{font-size:12px;color:#838c99;margin-top:4px}.pill{border:1px solid #343b45;border-radius:20px;padding:7px;text-align:center;font-size:10px;font-weight:850}.produce{background:#242a33;border:0;color:#fff;border-radius:8px;padding:10px;font-weight:900;cursor:pointer}.job{background:#14181e;border:1px solid #2b313a;border-radius:11px;padding:14px;margin-top:10px}.jobhead{display:flex;justify-content:space-between;gap:12px}.bar{height:8px;background:#272d36;border-radius:10px;overflow:hidden;margin-top:10px}.bar i{display:block;height:100%;background:#df1727}.log{font-family:monospace;color:#aab2bf;font-size:12px;margin-top:9px;white-space:pre-wrap}.result{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}.result a{color:#ff5b67;text-decoration:none;font-weight:900}.meta{font-size:11px;color:#77808e;margin-top:6px}.notice{padding:12px;border:1px dashed #3b424c;border-radius:10px;background:#0d1014;color:#aab2bf;font-size:12px}@media(max-width:900px){.hero{display:block}.buttons{margin-top:15px;flex-wrap:wrap}.stats{grid-template-columns:repeat(2,1fr)}.steps{grid-template-columns:repeat(4,1fr)}.row{grid-template-columns:45px 1fr 90px}.row .pill{display:none}}
 </style></head><body><div class="wrap"><div class="top"><div class="brand">GTA <span>OCULTO</span> AI</div><div class="status">● PRODUÇÃO CLOUD ONLINE</div></div>
-<div class="hero"><div><div class="eyebrow">PRODUTOR AUTÔNOMO</div><h1>A IA encontra o assunto. Você decide se quer produzir.</h1><div class="muted">Radar → score → decisão → roteiro → visuais → voz → edição → avaliação → Short.</div></div><div class="buttons"><button class="btn red" onclick="createShort()">⚡ CRIAR SHORT</button><button class="btn" onclick="research()">🔥 ATUALIZAR RADAR</button></div></div>
+<div class="hero"><div><div class="eyebrow">PRODUTOR AUTÔNOMO</div><h1>A IA encontra o assunto. Você decide se quer produzir.</h1><div class="muted">Radar → score → Editor-Chefe → hook → roteiro → visuais → voz → edição → avaliação → Short.</div></div><div class="buttons"><button class="btn red" onclick="createShort()">⚡ CRIAR SHORT</button><button class="btn" onclick="research()">🔥 ATUALIZAR RADAR</button></div></div>
 <div class="control"><input id="topic" placeholder="Digite um assunto ou deixe a IA decidir"><button class="btn red" onclick="createShort()">PRODUZIR</button></div>
 <div class="stats"><div class="stat"><small>ASSUNTOS</small><b id="assuntos">4</b></div><div class="stat"><small>OPORTUNIDADES</small><b id="opps">4</b></div><div class="stat"><small>PRODUZIDOS</small><b id="produzidos">0</b></div><div class="stat"><small>FILA</small><b id="fila">0</b></div></div>
-<div class="panel"><h3>🔥 RADAR GTA VI</h3><div id="radarStatus" class="notice">Carregando radar…</div></div><div class="panel"><h3>PIPELINE</h3><div class="steps">'''+''.join(f'<div class="step" id="step-{i}">{x}</div>' for i,x in enumerate(['PESQUISA','ANÁLISE','ROTEIRO','VISUAIS','NARRAÇÃO','EDIÇÃO','AVALIAÇÃO','PRONTO']))+'''</div></div>
+<div class="panel"><h3>🔥 RADAR GTA VI</h3><div id="radarStatus" class="notice">Carregando radar…</div></div><div class="panel"><h3>🧠 EDITOR-CHEFE</h3><div id="editorPick" class="notice">Aguardando o Radar.</div></div><div class="panel"><h3>PIPELINE</h3><div class="steps">'''+''.join(f'<div class="step" id="step-{i}">{x}</div>' for i,x in enumerate(['PESQUISA','ANÁLISE','ROTEIRO','VISUAIS','NARRAÇÃO','EDIÇÃO','AVALIAÇÃO','PRONTO']))+'''</div></div>
 <div class="panel"><h3>OPORTUNIDADES</h3><div id="oppList">__OPPORTUNITIES__</div></div>
 <div class="panel"><h3>PRODUÇÕES</h3><div id="jobs">Nenhuma produção iniciada.</div></div>
 <div class="notice">☁️ <b>Modo 100% web:</b> esta versão não depende do seu computador. A produção acontece no próprio servidor. O plano gratuito do Render pode dormir quando fica inativo; o primeiro acesso pode demorar.</div>
@@ -73,15 +73,23 @@ function drawState(d){
   document.getElementById('opps').textContent=opportunities.length;
   document.getElementById('assuntos').textContent=opportunities.length;
   document.getElementById('produzidos').textContent=(d&&d.produced)||0;
-  document.getElementById('fila').textContent=(d&&d.queue)||0; document.getElementById('radarStatus').textContent=(d&&d.radar_updated)?('Última varredura: '+new Date(d.radar_updated).toLocaleString('pt-BR')+' — '+opportunities.length+' oportunidades.'):('Radar local ativo — '+opportunities.length+' oportunidades disponíveis.');
+  document.getElementById('fila').textContent=(d&&d.queue)||0;
+  let rs=(d&&d.radar_status)||'WAITING';
+  let msg=(d&&d.radar_updated)?('Última varredura: '+new Date(d.radar_updated).toLocaleString('pt-BR')+' — '+opportunities.length+' oportunidades.'): 'Radar aguardando primeira varredura real.';
+  if(rs==='STALE') msg='⚠️ '+msg+' '+((d&&d.radar_error)||'Nenhuma fonte nova respondeu.')+' Os dados exibidos são os últimos válidos.';
+  if(rs==='WAITING') msg='⏳ '+((d&&d.radar_error)||'Radar aguardando primeira varredura real.');
+  if(rs==='OK') msg='🔥 '+msg+' Fontes respondendo: '+((d&&d.radar_sources_ok)||0)+'.';
+  document.getElementById('radarStatus').textContent=msg;
   document.getElementById('oppList').innerHTML=opportunities.map(o=>`<div class="row"><div class="score">${o.score}</div><div><div class="title">${esc(o.title)}</div><div class="source">${esc(o.source)} · ${esc(o.content_type||'CURIOSIDADE')} · confiança ${esc(o.confidence||'-')}% · ${esc(o.reason||'')}</div></div><div class="pill">${esc(o.priority)}</div><div class="pill">${esc(o.status||'PRODUZIR')}</div><button class="produce" onclick="createShort('${o.id}')">PRODUZIR</button></div>`).join('');
+  const ep=d&&d.editor_pick;
+  document.getElementById('editorPick').innerHTML=ep ? `<b>${esc(ep.editorial_decision||'PRODUZIR')}</b> — ${esc(ep.title)}<br><span class="meta">Score editorial: ${esc(ep.editorial_score||'-')}/100 · ${esc(ep.editorial_angle||'')}</span><br><span class="meta">${esc(ep.editorial_reason||'')}</span>` : 'Aguardando o Radar.';
   renderJobs((d&&d.jobs)||[]);
 }
 function load(){
   fetch('/api/state?ts='+Date.now(),{cache:'no-store'})
     .then(function(r){ if(!r.ok) throw new Error('API /api/state retornou '+r.status); return r.json(); })
     .then(function(d){ drawState(d); })
-    .catch(function(){ drawState({opportunities:LOCAL_OPPORTUNITIES,jobs:[],produced:0,queue:0}); });
+    .catch(function(){ document.getElementById('radarStatus').textContent='⚠️ Não foi possível consultar o servidor agora. Recarregando automaticamente…'; });
 }
 function renderJobs(js){if(!js.length){document.getElementById('jobs').textContent='Nenhuma produção iniciada.';return}js=js.slice().reverse();document.getElementById('jobs').innerHTML=js.map(j=>{let p=Math.round(j.progress||0);return `<div class="job"><div class="jobhead"><b>${esc(j.title)}</b><span>${esc(j.status)}</span></div><div class="muted">${esc(j.stage)} — ${p}%</div><div class="bar"><i style="width:${p}%"></i></div><div class="log">${esc(j.log||'')}</div>${j.score?`<div class="meta">Avaliação: ${j.score}/100</div>`:''}${j.video?`<div class="result"><a href="/output/${encodeURIComponent(j.video)}" target="_blank">▶ ABRIR SHORT</a><a href="/output/${encodeURIComponent(j.cover||'')}" target="_blank">🖼️ CAPA</a><a href="/api/job/${j.id}" target="_blank">JSON</a></div>`:''}</div>`}).join('');for(let i=0;i<8;i++)document.getElementById('step-'+i).classList.toggle('active',js[0]&&i===stageIndex(js[0].stage))}
 async function createShort(id){
@@ -133,8 +141,8 @@ def _load_radar():
         return {'updated_at':None,'opportunities':[]}
 
 
-def _save_radar(opportunities, updated_at=None):
-    data={'updated_at':updated_at or now_iso(),'opportunities':opportunities[:12]}
+def _save_radar(opportunities, updated_at=None, status='OK', error=None, sources_ok=0):
+    data={'updated_at':updated_at or now_iso(),'opportunities':opportunities[:12], 'status':status, 'error':error, 'sources_ok':sources_ok}
     with RADAR_LOCK:
         tmp=RADAR_FILE.with_suffix('.tmp')
         tmp.write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding='utf-8')
@@ -325,20 +333,41 @@ def _dedupe_group(group):
 
 
 def radar_scan():
-    """Radar V26.2: coleta, agrupa por pauta, verifica diversidade e pontua oportunidades GTA VI."""
-    raw=[]
+    """Radar V26.3: coleta, agrupa e só substitui o último radar quando a coleta realmente teve sucesso."""
+    raw=[]; successful_sources=0; errors=[]
     for name,url in RADAR_FEEDS:
-        raw.extend(_parse_rss(url,name))
+        try:
+            batch=_parse_rss(url,name)
+            if batch:
+                successful_sources += 1
+                raw.extend(batch)
+            else:
+                errors.append(name+' sem resultados')
+        except Exception as e:
+            errors.append(name+': '+str(e)[:120])
+    rockstar_ok=False
     try:
         r=fetch('https://www.rockstargames.com/br/newswire',timeout=20); r.raise_for_status()
+        rockstar_ok=True; successful_sources += 1
         soup=BeautifulSoup(r.text,'html.parser')
         for a in soup.find_all('a',href=True):
             t=' '.join(a.stripped_strings).strip()
             href=urljoin('https://www.rockstargames.com/br/newswire',a['href'])
             if t and any(k in t.lower() for k in ('grand theft auto vi','gta vi','gta 6')):
                 raw.append({'title':t,'url':href,'published':'','source':'Rockstar Games','feed':'Rockstar Newswire','description':''})
-    except Exception:
-        pass
+    except Exception as e:
+        errors.append('Rockstar Newswire: '+str(e)[:160])
+
+    # Se nenhuma fonte respondeu, preserva o último radar válido. Nunca sobrescreva com fallback.
+    if successful_sources == 0 or not raw:
+        last=_load_radar()
+        if last.get('opportunities'):
+            last['status']='STALE'
+            last['error']='Nenhuma fonte respondeu. Mantendo a última varredura válida.'
+            last['sources_ok']=0
+            return last
+        fallback=[dict(x,radar=False,status='AGUARDAR',confidence=70,reason='Aguardando primeira varredura real') for x in FALLBACK_TOPICS]
+        return {'updated_at':None,'opportunities':fallback,'status':'WAITING','error':'Nenhuma fonte respondeu na primeira varredura.','sources_ok':0}
 
     allowed=('gta 6','gta vi','grand theft auto vi','rockstar games','rockstar','vice city','leonida','jason','lucia')
     filtered=[]; seen_urls=set()
@@ -404,17 +433,24 @@ def radar_scan():
 
     ranked.sort(key=lambda x:(x['score'],x.get('confidence',0),x.get('source_count',0),x.get('mentions',1)),reverse=True)
     if not ranked:
-        ranked=[dict(x,radar=False,status='PRODUZIR',confidence=70,reason='fallback editorial') for x in FALLBACK_TOPICS]
-    else:
-        # Fallbacks só completam a lista se a coleta pública trouxer poucas pautas distintas.
-        for f in FALLBACK_TOPICS:
-            if len(ranked)>=10: break
-            ranked.append(dict(f,radar=False,status='OBSERVAR',confidence=65,reason='fallback editorial'))
-    return _save_radar(ranked[:10])
+        last=_load_radar()
+        if last.get('opportunities'):
+            last['status']='STALE'
+            last['error']='A coleta respondeu, mas não encontrou pautas GTA VI suficientes.'
+            return last
+        fallback=[dict(x,radar=False,status='AGUARDAR',confidence=70,reason='Aguardando primeira varredura real') for x in FALLBACK_TOPICS]
+        return {'updated_at':None,'opportunities':fallback,'status':'WAITING','error':'Coleta sem pautas utilizáveis.','sources_ok':successful_sources}
+
+    # Não misturamos fallback com o radar real. Se o radar encontrou 4, mostramos 4.
+    # Isso evita que assuntos antigos pareçam notícias atuais.
+    return _save_radar(ranked[:10], status='OK', sources_ok=successful_sources)
 
 def current_opportunities():
     d=_load_radar(); ops=d.get('opportunities') or []
-    return (ops if ops else list(FALLBACK_TOPICS)), d.get('updated_at')
+    if ops:
+        return ops, d.get('updated_at'), d.get('status','OK'), d.get('error'), d.get('sources_ok',0)
+    fallback=[dict(x,radar=False,status='AGUARDAR',confidence=70,reason='Aguardando primeira varredura real') for x in FALLBACK_TOPICS]
+    return fallback, None, 'WAITING', 'Radar ainda não realizou uma varredura válida.', 0
 
 
 def research_official():
@@ -690,16 +726,133 @@ def research_official():
     return out[:6],images,blob
 
 
+
+def _editorial_penalty(topic):
+    """Penaliza pautas que parecem clickbait, frágeis ou pouco aproveitáveis em Short."""
+    title=str(topic.get('title','')).lower()
+    p=0
+    if topic.get('content_type')=='RUMOR': p += 7
+    if topic.get('status')=='OBSERVAR': p += 8
+    if int(topic.get('confidence',70) or 70) < 55: p += 10
+    if int(topic.get('source_count',1) or 1) < 2 and topic.get('content_type')=='RUMOR': p += 8
+    if any(k in title for k in ('pode ser','acredita','talvez','suposto','vazamento')): p += 4
+    if len(title) > 105: p += 2
+    return p
+
+
+def _editorial_angle(topic):
+    """Define o melhor ângulo narrativo sem inventar fatos novos."""
+    title=str(topic.get('title','')).strip()
+    kind=topic.get('content_type','CURIOSIDADE')
+    if kind=='RUMOR':
+        return ('Separar fato de especulação e explicar por que o rumor chamou atenção.',
+                'ISSO SOBRE GTA 6 É VERDADE OU SÓ RUMOR?')
+    if kind=='NOTÍCIA':
+        return ('Explicar o que realmente foi confirmado e por que isso importa para GTA 6.',
+                'A ROCKSTAR CONFIRMOU ISSO NO GTA 6')
+    if kind=='MISTÉRIO':
+        return ('Mostrar o detalhe e apresentar a interpretação sem tratá-la como confirmação.',
+                'ESSE DETALHE DE GTA 6 PODE SER IMPORTANTE')
+    return ('Apresentar o detalhe mais interessante e conectar com o que já foi mostrado oficialmente.',
+            'VOCÊ PERCEBEU ESSE DETALHE NO GTA 6?')
+
+
+def editor_chief_select(topics):
+    """EDITOR-CHEFE V27: escolhe a pauta mais forte com regras editoriais explícitas."""
+    if not topics:
+        return None
+    scored=[]
+    for topic in topics:
+        base=float(topic.get('score',0) or 0)
+        conf=float(topic.get('confidence',70) or 70)
+        sources=int(topic.get('source_count',1) or 1)
+        mentions=int(topic.get('mentions',1) or 1)
+        status=str(topic.get('status','')).upper()
+        kind=topic.get('content_type','CURIOSIDADE')
+        # O score do Radar continua importante, mas não manda sozinho na decisão.
+        editorial=base*0.52 + conf*0.25 + min(20,sources*5)*0.12 + min(15,mentions*2)*0.06
+        if status=='PRODUZIR AGORA': editorial += 7
+        elif status=='PRODUZIR': editorial += 3
+        if kind=='NOTÍCIA': editorial += 4
+        elif kind=='MISTÉRIO': editorial += 2
+        editorial -= _editorial_penalty(topic)
+        # Uma pauta oficial é preferida quando scores são próximos.
+        if str(topic.get('source','')).lower().find('rockstar')>=0:
+            editorial += 3
+        angle,hook=_editorial_angle(topic)
+        item=dict(topic)
+        item['editorial_score']=int(max(0,min(100,round(editorial))))
+        item['editorial_angle']=angle
+        item['editorial_hook']=hook
+        item['editorial_decision']='PRODUZIR' if item['editorial_score']>=62 else 'OBSERVAR'
+        if item['editorial_score']>=78 and conf>=65:
+            item['editorial_decision']='PRODUZIR AGORA'
+        item['editorial_reason']=f"Radar {int(base)}/100 + confiança {int(conf)}% + {sources} fonte(s); tipo {kind}."
+        scored.append(item)
+    scored.sort(key=lambda x:(x['editorial_score'],x.get('confidence',0),x.get('score',0)),reverse=True)
+    return scored[0]
+
+
 def choose_topic(data,topics):
     if data.get('id'):
         for o in topics:
             if o['id']==data['id']: return o
     custom=(data.get('topic') or '').strip()
-    if custom: return {'id':'custom','score':88,'priority':'ALTA','title':custom,'source':'Pesquisa editorial','url':ROCKSTAR_VI}
-    return max(topics,key=lambda x:x['score'])
+    if custom:
+        topic={'id':'custom','score':88,'priority':'ALTA','title':custom,'source':'Pesquisa editorial','url':ROCKSTAR_VI,'radar':False,'content_type':'CURIOSIDADE','confidence':70,'source_count':1}
+        angle,hook=_editorial_angle(topic)
+        topic.update(editorial_score=78,editorial_angle=angle,editorial_hook=hook,editorial_decision='PRODUZIR AGORA',editorial_reason='Assunto informado diretamente pelo usuário.')
+        return topic
+    return editor_chief_select(topics)
 
 
 def make_script(topic):
+    """Editor-Chefe V27: transforma a pauta escolhida em roteiro com ângulo e hook próprios."""
+    title=str(topic.get('title','GTA 6')).strip()
+    t=title.lower()
+    kind=topic.get('content_type') or 'CURIOSIDADE'
+    if kind not in ('RUMOR','MISTÉRIO','NOTÍCIA','CURIOSIDADE'):
+        if any(k in t for k in ('rumor','leak','vazamento','suposto')): kind='RUMOR'
+        elif any(k in t for k in ('teoria','theory','pista','mistério','misterio','segredo','detalhe','escond')): kind='MISTÉRIO'
+        elif any(k in t for k in ('confirm','revel','anunci','news','notícia','noticia','atualização','update')): kind='NOTÍCIA'
+        else: kind='CURIOSIDADE'
+    angle=str(topic.get('editorial_angle') or _editorial_angle(topic)[0])
+    hook=str(topic.get('editorial_hook') or _editorial_angle(topic)[1])
+    confidence=topic.get('confidence')
+    source_count=topic.get('source_count',1)
+    source_name=topic.get('source','Pesquisa editorial')
+    verification=(f"A pauta aparece em {source_count} fonte(s) e está com confiança estimada de {confidence}%." if confidence is not None else '')
+
+    if kind=='RUMOR':
+        narration=(f'{hook}. {title}. '
+        f'{verification} O ponto importante é não confundir repercussão com confirmação oficial. '
+        f'{angle} Até agora, o que não estiver confirmado pela Rockstar precisa ser tratado como possibilidade. '
+        'Se isso se confirmar, pode mudar a forma como enxergamos essa parte de GTA 6. '
+        'Você acha que existe algo por trás dessa informação?')
+    elif kind=='MISTÉRIO':
+        narration=(f'{hook}. {title}. '
+        f'{angle} Esse detalhe chama atenção porque se conecta ao que a Rockstar já mostrou sobre GTA 6. '
+        'Mas existe uma diferença entre uma pista e uma confirmação: aqui estamos falando de interpretação. '
+        'Se essa leitura estiver certa, ela pode revelar algo interessante sobre Leonida. '
+        'Você acha que isso é coincidência ou pista?')
+    elif kind=='NOTÍCIA':
+        narration=(f'{hook}. {title}. '
+        f'{verification} {angle} O que importa aqui é o impacto dessa informação para o jogo, e não apenas a manchete. '
+        'A Rockstar já confirmou parte do cenário de GTA 6, mas qualquer conclusão além disso precisa ser apresentada com cuidado. '
+        'Agora a pergunta é: o que essa novidade pode mudar no jogo?')
+    else:
+        narration=(f'{hook}. {title}. '
+        f'{angle} Quando colocamos esse detalhe ao lado do material oficial de GTA 6, ele fica ainda mais interessante. '
+        'Isso não significa que exista uma confirmação por trás da interpretação, mas é um ponto que vale observar. '
+        'Você já tinha percebido esse detalhe?')
+
+    return {'title':title,'narration':narration,'source':topic.get('url',ROCKSTAR_VI),
+            'source_name':source_name,'content_type':kind,
+            'editorial_angle':angle,'editorial_hook':hook,
+            'editorial_score':topic.get('editorial_score'),
+            'editorial_decision':topic.get('editorial_decision','PRODUZIR'),
+            'editorial_reason':topic.get('editorial_reason','')}
+
     """Cria roteiro adaptado ao assunto, sem reutilizar um roteiro fixo."""
     title=str(topic.get('title','GTA 6')).strip()
     t=title.lower()
@@ -1384,8 +1537,8 @@ def produce_job(jid):
     try:
         update_job(jid,status='RUNNING',stage='PESQUISA',progress=5,log='Radar validando o assunto e coletando fontes oficiais...')
         topics,urls,_=research_official(); topics=topics or FALLBACK_TOPICS
-        job=load_jobs()[jid]; topic=job['opportunity']
-        update_job(jid,stage='ANÁLISE',progress=16,log=f'IA editorial selecionou: {topic["title"]}')
+        job=load_jobs()[jid]; topic=editor_chief_select([job['opportunity']]) or job['opportunity']; job['opportunity']=topic; jobs=load_jobs(); jobs[jid]['opportunity']=topic; save_jobs(jobs)
+        update_job(jid,stage='ANÁLISE',progress=16,log=f'EDITOR-CHEFE: {topic.get("editorial_decision","PRODUZIR")} — {topic["title"]} | ângulo: {topic.get("editorial_angle","")}')
         update_job(jid,stage='ROTEIRO',progress=28,log='Montando roteiro original em português brasileiro...'); script=make_script(topic)
         jobdir=WORK/jid; jobdir.mkdir(parents=True,exist_ok=True)
         update_job(jid,script=script,stage='VISUAIS',progress=40,log='Baixando visuais oficiais e montando cenas verticais...')
@@ -1451,22 +1604,23 @@ def processor_loop():
 @APP.get('/')
 def home(): return render_template_string(PAGE)
 @APP.get('/health')
-def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V26.2-CLUSTER-VERIFICACAO',processor='cloud')
+def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V27-EDITOR-CHEFE',processor='cloud')
 @APP.get('/api/state')
 def state():
     with LOCK:
         js=list(load_jobs().values())[-30:]
-    topics,updated=current_opportunities()
-    return jsonify(opportunities=topics,jobs=js,produced=sum(x.get('status')=='DONE' for x in js),queue=sum(x.get('status') in ('QUEUED','RUNNING') for x in js),radar_updated=updated)
+    topics,updated,radar_status,radar_error,sources_ok=current_opportunities()
+    editor_pick=editor_chief_select(topics) if topics else None
+    return jsonify(opportunities=topics,jobs=js,produced=sum(x.get('status')=='DONE' for x in js),queue=sum(x.get('status') in ('QUEUED','RUNNING') for x in js),radar_updated=updated,radar_status=radar_status,radar_error=radar_error,radar_sources_ok=sources_ok,editor_pick=editor_pick)
 @APP.post('/api/research')
 def research():
     try:
-        radar=radar_scan(); return jsonify(ok=True,message=f'Radar atualizado: {len(radar.get("opportunities",[]))} oportunidades encontradas.',opportunities=radar.get('opportunities',[]),radar_updated=radar.get('updated_at'))
+        radar=radar_scan(); return jsonify(ok=True,message=f'Radar atualizado: {len(radar.get("opportunities",[]))} oportunidades encontradas. Editor-Chefe pronto.',opportunities=radar.get('opportunities',[]),radar_updated=radar.get('updated_at'))
     except Exception as e: return jsonify(error=str(e)),502
 @APP.post('/api/produce')
 def produce():
     data=request.get_json(silent=True) or {}
-    topics,_=current_opportunities()
+    topics,_,_,_,_=current_opportunities()
     topic=choose_topic(data,topics)
     jid=uuid.uuid4().hex[:10]
     job={'id':jid,'title':topic['title'],'opportunity':topic,'status':'QUEUED','stage':'FILA','progress':0,'log':'Tarefa recebida. A produção cloud começará automaticamente.','video':None,'cover':None,'created_at':now_iso()}
