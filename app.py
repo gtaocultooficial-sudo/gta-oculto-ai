@@ -103,7 +103,7 @@ function drawState(d){
   if(ep){
     const decision=String(ep.editorial_decision||'PRODUZIR');
     const cls=decision==='PRODUZIR AGORA'?'now':(decision==='OBSERVAR'?'obs':'');
-    let epType=String(ep.content_type||'CURIOSIDADE').toUpperCase();let epMats=Number(ep.mentions||1);let epSources=Number(ep.source_count||1);let epConf=Math.max(0,Math.min(100,Number(ep.confidence||0)));let epScore=Number(ep.score||0);let epEd=Number(ep.editorial_score||0);let decisionClass=decision==='OBSERVAR'?'obs':'';let icon=epType==='RUMOR'?'⚠️':(epType==='NOTÍCIA'?'📰':'🔎');document.getElementById('editorPick').innerHTML=`<div class="editor-shell"><div class="editor-head"><div class="editor-brand"><div class="editor-icon">🧠</div><div><h2>EDITOR-CHEFE</h2><p>Analisa o Radar, escolhe a melhor pauta e prepara a produção.</p></div></div><div class="editor-actions"><div class="editor-status">✓ PAUTA SELECIONADA</div></div></div><div class="editor-grid-main"><div class="editor-cover"><div class="editor-cover-icon">${icon}</div></div><div class="editor-content"><span class="editor-tag">${esc(epType)}</span><div class="editor-title">${esc(ep.title)}</div><div class="editor-metrics"><div class="editor-metric"><small>SCORE RADAR</small><b class="metric-green">${epScore}/100</b></div><div class="editor-metric"><small>SCORE EDITORIAL</small><b class="metric-purple">${epEd}/100</b></div><div class="editor-metric"><small>CONFIANÇA</small><b>${epConf}%</b></div><div class="editor-metric"><small>MATÉRIAS</small><b>${epMats}</b></div><div class="editor-metric"><small>FONTES</small><b>${epSources}</b></div></div><div class="editor-copy"><div class="editor-hook"><b>⚡ HOOK DO VÍDEO</b><span>${esc(ep.editorial_hook||'')}</span></div><div class="editor-angle"><b>🎯 ÂNGULO EDITORIAL</b><span>${esc(ep.editorial_angle||'')}</span></div></div><div class="script-preview"><div class="script-head"><div><b>📝 ROTEIRO AUTOMÁTICO</b><span>V28.2 · roteiro completo para narração</span></div><div class="script-stats">${Number((ep.script_preview||{}).word_count||0)} palavras · ~${Number((ep.script_preview||{}).estimated_seconds||0)}s</div></div><div class="script-flow"><div><small>HOOK</small><span>${esc(((ep.script_preview||{}).sections||{}).hook||ep.editorial_hook||'')}</span></div><div><small>CONTEXTO</small><span>${esc(((ep.script_preview||{}).sections||{}).context||'')}</span></div><div><small>FATO / VERIFICAÇÃO</small><span>${esc(((ep.script_preview||{}).sections||{}).proof||'')}</span></div><div><small>PAYOFF</small><span>${esc(((ep.script_preview||{}).sections||{}).payoff||ep.editorial_angle||'')}</span></div><div><small>CTA</small><span>${esc(((ep.script_preview||{}).sections||{}).cta||'')}</span></div></div></div><div class="meta">${esc(ep.editorial_reason||'')}</div></div><div class="editor-decision ${decisionClass}"><div class="decision-check">${decision==='OBSERVAR'?'◌':'✓'}</div><div class="decision-word">${esc(decision)}</div><div class="decision-reason">${esc(ep.editorial_reason||'Pauta selecionada pelo Editor-Chefe.')}</div><button class="editor-produce" onclick="createShort('${ep.id||''}')">⚡ PRODUZIR AGORA</button></div></div></div>`;
+    let epType=String(ep.content_type||'CURIOSIDADE').toUpperCase();let epMats=Number(ep.mentions||1);let epSources=Number(ep.source_count||1);let epConf=Math.max(0,Math.min(100,Number(ep.confidence||0)));let epScore=Number(ep.score||0);let epEd=Number(ep.editorial_score||0);let decisionClass=decision==='OBSERVAR'?'obs':'';let icon=epType==='RUMOR'?'⚠️':(epType==='NOTÍCIA'?'📰':'🔎');document.getElementById('editorPick').innerHTML=`<div class="editor-shell"><div class="editor-head"><div class="editor-brand"><div class="editor-icon">🧠</div><div><h2>EDITOR-CHEFE</h2><p>Analisa o Radar, escolhe a melhor pauta e prepara a produção.</p></div></div><div class="editor-actions"><div class="editor-status">✓ PAUTA SELECIONADA</div></div></div><div class="editor-grid-main"><div class="editor-cover"><div class="editor-cover-icon">${icon}</div></div><div class="editor-content"><span class="editor-tag">${esc(epType)}</span><div class="editor-title">${esc(ep.title)}</div><div class="editor-metrics"><div class="editor-metric"><small>SCORE RADAR</small><b class="metric-green">${epScore}/100</b></div><div class="editor-metric"><small>SCORE EDITORIAL</small><b class="metric-purple">${epEd}/100</b></div><div class="editor-metric"><small>CONFIANÇA</small><b>${epConf}%</b></div><div class="editor-metric"><small>MATÉRIAS</small><b>${epMats}</b></div><div class="editor-metric"><small>FONTES</small><b>${epSources}</b></div></div><div class="editor-copy"><div class="editor-hook"><b>⚡ HOOK DO VÍDEO</b><span>${esc(ep.editorial_hook||'')}</span></div><div class="editor-angle"><b>🎯 ÂNGULO EDITORIAL</b><span>${esc(ep.editorial_angle||'')}</span></div></div><div class="script-preview"><div class="script-head"><div><b>📝 ROTEIRO AUTOMÁTICO</b><span>V28.3 · roteiro completo para narração</span></div><div class="script-stats">${Number((ep.script_preview||{}).word_count||0)} palavras · ~${Number((ep.script_preview||{}).estimated_seconds||0)}s</div></div><div class="script-flow"><div><small>HOOK</small><span>${esc(((ep.script_preview||{}).sections||{}).hook||ep.editorial_hook||'')}</span></div><div><small>CONTEXTO</small><span>${esc(((ep.script_preview||{}).sections||{}).context||'')}</span></div><div><small>FATO / VERIFICAÇÃO</small><span>${esc(((ep.script_preview||{}).sections||{}).proof||'')}</span></div><div><small>PAYOFF</small><span>${esc(((ep.script_preview||{}).sections||{}).payoff||ep.editorial_angle||'')}</span></div><div><small>CTA</small><span>${esc(((ep.script_preview||{}).sections||{}).cta||'')}</span></div></div></div><div class="meta">${esc(ep.editorial_reason||'')}</div></div><div class="editor-decision ${decisionClass}"><div class="decision-check">${decision==='OBSERVAR'?'◌':'✓'}</div><div class="decision-word">${esc(decision)}</div><div class="decision-reason">${esc(ep.editorial_reason||'Pauta selecionada pelo Editor-Chefe.')}</div><button class="editor-produce" onclick="createShort('${ep.id||''}')">⚡ PRODUZIR AGORA</button></div></div></div>`;
   } else { document.getElementById('editorPick').innerHTML='Aguardando o Radar.'; }
   renderJobs((d&&d.jobs)||[]);
 }
@@ -598,7 +598,7 @@ def make_script(topic):
         'sections': sections,
         'word_count': word_count,
         'estimated_seconds': estimated_seconds,
-        'script_version': 'V28.2',
+        'script_version': 'V28.3',
     }
 
 def build_dynamic_captions(script, topic, count=9):
@@ -881,92 +881,6 @@ def choose_topic(data,topics):
         topic.update(editorial_score=78,editorial_angle=angle,editorial_hook=hook,editorial_decision='PRODUZIR AGORA',editorial_reason='Assunto informado diretamente pelo usuário.')
         return topic
     return editor_chief_select(topics)
-
-
-def make_script(topic):
-    """Editor-Chefe V27: transforma a pauta escolhida em roteiro com ângulo e hook próprios."""
-    title=str(topic.get('title','GTA 6')).strip()
-    t=title.lower()
-    kind=topic.get('content_type') or 'CURIOSIDADE'
-    if kind not in ('RUMOR','MISTÉRIO','NOTÍCIA','CURIOSIDADE'):
-        if any(k in t for k in ('rumor','leak','vazamento','suposto')): kind='RUMOR'
-        elif any(k in t for k in ('teoria','theory','pista','mistério','misterio','segredo','detalhe','escond')): kind='MISTÉRIO'
-        elif any(k in t for k in ('confirm','revel','anunci','news','notícia','noticia','atualização','update')): kind='NOTÍCIA'
-        else: kind='CURIOSIDADE'
-    angle=str(topic.get('editorial_angle') or _editorial_angle(topic)[0])
-    hook=str(topic.get('editorial_hook') or _editorial_angle(topic)[1])
-    confidence=topic.get('confidence')
-    source_count=topic.get('source_count',1)
-    source_name=topic.get('source','Pesquisa editorial')
-    verification=(f"A pauta aparece em {source_count} fonte(s) e está com confiança estimada de {confidence}%." if confidence is not None else '')
-
-    if kind=='RUMOR':
-        narration=(f'{hook}. {title}. '
-        f'{verification} O ponto importante é não confundir repercussão com confirmação oficial. '
-        f'{angle} Até agora, o que não estiver confirmado pela Rockstar precisa ser tratado como possibilidade. '
-        'Se isso se confirmar, pode mudar a forma como enxergamos essa parte de GTA 6. '
-        'Você acha que existe algo por trás dessa informação?')
-    elif kind=='MISTÉRIO':
-        narration=(f'{hook}. {title}. '
-        f'{angle} Esse detalhe chama atenção porque se conecta ao que a Rockstar já mostrou sobre GTA 6. '
-        'Mas existe uma diferença entre uma pista e uma confirmação: aqui estamos falando de interpretação. '
-        'Se essa leitura estiver certa, ela pode revelar algo interessante sobre Leonida. '
-        'Você acha que isso é coincidência ou pista?')
-    elif kind=='NOTÍCIA':
-        narration=(f'{hook}. {title}. '
-        f'{verification} {angle} O que importa aqui é o impacto dessa informação para o jogo, e não apenas a manchete. '
-        'A Rockstar já confirmou parte do cenário de GTA 6, mas qualquer conclusão além disso precisa ser apresentada com cuidado. '
-        'Agora a pergunta é: o que essa novidade pode mudar no jogo?')
-    else:
-        narration=(f'{hook}. {title}. '
-        f'{angle} Quando colocamos esse detalhe ao lado do material oficial de GTA 6, ele fica ainda mais interessante. '
-        'Isso não significa que exista uma confirmação por trás da interpretação, mas é um ponto que vale observar. '
-        'Você já tinha percebido esse detalhe?')
-
-    return {'title':title,'narration':narration,'source':topic.get('url',ROCKSTAR_VI),
-            'source_name':source_name,'content_type':kind,
-            'editorial_angle':angle,'editorial_hook':hook,
-            'editorial_score':topic.get('editorial_score'),
-            'editorial_decision':topic.get('editorial_decision','PRODUZIR'),
-            'editorial_reason':topic.get('editorial_reason','')}
-
-    """Cria roteiro adaptado ao assunto, sem reutilizar um roteiro fixo."""
-    title=str(topic.get('title','GTA 6')).strip()
-    t=title.lower()
-    if any(k in t for k in ('rumor','leak','vazamento','suposto')):
-        kind='RUMOR'
-    elif any(k in t for k in ('teoria','theory','pista','mistério','misterio','segredo','detalhe','escond')):
-        kind='MISTÉRIO'
-    elif any(k in t for k in ('confirm','revel','anunci','news','notícia','noticia','atualização','update')):
-        kind='NOTÍCIA'
-    else:
-        kind='CURIOSIDADE'
-
-    if kind=='RUMOR':
-        narration=(f'Existe uma informação circulando sobre GTA 6 que chamou atenção: {title}. '
-        'Mas existe uma diferença importante entre rumor e confirmação oficial. '
-        'Até aqui, o que podemos tratar como fato é apenas o que foi apresentado ou confirmado pela Rockstar. '
-        'O restante precisa ser analisado com cuidado. Mesmo assim, o detalhe mais curioso dessa história é o que ele pode significar para o jogo. '
-        'Se essa informação se confirmar, ela pode mudar a forma como enxergamos GTA 6. Você acha que isso faz sentido ou é só mais um rumor?')
-    elif kind=='MISTÉRIO':
-        narration=(f'Existe um detalhe em GTA 6 que merece muito mais atenção: {title}. '
-        'A Rockstar costuma esconder informações importantes nos próprios materiais do jogo, e esse ponto pode ter passado despercebido. '
-        'O mais interessante é que ele pode se conectar com outros elementos já apresentados oficialmente. '
-        'Isso não prova uma teoria, mas cria uma possibilidade muito curiosa. '
-        'E se esse detalhe estiver apontando para algo maior dentro de Leonida? Qual é a sua teoria?')
-    elif kind=='NOTÍCIA':
-        narration=(f'A Rockstar trouxe uma novidade que merece atenção em GTA 6: {title}. '
-        'O ponto mais importante é entender exatamente o que foi confirmado e o que ainda é interpretação. '
-        'Essa informação ajuda a revelar como a Rockstar está construindo o mundo de GTA 6 e pode ter impacto em personagens, mapa ou gameplay. '
-        'E existe um detalhe nessa novidade que pode ter passado despercebido. Agora fica a pergunta: o que essa informação pode significar para GTA 6?')
-    else:
-        narration=(f'Você reparou neste detalhe de GTA 6? {title}. '
-        'À primeira vista parece apenas mais uma informação sobre o jogo, mas existe algo interessante por trás disso. '
-        'Quando juntamos esse detalhe com o que a Rockstar já mostrou oficialmente, surgem novas possibilidades para o mundo de Leonida. '
-        'Não significa que uma teoria esteja confirmada, mas é exatamente esse tipo de detalhe que faz GTA 6 gerar tanta discussão. Você tinha percebido isso?')
-
-    return {'title':title,'narration':narration,'source':topic.get('url',ROCKSTAR_VI),
-            'source_name':topic.get('source','Pesquisa editorial'),'content_type':kind}
 
 
 def build_dynamic_captions(script, topic, count=9):
@@ -1681,7 +1595,7 @@ def processor_loop():
 @APP.get('/')
 def home(): return render_template_string(PAGE)
 @APP.get('/health')
-def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V28.2-ROTEIRO-COMPLETO',processor='cloud')
+def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V28.3-ROTEIRO-FIX',processor='cloud')
 @APP.get('/api/state')
 def state():
     with LOCK:
