@@ -642,7 +642,7 @@ def select_video_clips(videos,title,count=5):
     return ranked[:count]
 
 
-def _caption_overlay(path,caption,idx,total,W=240,H=426):
+def _caption_overlay(path,caption,idx,total,W=540,H=960):
     """Cinematic GTA Oculto caption. Short, punchy, branded and discreet."""
     im=Image.new('RGBA',(W,H),(0,0,0,0)); d=ImageDraw.Draw(im)
     text=str(caption).strip().upper()
@@ -683,47 +683,47 @@ def _ffmpeg_text(s):
 
 
 def make_multimedia_video(video_clips, image_paths, audio, out, duration, captions):
-    """Render-safe quality mode for Render Free (512 MB).
-    Uses 720x1280 as the master instead of creating a 1080p intermediate/final
-    upscale. This avoids the memory spike that was stopping the edit stage.
+    """Quality-first vertical editor, still designed for Render Free 512 MB.
+    Official source clips are preserved; timeline scenes are rendered at 540x960
+    and the final delivery is 1080x1920/24fps with a higher-quality H.264 encode.
+    Processing remains sequential to keep peak RAM under control.
     """
     ff=str(__import__('imageio_ffmpeg').get_ffmpeg_exe())
     work=out.parent/'timeline'; work.mkdir(exist_ok=True)
-    if len(video_clips)<3:
-        raise RuntimeError('A edição precisa de pelo menos 3 vídeos reais.')
+    if len(video_clips)<3: raise RuntimeError('A edição precisa de pelo menos 3 vídeos reais.')
     assets=[]
     order=[('video',0),('image',0),('video',1),('image',1),('video',2),('image',2),('video',3),('video',4),('video',5)]
     for kind,idx in order:
         if kind=='video' and idx < len(video_clips): assets.append(('video',video_clips[idx]))
         elif kind=='image' and idx < len(image_paths): assets.append(('image',image_paths[idx]))
     per=max(2.5,duration/len(assets)); scene_files=[]
-    W,H=720,1280
     for i,(kind,src) in enumerate(assets):
         scene=work/f'scene_{i:02d}.mp4'; overlay=work/f'overlay_{i:02d}.png'
-        _caption_overlay(overlay,captions[i % len(captions)],i,len(assets),W,H)
+        _caption_overlay(overlay,captions[i % len(captions)],i,len(assets),540,960)
         if kind=='video':
-            vf=f'scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},setsar=1,fps=24'
+            vf='scale=540:960:force_original_aspect_ratio=increase,crop=540:960,setsar=1,fps=24'
             inp=['-stream_loop','-1','-i',str(src)]
         else:
-            vf=f"scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},setsar=1,zoompan=z='min(zoom+0.0012,1.03)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s={W}x{H}:fps=24"
+            vf="scale=540:960:force_original_aspect_ratio=increase,crop=540:960,setsar=1,zoompan=z='min(zoom+0.0012,1.03)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=540x960:fps=24"
             inp=['-loop','1','-i',str(src)]
         cmd=[ff,'-loglevel','error','-y']+inp+['-loop','1','-i',str(overlay),'-t',f'{per:.3f}',
              '-filter_complex',f'[0:v]{vf}[v];[1:v]format=rgba[o];[v][o]overlay=0:0:shortest=1[outv]',
-             '-map','[outv]','-an','-c:v','libx264','-preset','veryfast','-crf','18',
+             '-map','[outv]','-an','-c:v','libx264','-preset','veryfast','-crf','20',
              '-threads','1','-filter_threads','1','-filter_complex_threads','1',
-             '-x264-params','threads=1:lookahead-threads=1:rc-lookahead=0:ref=1:bframes=0',
-             '-profile:v','high','-pix_fmt','yuv420p','-movflags','+faststart',str(scene)]
-        run_cmd(cmd,150)
+             '-x264-params','threads=1:lookahead-threads=1','-profile:v','high','-pix_fmt','yuv420p','-movflags','+faststart',str(scene)]
+        run_cmd(cmd,120)
         scene_files.append(scene)
         try: overlay.unlink()
         except Exception: pass
     listfile=work/'timeline.txt'
     with listfile.open('w',encoding='utf-8') as f:
         for sf in scene_files: f.write(f"file '{sf.as_posix()}'\n")
-    # Final pass only muxes the already-encoded 720p scenes with audio.
+    # Final delivery: true 1080x1920 vertical, 24fps, higher bitrate/quality.
     run_cmd([ff,'-loglevel','error','-y','-f','concat','-safe','0','-i',str(listfile),'-i',str(audio),
-             '-t',f'{duration:.2f}','-r','24','-c:v','copy','-c:a','aac','-b:a','128k',
-             '-movflags','+faststart','-shortest',str(out)],300)
+             '-t',f'{duration:.2f}','-vf','scale=1080:1920:flags=lanczos,format=yuv420p','-r','24',
+             '-c:v','libx264','-preset','veryfast','-crf','19','-threads','1','-filter_threads','1','-filter_complex_threads','1',
+             '-x264-params','threads=1:lookahead-threads=1','-profile:v','high','-level','4.2',
+             '-c:a','aac','-b:a','128k','-movflags','+faststart','-shortest',str(out)],300)
     for p in scene_files:
         try: p.unlink()
         except Exception: pass
