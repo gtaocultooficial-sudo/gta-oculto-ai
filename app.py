@@ -2,7 +2,7 @@ import struct, zlib
 import os, json, uuid, threading, time, asyncio, subprocess, shutil, re, sys, math
 from pathlib import Path
 from datetime import datetime, timezone
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, quote_plus, parse_qs
 
 import requests
 import xml.etree.ElementTree as ET
@@ -30,7 +30,7 @@ WORK.mkdir(exist_ok=True)
 STATE_FILE = WORK / 'jobs.json'
 LOCK = threading.RLock()
 PROCESSING = False
-UA = 'GTA-Oculto-AI/Cloud-Final/1.7-V35.0'
+UA = 'GTA-Oculto-AI/Cloud-Final/1.7-V36.0'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
@@ -566,53 +566,88 @@ def _clean_article_text(text):
     return out
 
 
-def _resolve_article_url(url):
-    """V35: resolve Google News RSS links to the publisher's real article URL.
+def _resolve_article_url(url, title='', source_name=''):
+    """V36: resolve Google News links with multiple independent fallbacks.
 
-    Google News RSS does not expose the publisher URL directly. A normal
-    requests.get(..., allow_redirects=True) can remain on news.google.com, so
-    V34 correctly blocked it but could not produce. V35 first uses the
-    maintained googlenewsdecoder package, then a normal redirect attempt as
-    a fallback. If neither yields a publisher URL, the source remains blocked.
+    Order:
+      1) googlenewsdecoder (preferred)
+      2) normal HTTP redirect
+      3) DuckDuckGo HTML search using the exact headline + publisher
+    The function never treats Google News itself as the original article.
     """
     url=str(url or '').strip()
+    title=str(title or '').strip()
+    source_name=str(source_name or '').strip()
     if not url:
         return ''
     if not _is_google_news_url(url):
         return url
 
-    # 1) Preferred: Google's current encoded-link decoder.
+    # 1) Preferred decoder. In V36 the dependency is expected to be installed
+    # by Render during BUILD from requirements.txt, not by a runtime pip call.
     global _gnewsdecoder
-    if _gnewsdecoder is None:
-        try:
-            subprocess.run(
-                [sys.executable, '-m', 'pip', 'install', '--disable-pip-version-check',
-                 '--no-input', 'googlenewsdecoder==0.1.7'],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                timeout=45, check=False
-            )
-            from googlenewsdecoder import gnewsdecoder as _decoder
-            _gnewsdecoder=_decoder
-        except Exception:
-            _gnewsdecoder=None
-
     if _gnewsdecoder is not None:
-        try:
-            result=_gnewsdecoder(url, interval=0.4, timeout=18)
-            if isinstance(result, dict):
-                decoded=str(result.get('decoded_url') or result.get('url') or '').strip()
-                ok=bool(result.get('success') or result.get('status'))
-                if ok and decoded and not _is_google_news_url(decoded):
-                    return decoded
-        except Exception:
-            pass
+        for wait in (0.8, 1.5):
+            try:
+                result=_gnewsdecoder(url, interval=wait, timeout=20)
+                if isinstance(result, dict):
+                    decoded=str(result.get('decoded_url') or result.get('url') or '').strip()
+                    ok=bool(result.get('success') or result.get('status'))
+                    if ok and decoded and not _is_google_news_url(decoded):
+                        return decoded
+            except Exception:
+                continue
 
-    # 2) Cheap fallback for cases where Google actually exposes a redirect.
+    # 2) Cheap fallback if Google exposes a real HTTP redirect.
     try:
-        r=fetch(url, timeout=18)
+        r=fetch(url, timeout=20)
         final=str(getattr(r, 'url', '') or '').strip()
         if final and not _is_google_news_url(final):
             return final
+    except Exception:
+        pass
+
+    # 3) Search fallback: find the original publisher page from the exact
+    # headline. This is intentionally constrained to the source domain when
+    # the RSS entry gives us one, preventing a random mirror from being used.
+    try:
+        query=title
+        if source_name:
+            query += ' ' + source_name
+        if query:
+            qurl='https://html.duckduckgo.com/html/?q=' + quote_plus(query)
+            rr=fetch(qurl, timeout=18)
+            if rr.ok:
+                soup=BeautifulSoup(rr.text, 'html.parser')
+                wanted_host=''
+                # source_name can be "ign brasil", "IGN", etc.; use a small
+                # normalization so the fallback does not depend on exact casing.
+                sn=re.sub(r'[^a-z0-9]+','',source_name.lower())
+                for a in soup.select('a.result__a, a[href]'):
+                    href=str(a.get('href') or '').strip()
+                    if not href:
+                        continue
+                    # DuckDuckGo often wraps the destination in uddg=...
+                    try:
+                        qs=parse_qs(urlparse(href).query)
+                        if 'uddg' in qs and qs['uddg']:
+                            href=qs['uddg'][0]
+                    except Exception:
+                        pass
+                    if not href.startswith(('http://','https://')):
+                        continue
+                    if _is_google_news_url(href):
+                        continue
+                    host=urlparse(href).netloc.lower().replace('www.','')
+                    if not host:
+                        continue
+                    if sn:
+                        hostnorm=re.sub(r'[^a-z0-9]+','',host)
+                        # Prefer a result whose domain contains the publisher
+                        # name. For IGN Brasil this accepts ign.com.
+                        if sn not in hostnorm and not any(part in hostnorm for part in sn.split() if len(part)>3):
+                            continue
+                    return href
     except Exception:
         pass
 
@@ -626,7 +661,7 @@ def _is_google_news_url(url):
 
 
 def _fetch_topic_evidence(topic):
-    """V35 FINAL: extrai exclusivamente o corpo da matéria original.
+    """V36 FINAL: extrai exclusivamente o corpo da matéria original.
 
     Regras duras:
     1) resolve a URL do Google News;
@@ -638,7 +673,7 @@ def _fetch_topic_evidence(topic):
     7) retorna método de extração para auditoria.
     """
     original_url=str(topic.get('url') or '').strip()
-    url=_resolve_article_url(original_url)
+    url=_resolve_article_url(original_url, topic.get('title',''), topic.get('source',''))
     if not url or _is_google_news_url(url):
         return [], original_url, 'BLOCKED_URL'
     try:
@@ -872,7 +907,7 @@ def make_script(topic):
         'editorial_score':topic.get('editorial_score'),'editorial_decision':topic.get('editorial_decision','PRODUZIR'),
         'editorial_reason':topic.get('editorial_reason',''),'sections':sections,
         'evidence':evidence[:3],'word_count':word_count,'estimated_seconds':estimated_seconds,
-        'script_version':'V35.0-SOURCE-LOCK-FINAL','extraction_method':extraction_method
+        'script_version':'V36.0-SOURCE-LOCK-FINAL','extraction_method':extraction_method
     }
 
 def build_dynamic_captions(script, topic, count=9):
@@ -1995,7 +2030,7 @@ def processor_loop():
 @APP.get('/')
 def home(): return render_template_string(PAGE)
 @APP.get('/health')
-def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V35.0-SOURCE-LOCK-FINAL',processor='cloud')
+def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V36.0-SOURCE-LOCK-FINAL',processor='cloud')
 @APP.get('/api/state')
 def state():
     with LOCK:
