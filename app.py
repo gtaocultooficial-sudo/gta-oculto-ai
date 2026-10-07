@@ -23,7 +23,7 @@ WORK.mkdir(exist_ok=True)
 STATE_FILE = WORK / 'jobs.json'
 LOCK = threading.RLock()
 PROCESSING = False
-UA = 'GTA-Oculto-AI/Cloud-Final/1.2-V28.1'
+UA = 'GTA-Oculto-AI/Cloud-Final/1.2-V29'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
@@ -103,7 +103,7 @@ function drawState(d){
   if(ep){
     const decision=String(ep.editorial_decision||'PRODUZIR');
     const cls=decision==='PRODUZIR AGORA'?'now':(decision==='OBSERVAR'?'obs':'');
-    let epType=String(ep.content_type||'CURIOSIDADE').toUpperCase();let epMats=Number(ep.mentions||1);let epSources=Number(ep.source_count||1);let epConf=Math.max(0,Math.min(100,Number(ep.confidence||0)));let epScore=Number(ep.score||0);let epEd=Number(ep.editorial_score||0);let decisionClass=decision==='OBSERVAR'?'obs':'';let icon=epType==='RUMOR'?'⚠️':(epType==='NOTÍCIA'?'📰':'🔎');document.getElementById('editorPick').innerHTML=`<div class="editor-shell"><div class="editor-head"><div class="editor-brand"><div class="editor-icon">🧠</div><div><h2>EDITOR-CHEFE</h2><p>Analisa o Radar, escolhe a melhor pauta e prepara a produção.</p></div></div><div class="editor-actions"><div class="editor-status">✓ PAUTA SELECIONADA</div></div></div><div class="editor-grid-main"><div class="editor-cover"><div class="editor-cover-icon">${icon}</div></div><div class="editor-content"><span class="editor-tag">${esc(epType)}</span><div class="editor-title">${esc(ep.title)}</div><div class="editor-metrics"><div class="editor-metric"><small>SCORE RADAR</small><b class="metric-green">${epScore}/100</b></div><div class="editor-metric"><small>SCORE EDITORIAL</small><b class="metric-purple">${epEd}/100</b></div><div class="editor-metric"><small>CONFIANÇA</small><b>${epConf}%</b></div><div class="editor-metric"><small>MATÉRIAS</small><b>${epMats}</b></div><div class="editor-metric"><small>FONTES</small><b>${epSources}</b></div></div><div class="editor-copy"><div class="editor-hook"><b>⚡ HOOK DO VÍDEO</b><span>${esc(ep.editorial_hook||'')}</span></div><div class="editor-angle"><b>🎯 ÂNGULO EDITORIAL</b><span>${esc(ep.editorial_angle||'')}</span></div></div><div class="script-preview"><div class="script-head"><div><b>📝 ROTEIRO AUTOMÁTICO</b><span>V28.3 · roteiro completo para narração</span></div><div class="script-stats">${Number((ep.script_preview||{}).word_count||0)} palavras · ~${Number((ep.script_preview||{}).estimated_seconds||0)}s</div></div><div class="script-flow"><div><small>HOOK</small><span>${esc(((ep.script_preview||{}).sections||{}).hook||ep.editorial_hook||'')}</span></div><div><small>CONTEXTO</small><span>${esc(((ep.script_preview||{}).sections||{}).context||'')}</span></div><div><small>FATO / VERIFICAÇÃO</small><span>${esc(((ep.script_preview||{}).sections||{}).proof||'')}</span></div><div><small>PAYOFF</small><span>${esc(((ep.script_preview||{}).sections||{}).payoff||ep.editorial_angle||'')}</span></div><div><small>CTA</small><span>${esc(((ep.script_preview||{}).sections||{}).cta||'')}</span></div></div></div><div class="meta">${esc(ep.editorial_reason||'')}</div></div><div class="editor-decision ${decisionClass}"><div class="decision-check">${decision==='OBSERVAR'?'◌':'✓'}</div><div class="decision-word">${esc(decision)}</div><div class="decision-reason">${esc(ep.editorial_reason||'Pauta selecionada pelo Editor-Chefe.')}</div><button class="editor-produce" onclick="createShort('${ep.id||''}')">⚡ PRODUZIR AGORA</button></div></div></div>`;
+    let epType=String(ep.content_type||'CURIOSIDADE').toUpperCase();let epMats=Number(ep.mentions||1);let epSources=Number(ep.source_count||1);let epConf=Math.max(0,Math.min(100,Number(ep.confidence||0)));let epScore=Number(ep.score||0);let epEd=Number(ep.editorial_score||0);let decisionClass=decision==='OBSERVAR'?'obs':'';let icon=epType==='RUMOR'?'⚠️':(epType==='NOTÍCIA'?'📰':'🔎');document.getElementById('editorPick').innerHTML=`<div class="editor-shell"><div class="editor-head"><div class="editor-brand"><div class="editor-icon">🧠</div><div><h2>EDITOR-CHEFE</h2><p>Analisa o Radar, escolhe a melhor pauta e prepara a produção.</p></div></div><div class="editor-actions"><div class="editor-status">✓ PAUTA SELECIONADA</div></div></div><div class="editor-grid-main"><div class="editor-cover"><div class="editor-cover-icon">${icon}</div></div><div class="editor-content"><span class="editor-tag">${esc(epType)}</span><div class="editor-title">${esc(ep.title)}</div><div class="editor-metrics"><div class="editor-metric"><small>SCORE RADAR</small><b class="metric-green">${epScore}/100</b></div><div class="editor-metric"><small>SCORE EDITORIAL</small><b class="metric-purple">${epEd}/100</b></div><div class="editor-metric"><small>CONFIANÇA</small><b>${epConf}%</b></div><div class="editor-metric"><small>MATÉRIAS</small><b>${epMats}</b></div><div class="editor-metric"><small>FONTES</small><b>${epSources}</b></div></div><div class="editor-copy"><div class="editor-hook"><b>⚡ HOOK DO VÍDEO</b><span>${esc(ep.editorial_hook||'')}</span></div><div class="editor-angle"><b>🎯 ÂNGULO EDITORIAL</b><span>${esc(ep.editorial_angle||'')}</span></div></div><div class="script-preview"><div class="script-head"><div><b>📝 ROTEIRO AUTOMÁTICO</b><span>V29 · roteiro → narração → legendas</span></div><div class="script-stats">${Number((ep.script_preview||{}).word_count||0)} palavras · ~${Number((ep.script_preview||{}).estimated_seconds||0)}s</div></div><div class="script-flow"><div><small>HOOK</small><span>${esc(((ep.script_preview||{}).sections||{}).hook||ep.editorial_hook||'')}</span></div><div><small>CONTEXTO</small><span>${esc(((ep.script_preview||{}).sections||{}).context||'')}</span></div><div><small>FATO / VERIFICAÇÃO</small><span>${esc(((ep.script_preview||{}).sections||{}).proof||'')}</span></div><div><small>PAYOFF</small><span>${esc(((ep.script_preview||{}).sections||{}).payoff||ep.editorial_angle||'')}</span></div><div><small>CTA</small><span>${esc(((ep.script_preview||{}).sections||{}).cta||'')}</span></div></div></div><div class="meta">${esc(ep.editorial_reason||'')}</div></div><div class="editor-decision ${decisionClass}"><div class="decision-check">${decision==='OBSERVAR'?'◌':'✓'}</div><div class="decision-word">${esc(decision)}</div><div class="decision-reason">${esc(ep.editorial_reason||'Pauta selecionada pelo Editor-Chefe.')}</div><button class="editor-produce" onclick="createShort('${ep.id||''}')">⚡ PRODUZIR AGORA</button></div></div></div>`;
   } else { document.getElementById('editorPick').innerHTML='Aguardando o Radar.'; }
   renderJobs((d&&d.jobs)||[]);
 }
@@ -598,7 +598,7 @@ def make_script(topic):
         'sections': sections,
         'word_count': word_count,
         'estimated_seconds': estimated_seconds,
-        'script_version': 'V28.3',
+        'script_version': 'V29',
     }
 
 def build_dynamic_captions(script, topic, count=9):
@@ -1283,87 +1283,79 @@ def _caption_phrases_from_sentence(sentence, max_words=7):
 
 
 def build_short_timeline(script, topic, duration, count=10):
-    """Create cinematic editorial captions from complete phrases in the narration.
-    V25.6 deliberately avoids the old keyword-scrambling behavior. Captions are
-    derived from contiguous spoken phrases, then shortened only at natural
-    punctuation/conjunction boundaries.
+    """V29: legenda guiada pela fala real.
+    Usa somente frases que existem na narração, preserva a ordem das palavras
+    e distribui o tempo proporcionalmente ao número de palavras. Não injeta
+    títulos ou chamadas que não foram narradas, evitando legenda adiantada.
     """
     narration=str(script.get('narration','')).strip()
-    title=str(topic.get('title','GTA 6')).strip()
-    kind=script.get('content_type','CURIOSIDADE')
     if not narration:
         return [{'text':'GTA 6','duration':duration,'highlight':'GTA'}]
 
-    hooks={
-        'RUMOR':'⚠️ ISSO AINDA NÃO FOI CONFIRMADO',
-        'MISTÉRIO':'👁️ ESSE DETALHE PODE SER IMPORTANTE',
-        'NOTÍCIA':'🚨 A ROCKSTAR REVELOU ISSO',
-        'CURIOSIDADE':'😳 VOCÊ PERCEBEU ESSE DETALHE?'
-    }
-    endings={
-        'RUMOR':'RUMOR OU PISTA REAL?',
-        'MISTÉRIO':'E SE ISSO NÃO FOR COINCIDÊNCIA?',
-        'NOTÍCIA':'O QUE ISSO MUDA NO GTA 6?',
-        'CURIOSIDADE':'VOCÊ JÁ TINHA PERCEBIDO?'
-    }
+    kind=str(script.get('content_type','CURIOSIDADE')).upper()
+    sections=script.get('sections') or {}
+    # A ordem das seções ajuda a manter o ritmo editorial, mas a legenda usa
+    # exatamente o texto que também foi enviado para a voz.
+    ordered=[]
+    for key in ('hook','context','proof','payoff','cta'):
+        value=str(sections.get(key,'')).strip()
+        if value:
+            ordered.append(value)
 
-    beats=[{'text':hooks.get(kind,hooks['CURIOSIDADE']),'highlight':None}]
+    # Primeiro tentamos reconstruir as frases a partir da própria narração.
+    sentences=[s.strip() for s in re.split(r'(?<=[.!?])\s+', narration) if len(s.strip())>4]
+    if not sentences:
+        sentences=[narration]
 
-    # The title becomes a factual second beat, preserving its natural wording.
-    title_clean=_clean_caption_phrase(title)
-    if title_clean:
-        if len(title_clean.split())>7:
-            tw=title_clean.split()
-            # Keep the most informative half without reordering words.
-            title_clean=' '.join(tw[:7])
-        beats.append({'text':title_clean,'highlight':None})
-
-    # Spoken sentences -> natural short phrases.
-    sentences=[s.strip() for s in re.split(r'(?<=[.!?])\s+', narration) if len(s.strip())>8]
+    beats=[]
+    seen=set()
     for sent in sentences:
-        for phrase in _caption_phrases_from_sentence(sent,7):
-            if phrase in {b['text'] for b in beats}:
+        for phrase in _caption_phrases_from_sentence(sent,6):
+            phrase=_clean_caption_phrase(phrase)
+            if not phrase or phrase in seen:
                 continue
-            # Avoid captions that are just a weak connector.
-            if len(re.findall(r"[A-ZÀ-Ý0-9]+",phrase))<2:
+            words=re.findall(r"[A-Za-zÀ-ÿ0-9']+", phrase)
+            if len(words)<2:
                 continue
-            words=phrase.split()
-            # Highlight an important proper noun / GTA term, otherwise the final strong word.
+            # Evita blocos artificiais de conectores.
+            if len(words)<=2 and all(w.lower() in {'e','de','do','da','em','no','na','que','um','uma','o','a','os','as'} for w in words):
+                continue
+            lower_words={w.lower().strip('.,!?') for w in words}
             preferred=[w for w in words if w.lower().strip('.,!?') in {
-                'gta','gta6','vi','rockstar','jason','lucia','leonida','vice','city','mapa','história','historia','detalhe','confirmado','confirmou','rumor','teoria'
+                'gta','gta6','vi','rockstar','jason','lucia','leonida','vice','city','mapa','história','historia','detalhe','confirmado','confirmou','rumor','teoria','microsoft','cloud'
             }]
-            highlight=(preferred[0] if preferred else (words[-1] if len(words)>2 else None))
+            highlight=preferred[0] if preferred else (words[-1] if len(words)>=4 else None)
             beats.append({'text':phrase,'highlight':highlight})
-            if len(beats)>=count-1:
+            seen.add(phrase)
+            if len(beats)>=count:
                 break
-        if len(beats)>=count-1:
+        if len(beats)>=count:
             break
 
-    beats.append({'text':endings.get(kind,endings['CURIOSIDADE']),'highlight':None})
-
-    # Deduplicate while preserving narrative order.
-    unique=[]; seen=set()
-    for b in beats:
-        t=b['text']
-        if t and t not in seen:
-            seen.add(t); unique.append(b)
-    beats=unique[:count]
-
-    # If the story is short, add one or two contiguous sentence phrases—not keyword piles.
-    if len(beats)<5:
+    # Se a divisão ficou curta, usa trechos contíguos das próprias frases.
+    if len(beats)<4:
         for sent in sentences:
             phrase=_clean_caption_phrase(sent)
-            if 2<=len(phrase.split())<=9 and phrase not in seen:
-                beats.insert(-1,{'text':phrase,'highlight':None}); seen.add(phrase)
-            if len(beats)>=min(count,6): break
+            if 2<=len(phrase.split())<=7 and phrase not in seen:
+                beats.append({'text':phrase,'highlight':None}); seen.add(phrase)
+            if len(beats)>=min(count,5):
+                break
 
     beats=beats[:count]
-    weights=[max(2,len(re.findall(r"\w+",b['text']))) for b in beats]
-    durations=[duration*w/sum(weights) for w in weights]
-    for _ in range(5):
-        durations=[max(1.65,min(4.0,d)) for d in durations]
+    if not beats:
+        beats=[{'text':_clean_caption_phrase(narration[:60]),'highlight':None}]
+
+    # Timing baseado na quantidade de palavras da fala. Mantemos limites
+    # confortáveis para leitura e corrigimos o último bloco para fechar o áudio.
+    weights=[max(2,len(re.findall(r"[A-Za-zÀ-ÿ0-9']+",b['text']))) for b in beats]
+    total_w=sum(weights) or 1
+    durations=[duration*w/total_w for w in weights]
+    for _ in range(6):
+        durations=[max(1.35,min(3.8,d)) for d in durations]
         scale=duration/sum(durations)
         durations=[d*scale for d in durations]
+    diff=duration-sum(durations)
+    durations[-1]=max(1.0,durations[-1]+diff)
     for b,d in zip(beats,durations):
         b['duration']=d
     return beats
@@ -1418,7 +1410,7 @@ def _choose_timeline_assets(video_clips, image_paths, beats, topic_title):
         used.add(idx)
     return chosen
 
-def make_multimedia_video(video_clips, image_paths, audio, out, duration, captions, script=None, topic_title='GTA 6'):
+def make_multimedia_video(video_clips, image_paths, audio, out, duration, captions, script=None, topic_title='GTA 6', beats=None):
     # FFmpeg/yuv420p requires even width/height. Keep the Render Free
     # intermediate at an even 320x568 and upscale only at the final render.
     INTER_W, INTER_H = 320, 568
@@ -1433,7 +1425,7 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
         raise RuntimeError('A edição precisa de pelo menos 3 vídeos reais.')
     if script is None:
         script={'narration':' '.join(captions)}
-    beats=build_short_timeline(script, {'title':topic_title}, duration, count=10)
+    beats=beats or build_short_timeline(script, {'title':topic_title}, duration, count=10)
     # Use up to six images so the timeline can reach 10-12 cuts without repeating shots.
     imgs=list(image_paths)[:5]
     assets=_choose_timeline_assets(video_clips,imgs,beats,topic_title)
@@ -1534,17 +1526,21 @@ def produce_job(jid):
         jobdir=WORK/jid; jobdir.mkdir(parents=True,exist_ok=True)
         update_job(jid,script=script,stage='VISUAIS',progress=40,log='Baixando visuais oficiais e montando cenas verticais...')
         paths=download_visuals(urls,jobdir/'visuals',topic['title'])
-        caps=build_dynamic_captions(script, topic, 10)
         image_order=select_visuals(paths,topic['title'],6)
         image_scenes=[]
+        # A preparação visual não queima a legenda; o overlay final é desenhado
+        # somente depois que temos a duração real da narração.
         for i,src in enumerate(image_order):
-            dst=jobdir/f'image_{i}.jpg'; prepare_scene(src,dst,caps[min(i,len(caps)-1)],i,10); image_scenes.append(dst)
-        update_job(jid,stage='NARRAÇÃO',progress=60,log='Gerando narração PT-BR...'); audio=jobdir/'narracao.mp3'; asyncio.run(make_tts(script['narration'],audio)); duration=duration_of_audio(audio)
+            dst=jobdir/f'image_{i}.jpg'; prepare_scene(src,dst,'',i,10); image_scenes.append(dst)
+        update_job(jid,stage='NARRAÇÃO',progress=60,log='Gerando narração PT-BR a partir do roteiro completo...'); audio=jobdir/'narracao.mp3'; asyncio.run(make_tts(script['narration'],audio)); duration=duration_of_audio(audio)
+        beats=build_short_timeline(script,topic,duration,10)
+        caps=[b['text'] for b in beats]
+        update_job(jid,progress=66,log=f'Narração pronta: {script.get("word_count",0)} palavras / {duration:.1f}s. Legendas sincronizadas por blocos naturais de fala ({len(beats)} blocos).')
         update_job(jid,stage='EDIÇÃO',progress=74,log=f'Obtendo vídeos oficiais da Rockstar e montando timeline com movimento real / {duration:.1f}s...')
         official_videos=download_official_video_clips(jobdir/'official_videos', jid)
         selected_videos=select_video_clips(official_videos,topic['title'],6)
         update_job(jid,log=f'{len(selected_videos)} vídeos oficiais disponíveis. Editando cortes reais em 9:16 / {duration:.1f}s...')
-        video=jobdir/'GTA_OCULTO_SHORT.mp4'; make_multimedia_video(selected_videos,image_scenes,audio,video,duration,caps,script,topic['title'])
+        video=jobdir/'GTA_OCULTO_SHORT.mp4'; make_multimedia_video(selected_videos,image_scenes,audio,video,duration,caps,script,topic['title'],beats)
         # Nunca deixe a capa derrubar uma produção já renderizada.
         if not image_scenes:
             fallback_cover=jobdir/'cover_fallback.jpg'
@@ -1595,7 +1591,7 @@ def processor_loop():
 @APP.get('/')
 def home(): return render_template_string(PAGE)
 @APP.get('/health')
-def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V28.3-ROTEIRO-FIX',processor='cloud')
+def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V29-ROTEIRO-NARRACAO-LEGENDAS',processor='cloud')
 @APP.get('/api/state')
 def state():
     with LOCK:
