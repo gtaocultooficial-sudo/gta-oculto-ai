@@ -410,7 +410,6 @@ def prepare_scene(src,dst,caption,idx,total):
     ov=Image.new('RGBA',(W,H),(0,0,0,0)); od=ImageDraw.Draw(ov)
     od.rectangle((0,0,W,42),fill=(0,0,0,120))
     od.text((12,10),'GTA OCULTO',font=font(15,True),fill='white')
-    im=Image.alpha_composite(im.convert('RGBA'),ov).convert('RGB')
     im.save(dst,quality=84,optimize=True)
     im.close(); ov.close()
 
@@ -632,76 +631,55 @@ def _ffmpeg_text(s):
 
 
 def make_multimedia_video(video_clips, image_paths, audio, out, duration, captions):
-    """Render ultra-safe for Render Free (512 MB)."""
-    ff = str(__import__('imageio_ffmpeg').get_ffmpeg_exe())
-    work = out.parent / 'timeline'
-    work.mkdir(exist_ok=True)
-    if len(video_clips) < 3:
-        raise RuntimeError('A edição precisa de pelo menos 3 vídeos reais.')
-
-    assets = []
-    order = [('video',0),('image',0),('video',1),('image',1),
-             ('video',2),('image',2),('video',3),('video',4),('video',5)]
-    for kind, idx in order:
-        if kind == 'video' and idx < len(video_clips):
-            assets.append(('video', video_clips[idx]))
-        elif kind == 'image' and idx < len(image_paths):
-            assets.append(('image', image_paths[idx]))
-
-    per = max(2.4, duration / len(assets))
-    scene_files = []
-
-    for i, (kind, src) in enumerate(assets):
-        scene = work / f'scene_{i:02d}.mp4'
-        overlay = work / f'overlay_{i:02d}.png'
-        _caption_overlay(overlay, captions[i % len(captions)], i, len(assets), 180, 320)
-
-        if kind == 'video':
-            vf = 'scale=180:320:force_original_aspect_ratio=increase,crop=180:320,setsar=1,fps=12'
-            inp = ['-stream_loop','-1','-i',str(src)]
+    """Ultra-low-memory editor for Render Free 512 MB.
+    Builds one 240x426 scene at a time and produces a 540x960 vertical MP4.
+    540x960 is the quality target; scenes are built sequentially at 240x426 to stay within the free RAM limit.
+    """
+    ff=str(__import__('imageio_ffmpeg').get_ffmpeg_exe())
+    work=out.parent/'timeline'; work.mkdir(exist_ok=True)
+    if len(video_clips)<3: raise RuntimeError('A edição precisa de pelo menos 3 vídeos reais.')
+    # Alterna movimento e imagens, mas termina com vídeo real para evitar
+    # sensação de quadro congelado no encerramento.
+    assets=[]
+    order=[('video',0),('image',0),('video',1),('image',1),('video',2),('image',2),('video',3),('video',4),('video',5)]
+    for kind,idx in order:
+        if kind=='video' and idx < len(video_clips):
+            assets.append(('video',video_clips[idx]))
+        elif kind=='image' and idx < len(image_paths):
+            assets.append(('image',image_paths[idx]))
+    per=max(2.5,duration/len(assets)); scene_files=[]
+    for i,(kind,src) in enumerate(assets):
+        scene=work/f'scene_{i:02d}.mp4'; overlay=work/f'overlay_{i:02d}.png'
+        _caption_overlay(overlay,captions[i % len(captions)],i,len(assets),240,426)
+        if kind=='video':
+            vf='scale=240:426:force_original_aspect_ratio=increase,crop=240:426,setsar=1,fps=15'
+            inp=['-stream_loop','-1','-i',str(src)]
         else:
-            vf = ("scale=180:320:force_original_aspect_ratio=increase,"
-                  "crop=180:320,setsar=1,"
-                  "zoompan=z='min(zoom+0.001,1.015)':"
-                  "x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
-                  "d=1:s=180x320:fps=12")
-            inp = ['-loop','1','-i',str(src)]
-
-        cmd = [ff,'-loglevel','error','-y'] + inp + [
-            '-loop','1','-i',str(overlay), '-t',f'{per:.3f}',
-            '-filter_complex',
-            f'[0:v]{vf}[v];[1:v]format=rgba[o];[v][o]overlay=0:0:shortest=1[outv]',
-            '-map','[outv]','-an','-c:v','libx264','-preset','ultrafast','-crf','27',
-            '-threads','1','-filter_threads','1','-filter_complex_threads','1',
-            '-x264-params','threads=1:lookahead-threads=1',
-            '-pix_fmt','yuv420p','-movflags','+faststart',str(scene)
-        ]
-        run_cmd(cmd, 90)
+            vf="scale=240:426:force_original_aspect_ratio=increase,crop=240:426,setsar=1,zoompan=z='min(zoom+0.0015,1.02)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=240x426:fps=15"
+            inp=['-loop','1','-i',str(src)]
+        cmd=[ff,'-loglevel','error','-y']+inp+['-loop','1','-i',str(overlay),'-t',f'{per:.3f}',
+             '-filter_complex',f'[0:v]{vf}[v];[1:v]format=rgba[o];[v][o]overlay=0:0:shortest=1[outv]',
+             '-map','[outv]','-an','-c:v','libx264','-preset','ultrafast','-crf','29',
+             '-threads','1','-filter_threads','1','-filter_complex_threads','1',
+             '-x264-params','threads=1:lookahead-threads=1','-pix_fmt','yuv420p','-movflags','+faststart',str(scene)]
+        run_cmd(cmd,75)
         scene_files.append(scene)
         try: overlay.unlink()
         except Exception: pass
-
-    listfile = work / 'timeline.txt'
-    with listfile.open('w', encoding='utf-8') as f:
-        for sf in scene_files:
-            f.write(f"file '{sf.as_posix()}'\n")
-
-    run_cmd([
-        ff,'-loglevel','error','-y','-f','concat','-safe','0','-i',str(listfile),
-        '-i',str(audio),'-t',f'{duration:.2f}',
-        '-vf','scale=540:960:flags=bilinear,format=yuv420p',
-        '-r','15','-c:v','libx264','-preset','ultrafast','-crf','20',
-        '-threads','1','-filter_threads','1','-filter_complex_threads','1',
-        '-x264-params','threads=1:lookahead-threads=1',
-        '-c:a','aac','-b:a','128k','-movflags','+faststart','-shortest',str(out)
-    ], 240)
-
+    listfile=work/'timeline.txt'
+    with listfile.open('w',encoding='utf-8') as f:
+        for sf in scene_files: f.write(f"file '{sf.as_posix()}'\n")
+    # Final encode at 480x854: conservative 9:16 output for Render Free 512 MB.
+    run_cmd([ff,'-loglevel','error','-y','-f','concat','-safe','0','-i',str(listfile),'-i',str(audio),
+             '-t',f'{duration:.2f}','-vf','scale=540:960:flags=fast_bilinear,format=yuv420p','-r','15',
+             '-c:v','libx264','-preset','ultrafast','-crf','27','-threads','1','-filter_threads','1','-filter_complex_threads','1',
+             '-x264-params','threads=1:lookahead-threads=1','-c:a','aac','-b:a','96k',
+             '-movflags','+faststart','-shortest',str(out)],180)
     for p in scene_files:
         try: p.unlink()
         except Exception: pass
     try: listfile.unlink()
     except Exception: pass
-
 
 def make_video(scenes,audio,out,duration):
     # Corte mais rápido: 12 cenas em ~2–3 s cada. A troca de enquadramento já foi
