@@ -407,10 +407,8 @@ def prepare_scene(src,dst,caption,idx,total):
     max_l=max(0,nw-W); max_t=max(0,nh-H)
     x=int(max_l*((idx*0.23)%1.0)); y=int(max_t*(0.28+0.44*((idx*0.37)%1.0)))
     im=im.crop((x,y,x+W,y+H))
-    ov=Image.new('RGBA',(W,H),(0,0,0,0)); od=ImageDraw.Draw(ov)
-    od.rectangle((0,0,W,42),fill=(0,0,0,120))
-    od.text((12,10),'GTA OCULTO',font=font(15,True),fill='white')
-    im=Image.alpha_composite(im.convert('RGBA'),ov).convert('RGB')
+    # No fixed channel title here. Branding is handled only by the discreet watermark.
+    im=im.convert('RGB')
     im.save(dst,quality=84,optimize=True)
     im.close(); ov.close()
 
@@ -614,16 +612,38 @@ def select_video_clips(videos,title,count=5):
 
 
 def _caption_overlay(path,caption,idx,total,W=240,H=426):
-    # Single clean overlay. No scene counter and no baked duplicate caption.
+    """Cinematic GTA Oculto caption. Short, punchy, branded and discreet."""
     im=Image.new('RGBA',(W,H),(0,0,0,0)); d=ImageDraw.Draw(im)
-    d.rectangle((0,0,W,42),fill=(0,0,0,125))
-    d.text((12,10),'GTA OCULTO',font=font(15,True),fill='white')
-    f=font(18,True); lines=wrap_text(d,str(caption),f,W-34)[:3]
-    box_h=18+len(lines)*24; y=H-box_h-16
-    d.rounded_rectangle((10,y,W-10,H-16),radius=10,fill=(7,9,13,215),outline=(215,28,45),width=1)
-    yy=y+8
-    for line in lines:
-        d.text((17,yy),line,font=f,fill='white',stroke_width=1,stroke_fill='black'); yy+=24
+    text=str(caption).strip().upper()
+    words=text.split()
+    # Avoid the feel of automatic subtitles: max two short lines.
+    if len(words)>8:
+        chunks=[' '.join(words[i:i+4]) for i in range(0,len(words),4)][:2]
+    else:
+        chunks=wrap_text(d,text,font(18,True),W-34)[:2]
+    f=font(18,True); line_h=24
+    box_h=22+len(chunks)*line_h; y=H-box_h-34
+    d.rounded_rectangle((9,y,W-9,y+box_h),radius=9,fill=(5,7,11,195),outline=(225,28,45,150),width=1)
+    yy=y+7
+    stop={'A','O','E','DE','DO','DA','EM','NO','NA','QUE','UM','UMA','OS','AS','ISSO','PARA','COM'}
+    for line in chunks:
+        lw=line.split(); keyword=None
+        for w in reversed(lw):
+            clean=re.sub(r'[^A-Z0-9ÁÉÍÓÚÃÕÇ]','',w)
+            if len(clean)>=5 and clean not in stop:
+                keyword=clean; break
+        x=17
+        for w in lw:
+            clean=re.sub(r'[^A-Z0-9ÁÉÍÓÚÃÕÇ]','',w)
+            fill=(235,35,48) if keyword and clean==keyword else 'white'
+            d.text((x,yy),w,font=f,fill=fill,stroke_width=1,stroke_fill=(0,0,0,220))
+            x += d.textbbox((x,yy),w+' ',font=f)[2]-x
+        yy += line_h
+    # Discreet lower-right signature instead of a fixed top title.
+    wm='GTA OCULTO'; wf=font(10,True)
+    bbox=d.textbbox((0,0),wm,font=wf); ww=bbox[2]-bbox[0]
+    d.rounded_rectangle((W-ww-15,H-25,W-8,H-8),radius=5,fill=(0,0,0,90))
+    d.text((W-ww-12,H-23),wm,font=wf,fill=(255,255,255,105))
     im.save(path)
 
 
