@@ -299,7 +299,7 @@ def _scene_keywords(topic_title):
         ]
     return [['gta 6'],['jason'],['lucia'],['vice city'],['leonida'],['map'],['rockstar'],['jason','lucia'],['city'],['road'],['gta vi'],['gta 6']]
 
-def select_visuals(paths, topic_title, count=12):
+def select_visuals(paths, topic_title, count=10):
     if not paths: return []
     plans=_scene_keywords(topic_title)
     chosen=[]; used=set()
@@ -671,77 +671,44 @@ def _remote_zip_extract(url,entry,target):
 
 
 def download_official_video_clips(outdir, jid=None):
-    """Download Rockstar's official 9-clip ZIP once, extract three real clips, cache them.
-    This deliberately avoids the fragile HTTP-Range ZIP parser. The ZIP is streamed to
-    disk (never loaded into RAM) and deleted after the three normalized clips are cached.
+    """Baixa apenas os 6 clipes oficiais necessários, sem baixar o ZIP inteiro.
+    Usa o diretório central de cache para que um próximo Short reaproveite os clipes.
     """
-    import zipfile
     outdir.mkdir(parents=True, exist_ok=True)
     cache=WORK/'official_video_cache'; cache.mkdir(parents=True, exist_ok=True)
-    clips=sorted([p for p in cache.glob('rockstar_real_v25_*.mp4') if p.stat().st_size>20000])
+    clips=sorted([p for p in cache.glob('rockstar_real_v251_*.mp4') if p.stat().st_size>20000])
     if len(clips)>=6:
         return clips[:6]
-
-    zip_path=cache/'GTAVI_Videos_full.zip'
-    part=cache/'GTAVI_Videos_full.zip.part'
     try:
-        if not zip_path.exists() or zip_path.stat().st_size<100000:
-            if jid: update_job(jid,log='Baixando o pacote oficial de vídeos da Rockstar (cache V25)...')
-            if part.exists():
-                try: part.unlink()
-                except Exception: pass
-            total=0; done=0
-            with requests.get(ROCKSTAR_VIDEO_ZIP, stream=True, timeout=(20,120), headers={'User-Agent':UA,'Accept-Encoding':'identity'}) as r:
-                r.raise_for_status()
-                total=int(r.headers.get('content-length','0') or 0)
-                with part.open('wb') as f:
-                    for chunk in r.iter_content(chunk_size=1024*1024):
-                        if not chunk: continue
-                        f.write(chunk); done += len(chunk)
-                        if jid and total and (done % (20*1024*1024) < len(chunk)):
-                            update_job(jid,log=f'Mídia oficial: {done/1048576:.0f}/{total/1048576:.0f} MB baixados...')
-            if not part.exists() or part.stat().st_size<100000:
-                raise RuntimeError('Download do pacote oficial terminou vazio ou incompleto.')
-            part.replace(zip_path)
-
-        if jid: update_job(jid,log='Lendo os 9 clipes oficiais da Rockstar...')
-        with zipfile.ZipFile(zip_path,'r') as zf:
-            names=[n for n in zf.namelist() if n.lower().endswith(('.mp4','.mov','.m4v'))]
-            if len(names)<3:
-                raise RuntimeError(f'O pacote oficial retornou apenas {len(names)} vídeos.')
-            preferred=[]
-            for key in ('Jason','Lucia','Cal','Boobie','Raul','Brian','Real','Dre'):
-                preferred += [n for n in names if key.lower() in Path(n).stem.lower() and n not in preferred]
-            chosen=(preferred+[n for n in names if n not in preferred])[:6]
-            if len(chosen)<6:
-                raise RuntimeError(f'A mídia oficial possui apenas {len(chosen)} vídeos utilizáveis.')
-            ff=str(__import__('imageio_ffmpeg').get_ffmpeg_exe())
-            for i,name in enumerate(chosen):
-                target=cache/f'rockstar_real_v25_{i}.mp4'
-                if target.exists() and target.stat().st_size>20000: continue
-                raw=cache/f'raw_{i}.mp4'
-                if jid: update_job(jid,log=f'Preparando clipe oficial {i+1}/6: {Path(name).stem}...')
-                with zf.open(name) as src, raw.open('wb') as dst:
-                    while True:
-                        chunk=src.read(1024*1024)
-                        if not chunk: break
-                        dst.write(chunk)
-                run_cmd([ff,'-y','-i',str(raw),'-t','5',
-                         '-vf','scale=360:640:force_original_aspect_ratio=increase,crop=360:640,setsar=1,fps=15',
-                         '-an','-c:v','libx264','-preset','ultrafast','-crf','29','-threads','1','-filter_threads','1','-filter_complex_threads','1','-x264-params','threads=1:lookahead-threads=1',
-                         '-pix_fmt','yuv420p','-movflags','+faststart',str(target)],90)
-                try: raw.unlink()
-                except Exception: pass
-        clips=sorted([p for p in cache.glob('rockstar_real_v25_*.mp4') if p.stat().st_size>20000])
+        if jid: update_job(jid,log='Lendo catálogo oficial da Rockstar e selecionando apenas os clipes necessários...')
+        total,entries=_remote_zip_entries(ROCKSTAR_VIDEO_ZIP)
+        media=[e for e in entries if e['name'].lower().endswith(('.mp4','.mov','.m4v'))]
+        if len(media)<6:
+            raise RuntimeError(f'O pacote oficial possui apenas {len(media)} vídeos utilizáveis.')
+        preferred=[]
+        for key in ('Jason','Lucia','Cal','Boobie','Raul','Brian','Real','Dre'):
+            preferred += [e for e in media if key.lower() in Path(e['name']).stem.lower() and e not in preferred]
+        chosen=(preferred+[e for e in media if e not in preferred])[:6]
+        ff=str(__import__('imageio_ffmpeg').get_ffmpeg_exe())
+        for i,entry in enumerate(chosen):
+            target=cache/f'rockstar_real_v251_{i}.mp4'
+            if target.exists() and target.stat().st_size>20000:
+                continue
+            raw=cache/f'raw_v251_{i}.mp4'
+            if jid: update_job(jid,log=f'Baixando clipe oficial {i+1}/6: {Path(entry["name"]).stem}...')
+            _remote_zip_extract(ROCKSTAR_VIDEO_ZIP,entry,raw)
+            run_cmd([ff,'-loglevel','error','-y','-i',str(raw),'-t','5',
+                     '-vf','scale=320:569:force_original_aspect_ratio=increase,crop=320:569,setsar=1,fps=15',
+                     '-an','-c:v','libx264','-preset','ultrafast','-crf','29','-threads','1',
+                     '-filter_threads','1','-filter_complex_threads','1','-x264-params','threads=1:lookahead-threads=1',
+                     '-pix_fmt','yuv420p','-movflags','+faststart',str(target)],90)
+            try: raw.unlink()
+            except Exception: pass
+        clips=sorted([p for p in cache.glob('rockstar_real_v251_*.mp4') if p.stat().st_size>20000])
         if len(clips)<6:
             raise RuntimeError(f'Apenas {len(clips)} clipes reais foram preparados.')
-        try: zip_path.unlink()
-        except Exception: pass
         return clips[:6]
     except Exception as e:
-        try:
-            if part.exists(): part.unlink()
-        except Exception: pass
         raise RuntimeError('Não foi possível obter os vídeos oficiais da Rockstar: '+str(e)[:1800])
 
 def _video_relevance(path,title):
@@ -759,7 +726,7 @@ def select_video_clips(videos,title,count=5):
 
 
 
-def _caption_overlay(path,caption,idx,total,W=360,H=640,highlight=None):
+def _caption_overlay(path,caption,idx,total,W=320,H=569,highlight=None):
     """Shorts-style caption: compact phrase, highlighted keyword, crisp at scene resolution."""
     im=Image.new('RGBA',(W,H),(0,0,0,0)); d=ImageDraw.Draw(im)
     # subtle brand bar
@@ -805,7 +772,7 @@ def _caption_overlay(path,caption,idx,total,W=360,H=640,highlight=None):
         yy += line_h
     im.save(path)
 
-def build_short_timeline(script, topic, duration, count=12):
+def build_short_timeline(script, topic, duration, count=10):
     """Split narration into short, punchy caption beats with proportional timing.
     Timing is estimated from word count because Edge-TTS does not expose word
     timestamps in this pipeline.
@@ -925,9 +892,9 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
         raise RuntimeError('A edição precisa de pelo menos 3 vídeos reais.')
     if script is None:
         script={'narration':' '.join(captions)}
-    beats=build_short_timeline(script, {'title':topic_title}, duration, count=12)
+    beats=build_short_timeline(script, {'title':topic_title}, duration, count=10)
     # Use up to six images so the timeline can reach 10-12 cuts without repeating shots.
-    imgs=list(image_paths)[:6]
+    imgs=list(image_paths)[:5]
     assets=_choose_timeline_assets(video_clips,imgs,beats,topic_title)
     # Keep the exact audio length by adjusting the final beat.
     diff=duration-sum(b['duration'] for b in beats)
@@ -935,12 +902,12 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
     scene_files=[]
     for i,(beat,(kind,src)) in enumerate(zip(beats,assets)):
         scene=work/f'scene_{i:02d}.mp4'; overlay=work/f'overlay_{i:02d}.png'
-        _caption_overlay(overlay,beat['text'],i,len(beats),360,640,beat.get('highlight'))
+        _caption_overlay(overlay,beat['text'],i,len(beats),320,569,beat.get('highlight'))
         if kind=='video':
-            vf='scale=360:640:force_original_aspect_ratio=increase,crop=360:640,setsar=1,fps=15'
+            vf='scale=320:569:force_original_aspect_ratio=increase,crop=320:569,setsar=1,fps=15'
             inp=['-stream_loop','-1','-i',str(src)]
         else:
-            vf="scale=360:640:force_original_aspect_ratio=increase,crop=360:640,setsar=1,zoompan=z='min(zoom+0.002,1.04)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=360x640:fps=15"
+            vf="scale=320:569:force_original_aspect_ratio=increase,crop=320:569,setsar=1,zoompan=z='min(zoom+0.002,1.04)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=320x569:fps=15"
             inp=['-loop','1','-i',str(src)]
         cmd=[ff,'-loglevel','error','-y']+inp+['-loop','1','-i',str(overlay),'-t',f'{beat["duration"]:.3f}',
              '-filter_complex',f'[0:v]{vf}[v];[1:v]format=rgba[o];[v][o]overlay=0:0:shortest=1[outv]',
@@ -1000,7 +967,7 @@ def evaluate(script,duration,scene_count,visual_quality,beats=None,video_count=0
     if len(words)<70: score-=8
     if '?' not in narration[:210]: score-=4
     if scene_count<10: score-=10
-    if scene_count<12: score-=4
+    if scene_count<10: score-=4
     if video_count<4: score-=8
     if image_count<4: score-=4
     if visual_quality<60: score-=12
@@ -1026,11 +993,11 @@ def produce_job(jid):
         jobdir=WORK/jid; jobdir.mkdir(parents=True,exist_ok=True)
         update_job(jid,script=script,stage='VISUAIS',progress=40,log='Baixando visuais oficiais e montando cenas verticais...')
         paths=download_visuals(urls,jobdir/'visuals',topic['title'])
-        caps=build_dynamic_captions(script, topic, 12)
+        caps=build_dynamic_captions(script, topic, 10)
         image_order=select_visuals(paths,topic['title'],6)
         image_scenes=[]
         for i,src in enumerate(image_order):
-            dst=jobdir/f'image_{i}.jpg'; prepare_scene(src,dst,caps[min(i,len(caps)-1)],i,12); image_scenes.append(dst)
+            dst=jobdir/f'image_{i}.jpg'; prepare_scene(src,dst,caps[min(i,len(caps)-1)],i,10); image_scenes.append(dst)
         update_job(jid,stage='NARRAÇÃO',progress=60,log='Gerando narração PT-BR...'); audio=jobdir/'narracao.mp3'; asyncio.run(make_tts(script['narration'],audio)); duration=duration_of_audio(audio)
         update_job(jid,stage='EDIÇÃO',progress=74,log=f'Obtendo vídeos oficiais da Rockstar e montando timeline com movimento real / {duration:.1f}s...')
         official_videos=download_official_video_clips(jobdir/'official_videos', jid)
@@ -1046,7 +1013,7 @@ def produce_job(jid):
         update_job(jid,stage='AVALIAÇÃO',progress=92,log='Avaliando hook, ritmo, visuais, duração, formato e legendas...'); visual_quality=100
         for sp in image_scenes:
             q=_image_quality(sp); visual_quality=min(visual_quality, max(0,q))
-        beats=build_short_timeline(script,topic,duration,12)
+        beats=build_short_timeline(script,topic,duration,10)
         score=evaluate(script,duration,len(beats),visual_quality,beats,len(selected_videos),len(image_scenes))
         meta={'title':topic['title'].upper()+' 👀','description':script['narration']+'\n\n🔎 GTA Oculto — onde os segredos vêm à tona.','hashtags':['#GTA6','#GTAVI','#GTAOculto','#RockstarGames','#GTA'],'tags':['GTA 6','GTA VI','GTA 6 Brasil','GTA 6 teorias','GTA 6 segredos','Rockstar Games','GTA Oculto'],'score':score}
         (jobdir/'metadata.json').write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding='utf-8')
