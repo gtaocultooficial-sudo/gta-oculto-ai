@@ -31,7 +31,13 @@ except Exception:
 APP = Flask(__name__)
 app = APP
 BASE = Path(__file__).resolve().parent
-WORK = BASE / 'workspace'
+WORK = Path(os.getenv('GTA_WORKSPACE', str(BASE / 'workspace')))
+WORK.mkdir(parents=True, exist_ok=True)
+try:
+    from autonomous_engine import AutonomousEngine
+    AUTONOMOUS_ENGINE = AutonomousEngine(BASE)
+except Exception:
+    AUTONOMOUS_ENGINE = None
 WORK.mkdir(parents=True, exist_ok=True)
 STATE_FILE = WORK / 'jobs.json'
 LOCK = threading.RLock()
@@ -42,7 +48,7 @@ PROCESSING = False
 AUTONOMOUS_MODE = os.getenv('GTA_AUTONOMOUS_MODE','1').strip().lower() not in ('0','false','off','no')
 AUTONOMOUS_MAX_TOPIC_RECOVERY = max(1, min(6, int(os.getenv('GTA_AUTONOMOUS_MAX_TOPIC_RECOVERY','5'))))
 _last_gnews_diagnostics = []
-UA = 'GTA-Oculto-AI/Cloud-Final/1.15-V45' 
+UA = 'GTA-Oculto-AI/Cloud-Final/1.15-V50' 
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
@@ -3197,10 +3203,22 @@ def produce_job(jid):
         meta={'title':topic['title'].upper()+' 👀','description':script['narration']+'\n\n🔎 GTA Oculto — onde os segredos vêm à tona.','hashtags':['#GTA6','#GTAVI','#GTAOculto','#RockstarGames','#GTA'],'tags':['GTA 6','GTA VI','GTA 6 Brasil','GTA 6 teorias','GTA 6 segredos','Rockstar Games','GTA Oculto'],'score':score,'audit_score':audit.get('score',0),'audit':audit,'script_version':script.get('script_version','V33.0-MAIN-ARTICLE-LOCKED')}
         (jobdir/'metadata.json').write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding='utf-8')
         update_job(jid,status='DONE',stage='PRONTO',progress=100,log=f'PRONTO — Short gerado e avaliado em {score}/100.',video=f'{jid}/GTA_OCULTO_SHORT.mp4',cover=f'{jid}/CAPA.jpg',score=score,metadata=meta)
+        if AUTONOMOUS_ENGINE:
+            try: AUTONOMOUS_ENGINE.on_done(jid,sys.modules[__name__])
+            except Exception as _pub_e: update_job(jid,log=f'PRONTO — publicação automática aguardando configuração: {str(_pub_e)[:300]}')
     except Exception as e:
         import traceback
         tb=traceback.format_exc()
-        update_job(jid,status='ERROR',stage='ERRO',progress=100,log='ERRO: '+str(e)+'\n'+tb[-3200:])
+        recovered=None
+        if AUTONOMOUS_ENGINE:
+            try:
+                recovered=AUTONOMOUS_ENGINE.on_error(jid,str(e)+'\n'+tb[-5000:],sys.modules[__name__])
+            except Exception as _ae:
+                recovered={'action':'QUARANTINE','reason':str(_ae)}
+        if not recovered or recovered.get('action')=='QUARANTINE':
+            update_job(jid,status='ERROR',stage='ERRO',progress=100,log='ERRO: '+str(e)+'\n'+tb[-3200:])
+        else:
+            update_job(jid,log=f'🤖 AUTO-RECUPERAÇÃO: {recovered.get("action")}. O agente continuará sem intervenção manual.')
     finally: PROCESSING=False
 
 def processor_loop():
@@ -3233,7 +3251,13 @@ def processor_loop():
 @APP.get('/')
 def home(): return render_template_string(PAGE)
 @APP.get('/health')
-def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V45-AUTONOMOUS-VIDEO-AUDITOR',processor='cloud',autonomous_mode=AUTONOMOUS_MODE,max_topic_recovery=AUTONOMOUS_MAX_TOPIC_RECOVERY)
+def health():
+    auto=AUTONOMOUS_ENGINE.status() if AUTONOMOUS_ENGINE else {'mode':'DEGRADED'}
+    return jsonify(ok=True,app='GTA Oculto AI',version='V50-FULL-AUTONOMY',processor='cloud',autonomous_mode=AUTONOMOUS_MODE,max_topic_recovery=AUTONOMOUS_MAX_TOPIC_RECOVERY,autonomy=auto)
+@APP.get('/api/autonomy')
+def autonomy_status():
+    return jsonify(AUTONOMOUS_ENGINE.status() if AUTONOMOUS_ENGINE else {'mode':'DEGRADED'})
+
 @APP.get('/api/state')
 def state():
     # IMPORTANT: never wait on the production LOCK here. The producer/render
@@ -3296,6 +3320,15 @@ def radar_loop():
         except Exception: pass
         time.sleep(15*60)
 
+def autonomy_loop():
+    if not AUTONOMOUS_ENGINE: return
+    while True:
+        try:
+            AUTONOMOUS_ENGINE.collect_analytics()
+        except Exception: pass
+        time.sleep(6*60*60)
+
 threading.Thread(target=processor_loop,daemon=True).start()
 threading.Thread(target=radar_loop,daemon=True).start()
+threading.Thread(target=autonomy_loop,daemon=True).start()
 if __name__=='__main__': APP.run(host='0.0.0.0',port=int(os.environ.get('PORT',5000)))
