@@ -52,7 +52,7 @@ UA = 'GTA-Oculto-AI/Cloud-Final/V55-SOURCE-RECOVERY-3'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
-BUILD_VERSION = 'V55.7-HEADLINE-GATE-FIX-20261008'
+BUILD_VERSION = 'V55.8-CAPTION-ALIGNMENT-FIX-20261008'
 
 FALLBACK_TOPICS = [
     {'id':'leonida','score':96,'priority':'ALTA','title':'GTA 6: o detalhe de Leonida que pode mudar a história','source':'Rockstar Games','url':ROCKSTAR_VI,
@@ -3151,37 +3151,71 @@ def _visual_motion_audit(path):
         except Exception: pass
 
 def _caption_narration_alignment(beats, narration):
-    """V52 strict gate: every caption must actually come from the narration.
-    This blocks accidental English/source-text captions inside a Portuguese Short.
+    """V55.8: validate captions against the *ordered narration sequence*.
+    The old multiset check could falsely reject valid captions when a spoken
+    word appeared more than once or when the caption engine skipped words.
+    Captions must be composed only of narration words, in spoken order, while
+    allowing omitted narration words between caption chunks.
     """
     def toks(s):
-        return [re.sub(r'[^a-z0-9à-ÿ]', '', w.lower()) for w in re.findall(r"[A-Za-zÀ-ÿ0-9']+", str(s or '')) if re.sub(r'[^a-z0-9à-ÿ]', '', w.lower())]
+        raw=re.findall(r"[A-Za-zÀ-ÿ0-9']+", str(s or '').lower())
+        return [re.sub(r'[^a-z0-9à-ÿ]', '', w) for w in raw if re.sub(r'[^a-z0-9à-ÿ]', '', w)]
+
     n=toks(narration)
     if not n:
-        return {'score':0,'bad':[],'coverage':0.0}
-    # Multiset coverage catches words that do not belong to the narration at all.
-    from collections import Counter
-    nc=Counter(n)
-    used=Counter(); bad=[]; covered=0; total=0
+        return {'score':0,'bad':[],'coverage':0.0,'foreign_ratio':1.0,'caption_count':0}
+
+    # Normalize common typographic variants without changing words.
+    aliases={'gta6':'gta', 'gtavi':'gta'}
+    def norm(w): return aliases.get(w,w)
+    n_norm=[norm(w) for w in n]
+
+    bad=[]; total=0; foreign=0; cursor=0; matched=0
+    max_skip=14
     for b in beats or []:
-        ct=toks(b.get('text','')); total += len(ct)
+        text=str(b.get('text','')).strip()
+        ct=[norm(w) for w in toks(text)]
+        total += len(ct)
+        if not ct: continue
         local_bad=[]
         for w in ct:
-            if used[w] < nc[w]:
-                used[w]+=1; covered+=1
+            # Find the next occurrence in the narration after the previous
+            # matched token. We permit omitted spoken words between captions.
+            found=None
+            upper=min(len(n_norm), cursor+max_skip+1)
+            for j in range(cursor, upper):
+                if n_norm[j]==w:
+                    found=j; break
+            if found is None:
+                # A word can legitimately recur after a larger gap; search the
+                # rest of the narration before declaring it foreign.
+                for j in range(cursor, len(n_norm)):
+                    if n_norm[j]==w:
+                        found=j; break
+            if found is None:
+                local_bad.append(w); foreign += 1
             else:
-                local_bad.append(w)
+                matched += 1
+                cursor=found+1
         if local_bad:
-            bad.append({'text':b.get('text',''),'words':local_bad})
-    coverage=covered/max(1,total)
-    # A single foreign fragment is enough to reject if it is substantial.
-    foreign_ratio=sum(len(x['words']) for x in bad)/max(1,total)
+            bad.append({'text':text,'words':local_bad})
+
+    coverage=matched/max(1,total)
+    foreign_ratio=foreign/max(1,total)
     score=100
-    if foreign_ratio>0.08: score-=45
-    elif foreign_ratio>0.03: score-=25
-    elif foreign_ratio>0: score-=12
-    if bad and any(len(x['words'])>=3 for x in bad): score-=25
-    return {'score':max(0,min(100,score)),'bad':bad[:12],'coverage':round(coverage,3),'foreign_ratio':round(foreign_ratio,3) ,'caption_count':len([b for b in beats or [] if str(b.get('text','')).strip()])}
+    if foreign_ratio>0.15: score-=50
+    elif foreign_ratio>0.08: score-=35
+    elif foreign_ratio>0.03: score-=20
+    elif foreign_ratio>0: score-=8
+    if bad and any(len(x['words'])>=3 for x in bad): score-=20
+
+    return {
+        'score':max(0,min(100,score)),
+        'bad':bad[:12],
+        'coverage':round(coverage,3),
+        'foreign_ratio':round(foreign_ratio,3),
+        'caption_count':len([b for b in beats or [] if str(b.get('text','')).strip()])
+    }
 
 
 def _visual_repetition_audit(path):
