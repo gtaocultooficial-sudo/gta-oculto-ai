@@ -2,7 +2,7 @@
 No external AI/API is required. It uses deterministic checks and bounded repair strategies.
 """
 from __future__ import annotations
-import json, re, subprocess
+import json, re, subprocess, shutil
 from pathlib import Path
 
 STOP = {'a','o','e','de','do','da','em','no','na','os','as','um','uma','que','isso','para','com','por','mais','mas','como','esse','essa','se','é','ser','já','ou','dos','das','ao','à','às'}
@@ -47,49 +47,52 @@ def caption_audit(captions, narration=''):
 
 
 def repair_captions(captions, narration='', target=9):
-    """Bounded repair: keeps editorial opener/ending but replaces mechanically broken chunks."""
-    raw=[_norm(c) for c in captions if _norm(c)]
-    # Preserve obvious editorial opener/ending while rebuilding middle captions from complete sentences.
-    opener = raw[0] if raw else ''
-    ending = raw[-1] if raw else ''
-    sentences=[_norm(x) for x in re.split(r'[.!?]+', str(narration or '')) if len(_words(x))>=4]
-    mids=[]
-    for sent in sentences:
-        ws=_words(sent)
-        # Build phrase chunks on semantic boundaries, 4-7 words, never ending on a connector.
-        i=0
-        while i < len(ws):
-            end=min(len(ws), i+6)
-            # Extend/trim so the chunk doesn't end in a weak connector.
-            while end < len(ws) and ws[end-1].lower() in STOP:
-                end += 1
-            chunk=' '.join(ws[i:end]).upper()
-            if 3 <= len(_words(chunk)) <= 8 and len(chunk) <= 38:
-                mids.append(chunk)
-            i=end
-    # Deduplicate and remove internal/system phrases.
-    out=[]; seen=set()
-    for c in [opener]+mids+[ending]:
-        c=_norm(c)
-        if not c: continue
-        if any(x in c.lower() for x in BAD): continue
-        if c.upper() in seen: continue
-        seen.add(c.upper()); out.append(c)
-    if len(out)<target:
-        # Prefer original good captions as a last resort, never inventing facts.
-        for c in raw:
-            if c.upper() not in seen and 3 <= len(_words(c)) <= 8 and len(c)<=38:
-                seen.add(c.upper()); out.append(c)
-            if len(out)>=target: break
-    return out[:target]
+    """Bounded repair: rebuild captions strictly from contiguous narration words."""
+    words=_words(narration or '')
+    if not words:
+        return []
+    # Aim for compact 4-6 word blocks. Every emitted word must exist in the
+    # original narration and remain contiguous, so the alignment gate can
+    # never be weakened by the repair itself.
+    target=max(6,min(10,int(target or 9)))
+    chunks=[]
+    i=0
+    while i < len(words):
+        remaining=len(words)-i
+        slots=max(1,target-len(chunks))
+        size=max(4,min(6,round(remaining/slots)))
+        end=min(len(words),i+size)
+        while end < len(words) and words[end-1].lower() in STOP and end < len(words):
+            end += 1
+        chunk=' '.join(words[i:end]).upper()
+        if 3 <= len(_words(chunk)) <= 8 and len(chunk) <= 38:
+            chunks.append(chunk)
+        i=end
+    # If the first pass produced too many chunks, merge adjacent chunks only
+    # when the merged caption still fits the strict width/word limits.
+    while len(chunks)>target:
+        best=None
+        for k in range(len(chunks)-1):
+            merged=f"{chunks[k]} {chunks[k+1]}"
+            if len(_words(merged))<=8 and len(merged)<=38:
+                best=(k,merged); break
+        if not best:
+            break
+        k,merged=best
+        chunks=chunks[:k]+[merged]+chunks[k+2:]
+    return chunks[:target]
 
 
 def technical_video_audit(video_path):
     p=Path(video_path)
     if not p.exists(): return {'score':0,'issues':['video_missing']}
     try:
-        from imageio_ffmpeg import get_ffprobe_exe
-        ffprobe=get_ffprobe_exe()
+        ffprobe=shutil.which('ffprobe')
+        if not ffprobe:
+            # Some imageio-ffmpeg versions no longer expose get_ffprobe_exe.
+            # Render normally provides ffprobe system-wide; if unavailable,
+            # report a bounded diagnostic instead of crashing the audit.
+            return {'score':70,'issues':['ffprobe_unavailable'], 'error':'ffprobe executable not found'}
         cmd=[ffprobe,'-v','error','-show_streams','-show_format','-of','json',str(p)]
         data=json.loads(subprocess.check_output(cmd,stderr=subprocess.STDOUT,text=True,timeout=20))
         streams=data.get('streams',[]); vs=next((s for s in streams if s.get('codec_type')=='video'),None); aud=next((s for s in streams if s.get('codec_type')=='audio'),None)
