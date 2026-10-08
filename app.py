@@ -969,6 +969,12 @@ def _article_url_candidates_from_search(title, source_name=''):
     source_name=str(source_name or '').strip()
     if not title: return []
 
+    # V42.5: the resolver budget must exist inside this function because the
+    # publisher-specific fallback below uses it before control returns to the caller.
+    # V42.4 accidentally initialized it only in fetch_topic_evidence(), causing
+    # NameError on the first resolver pass.
+    resolver_deadline=time.monotonic()+45
+
     preferred=[
         'tecnoblog.net','omelete.com.br','exame.com','terra.com.br',
         'meups.com.br','criticalhits.com.br','games.gg','antihype.com.br',
