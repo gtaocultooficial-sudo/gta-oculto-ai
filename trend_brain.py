@@ -57,6 +57,16 @@ class TrendBrain:
             ranked.append(t)
         return sorted(ranked,key=lambda x:(x.get("trend_score",0),x.get("score",0)),reverse=True)
 
+    def record_publication(self, topic, metadata=None, video_id=None):
+        if not video_id:
+            return
+        with self.lock:
+            d=self._read()
+            k=self._key(topic or {})
+            old=d["videos"].get(str(video_id),{})
+            d["videos"][str(video_id)]={"topic_key":k,"title":str((topic or {}).get("title","")),"hook":str((topic or {}).get("editorial_hook","")),"angle":str((topic or {}).get("editorial_angle","")),"performance_score":old.get("performance_score",0),"updated":time.time()}
+            self._write(d)
+
     def learn(self,result,publications=None):
         if not result or not result.get("ok"): return result or {"ok":False}
         headers=[str(x.get("name","")).lower() for x in result.get("headers",[])]
@@ -76,7 +86,7 @@ class TrendBrain:
                 like_rate=(likes/views*100) if views else 0
                 perf=min(100,math.log10(max(1,views))*18+min(20,like_rate*4)+min(15,subs*3))
                 p=pubs.get(vid,{})
-                d["videos"][vid]={"topic_key":p.get("topic_key",""),"performance_score":round(perf,2),"views":views,"likes":likes,"subscribers":subs,"updated":time.time()}
+                d["videos"][vid]={"topic_key":p.get("topic_key",d["videos"].get(vid,{}).get("topic_key","")),"performance_score":round(perf,2),"views":views,"likes":likes,"subscribers":subs,"updated":time.time()}
             d["videos"]=dict(list(d["videos"].items())[-500:])
             self._write(d)
         return {"ok":True,"videos_learned":len(rows)}
