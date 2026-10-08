@@ -1009,35 +1009,46 @@ def _article_url_candidates_from_search(title, source_name=''):
             note('FALLBACK_CANDIDATE: '+host+' ['+reason+']')
 
     def rss_candidates(query, reason, priority):
+        # V42.3: bounded resolver. Never allow Google News decoding to consume the
+        # entire production worker. RSS is discovery-only; inspect only the first
+        # two entries and stop as soon as enough direct candidates are found.
         try:
             rss_url=('https://news.google.com/rss/search?q='+quote_plus(query)+
                      '&hl=pt-BR&gl=BR&ceid=BR:pt-419')
-            rr=fetch(rss_url,timeout=16)
+            rr=fetch(rss_url,timeout=8)
             note('FALLBACK_RSS:'+str(getattr(rr,'status_code','?'))+' '+reason)
             if not rr.ok: return
             root=ET.fromstring(rr.content)
-            for item in root.findall('.//item')[:20]:
+            for item in root.findall('.//item')[:2]:
                 link_el=item.find('link'); link=(link_el.text or '').strip() if link_el is not None else ''
                 if not link: continue
-                # Discovery only: decode the Google News URL. Never treat RSS text as evidence.
-                decoded=_resolve_article_url(link,title,source_name)
-                add(decoded,reason,priority)
+                # Discovery only. One short redirect attempt is enough here; the
+                # independent search-engine strategy below is the real fallback.
+                decoded=''
+                try:
+                    ar=fetch(link,timeout=6)
+                    final=str(getattr(ar,'url','') or '').strip()
+                    if final and not _is_google_news_url(final): decoded=final
+                except Exception as e:
+                    note('RSS_REDIRECT_TIMEOUT:'+type(e).__name__)
+                if decoded: add(decoded,reason,priority)
+                if len(found)>=6: break
         except Exception as e:
             note('FALLBACK_RSS_ERROR:'+reason+':'+type(e).__name__+':'+str(e)[:100])
 
     # Strategy 1: query variants through Google News RSS.
-    variants=_resolver_query_variants(title,source_name)
+    variants=_resolver_query_variants(title,source_name)[:4]
     for idx,item in enumerate(variants):
         rss_candidates(item['q'],item['kind'],80-idx*4)
-        if len(found)>=12: break
+        if len(found)>=6: break
 
     # Strategy 2: publisher-constrained Google News queries. Only the best trusted domains
     # are used here to keep Render latency bounded.
-    if len(found)<8:
-        for domain in preferred[:10]:
+    if len(found)<4:
+        for domain in preferred[:4]:
             q=variants[min(2,len(variants)-1)]['q']+' site:'+domain
             rss_candidates(q,'site:'+domain,60)
-            if len(found)>=16: break
+            if len(found)>=6: break
 
     # Strategy 3: normal search engines. Each engine is independent; one failure does not
     # poison the next strategy. DuckDuckGo is deliberately last because it can rate-limit cloud IPs.
@@ -1049,14 +1060,14 @@ def _article_url_candidates_from_search(title, source_name=''):
     )
     for engine,qurl in engines:
         try:
-            rr=fetch(qurl,timeout=10)
+            rr=fetch(qurl,timeout=6)
             note('FALLBACK_SEARCH:'+engine+':'+str(getattr(rr,'status_code','?')))
             if not rr.ok: continue
             soup=BeautifulSoup(rr.text,'html.parser')
             selectors=('li.b_algo h2 a','a.result__a') if engine!='google' else ('a[href]','')
             for sel in selectors:
                 if not sel: continue
-                for a in soup.select(sel):
+                for a in soup.select(sel)[:12]:
                     add(a.get('href'),'html-'+engine,30)
         except Exception as e:
             note('FALLBACK_SEARCH_ERROR:'+engine+':'+type(e).__name__+':'+str(e)[:80])
@@ -1083,6 +1094,7 @@ def _topic_title_overlap(title, lines):
 
 
 def _fetch_topic_evidence(topic):
+    global _last_gnews_diagnostics
     """V40.7: source-locked first, then same-story trusted-source fallback.
 
     The original publisher remains the preferred source. If it resolves correctly but
@@ -1092,6 +1104,8 @@ def _fetch_topic_evidence(topic):
     No RSS description, meta description, search snippet, or generic <main> is used.
     """
     original_url=str(topic.get('url') or '').strip()
+    try: _last_gnews_diagnostics=(list(_last_gnews_diagnostics or [])+['V42.3_RESOLVER_START'])[-24:]
+    except Exception: pass
     title=str(topic.get('title') or '').strip()
     source_name=str(topic.get('source') or '').strip()
     # Important V42.2 change: a failed Google News decode MUST NOT end production.
@@ -1118,7 +1132,6 @@ def _fetch_topic_evidence(topic):
                 _resolver_learn(_resolver_domain(final_url),'article-body-extraction',False)
         except Exception as e:
             try:
-                global _last_gnews_diagnostics
                 _last_gnews_diagnostics=(list(_last_gnews_diagnostics or [])+[f'PRIMARY_FETCH_ERROR:{type(e).__name__}:{str(e)[:100]}'])[-24:]
             except Exception:
                 pass
@@ -1137,7 +1150,12 @@ def _fetch_topic_evidence(topic):
     # Secondary source fallback: adaptive same-story resolver. It can run a second
     # discovery pass with different semantic queries if the first candidate set fails.
     tried=set()
+    resolver_deadline=time.monotonic()+45
     for resolver_pass in range(3):
+        if time.monotonic()>resolver_deadline:
+            try: _last_gnews_diagnostics=(list(_last_gnews_diagnostics or [])+['RESOLVER_BUDGET_EXCEEDED'])[-24:]
+            except Exception: pass
+            break
         # Pass 0/1 use the normal adaptive resolver. Pass 2 deliberately broadens
         # the query by dropping the original publisher name, which helps when the
         # headline itself is too publisher-specific. The candidate function remains
@@ -1154,6 +1172,7 @@ def _fetch_topic_evidence(topic):
                 pass
         if not candidates: continue
         for alt_url in candidates:
+            if time.monotonic()>resolver_deadline: break
             if alt_url in tried: continue
             tried.add(alt_url)
             host_guess=_resolver_domain(alt_url)
