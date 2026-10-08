@@ -24,6 +24,24 @@ class TrendBrain:
         words=re.findall(r"[a-z0-9áéíóúãõç]+",str(t.get("title","")).lower())
         return " ".join([w for w in words if len(w)>3][:10]) or str(t.get("id","unknown"))
 
+    def _fingerprint(self,t):
+        words=re.findall(r"[a-z0-9áéíóúãõç]+",str(t.get("title","")).lower())
+        stop={"gta","gta6","gtaiv","rockstar","games","novo","jogo","detalhes","confirmou","confirmados"}
+        core=[w for w in words if len(w)>3 and w not in stop]
+        return " ".join(sorted(core[:14]))
+
+    def _repetition_penalty(self,t,d):
+        key=self._key(t); fp=self._fingerprint(t); now=time.time(); penalty=0
+        for v in d.get("videos",{}).values():
+            age_days=(now-float(v.get("updated",now) or now))/86400
+            if age_days>14: continue
+            if v.get("topic_key")==key:
+                penalty=max(penalty,35 if age_days<3 else 20)
+            oldfp=str(v.get("fingerprint",""))
+            if fp and oldfp and fp==oldfp:
+                penalty=max(penalty,45 if age_days<7 else 25)
+        return penalty
+
     def observe(self,topics):
         with self.lock:
             d=self._read()
@@ -50,10 +68,12 @@ class TrendBrain:
             for v in d["videos"].values():
                 if v.get("topic_key")==self._key(t):
                     history=max(history,float(v.get("performance_score",0) or 0))
-            score=base*.42+conf*.14+demand*.18+novelty*.10+history*.16
+            repetition=self._repetition_penalty(t,d)
+            score=base*.42+conf*.14+demand*.18+novelty*.10+history*.16-repetition
             t["trend_score"]=int(max(0,min(100,round(score))))
+            t["repetition_penalty"]=repetition
             t["trend_signal"]="FORTE" if t["trend_score"]>=78 else ("MÉDIO" if t["trend_score"]>=60 else "FRACO")
-            t["trend_reason"]=f"Radar {int(base)}/100; demanda {int(demand)}; novidade {int(novelty)}; histórico {int(history)}."
+            t["trend_reason"]=f"Radar {int(base)}/100; demanda {int(demand)}; novidade {int(novelty)}; histórico {int(history)}; repetição -{int(repetition)}."
             ranked.append(t)
         return sorted(ranked,key=lambda x:(x.get("trend_score",0),x.get("score",0)),reverse=True)
 
@@ -102,6 +122,11 @@ class TrendBrain:
             if metadata:
                 x["last_title"]=str(metadata.get("title",""))
                 x["last_hook"]=str(metadata.get("hook",metadata.get("editorial_hook","")))
+                fp=self._fingerprint({"title":metadata.get("title","")})
+                if fp:
+                    d.setdefault("videos",{})[f"production:{int(time.time()*1000)}"]={
+                        "topic_key":k,"fingerprint":fp,"performance_score":float(quality or 0),"updated":time.time()
+                    }
             self._write(d)
 
     def recommend_publish_slot(self, now=None):
