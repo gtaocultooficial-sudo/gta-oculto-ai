@@ -30,6 +30,6 @@ jobs:
         shell: bash
         run: |
           set -e
-          response=$(curl -sS -X POST             -H 'Content-Type: application/json'             -d '{}'             https://gta-oculto-ai.onrender.com/api/produce)
+          response=$(curl -sS --max-time 30 https://gta-oculto-ai.onrender.com/api/produce)
           echo "$response"
           echo "$response" | grep -q '"ok":true'
