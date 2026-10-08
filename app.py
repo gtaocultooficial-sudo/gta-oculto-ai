@@ -36,6 +36,11 @@ WORK.mkdir(parents=True, exist_ok=True)
 STATE_FILE = WORK / 'jobs.json'
 LOCK = threading.RLock()
 PROCESSING = False
+# V43: autonomous recovery is ON by default. It may switch to another validated Radar topic
+# when a source cannot be resolved, so a transient resolver failure never requires the owner
+# to intervene manually. Set GTA_AUTONOMOUS_MODE=0 only to disable this behavior.
+AUTONOMOUS_MODE = os.getenv('GTA_AUTONOMOUS_MODE','1').strip().lower() not in ('0','false','off','no')
+AUTONOMOUS_MAX_TOPIC_RECOVERY = max(1, min(5, int(os.getenv('GTA_AUTONOMOUS_MAX_TOPIC_RECOVERY','4'))))
 _last_gnews_diagnostics = []
 UA = 'GTA-Oculto-AI/Cloud-Final/1.12-V42.2'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
@@ -1430,6 +1435,75 @@ def _sentence_from_evidence(evidence):
     return ''
 
 
+def _is_source_recovery_error(exc):
+    """Classify resolver/source failures that are safe to recover autonomously."""
+    msg=str(exc or '').lower()
+    keys=(
+        'blocked_url','blocked_no_article_body','matéria sem corpo','materia sem corpo',
+        'corpo principal extraído','corpo original confiável','resolver_budget_exceeded',
+        'resolver budget','source-lock','source lock','sem evidência da matéria principal'
+    )
+    return any(k in msg for k in keys)
+
+
+def _autonomous_make_script(jid, topic, topics):
+    """V43 autonomous source recovery.
+
+    The production job does not die on a recoverable source failure. The agent
+    tries the selected topic, then other already-scored Radar opportunities.
+    It never invents evidence and never uses snippets as facts. If a candidate
+    topic resolves, production continues with that topic. Every attempt is
+    persisted in the job log so the owner can see what the agent did.
+    """
+    if not AUTONOMOUS_MODE:
+        return topic, make_script(topic)
+
+    candidates=[]
+    seen=set()
+    for t in [topic] + list(topics or []):
+        if not isinstance(t,dict):
+            continue
+        key=str(t.get('id') or t.get('title') or '').strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key); candidates.append(t)
+        if len(candidates) >= AUTONOMOUS_MAX_TOPIC_RECOVERY + 1:
+            break
+
+    last_exc=None
+    for attempt,candidate in enumerate(candidates):
+        try:
+            if attempt==0:
+                update_job(jid,log='🤖 AGENTE AUTÔNOMO: validando a matéria principal sem intervenção manual...')
+            else:
+                update_job(
+                    jid,
+                    title=str(candidate.get('title') or 'GTA 6'),
+                    opportunity=candidate,
+                    stage='AUTO-CORREÇÃO',
+                    progress=29,
+                    log=f'🤖 AUTO-CORREÇÃO {attempt}/{len(candidates)-1}: fonte da pauta anterior indisponível. Mudando para outra oportunidade validada pelo Radar: {candidate.get("title", "")}'
+                )
+            script=make_script(candidate)
+            if attempt>0:
+                update_job(jid,log=f'✅ AUTO-CORREÇÃO: nova pauta validada e corpo original encontrado. Continuando produção com: {candidate.get("title", "")}')
+            return candidate, script
+        except Exception as exc:
+            last_exc=exc
+            if not _is_source_recovery_error(exc):
+                raise
+            try:
+                _learn_event('AUTONOMOUS_SOURCE_RECOVERY',f'falha de fonte na tentativa {attempt+1}: {str(exc)[:500]}',candidate.get('title',''))
+            except Exception:
+                pass
+            if attempt < len(candidates)-1:
+                continue
+            break
+    if last_exc:
+        raise last_exc
+    raise ValueError('AGENTE AUTÔNOMO: nenhuma oportunidade disponível para recuperação de fonte.')
+
+
 def make_script(topic):
     """V33 — Main Article Locked.
     Uma matéria principal. Um corpo principal. Um roteiro.
@@ -2795,7 +2869,14 @@ def produce_job(jid):
         topics,urls,_=research_official(); topics=topics or FALLBACK_TOPICS
         job=load_jobs()[jid]; topic=editor_chief_select([job['opportunity']]) or job['opportunity']; job['opportunity']=topic; jobs=load_jobs(); jobs[jid]['opportunity']=topic; save_jobs(jobs)
         update_job(jid,stage='ANÁLISE',progress=16,log=f'EDITOR-CHEFE: {topic.get("editorial_decision","PRODUZIR")} — {topic["title"]} | ângulo: {topic.get("editorial_angle","")}')
-        update_job(jid,stage='ROTEIRO',progress=28,log='EDITOR-CHEFE → MOTOR V33: página principal → corpo principal → fatos → roteiro limpo...'); script=make_script(topic)
+        update_job(jid,stage='ROTEIRO',progress=28,log='EDITOR-CHEFE → AGENTE AUTÔNOMO: validando corpo original, tentando estratégias e recuperando a pauta se necessário...')
+        topic, script = _autonomous_make_script(jid, topic, topics)
+        # Keep the rest of the proven rendering pipeline synchronized with the
+        # topic actually selected by the autonomous recovery agent.
+        job=load_jobs().get(jid,{})
+        job['opportunity']=topic
+        job['title']=topic.get('title',job.get('title','GTA 6'))
+        jobs=load_jobs(); jobs[jid]=job; save_jobs(jobs)
         jobdir=WORK/jid; jobdir.mkdir(parents=True,exist_ok=True)
         update_job(jid,script=script,stage='VISUAIS',progress=40,log='Baixando visuais oficiais e montando cenas verticais...')
         paths=download_visuals(urls,jobdir/'visuals',topic['title'])
@@ -2915,7 +2996,7 @@ def processor_loop():
 @APP.get('/')
 def home(): return render_template_string(PAGE)
 @APP.get('/health')
-def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V42-AUTONOMOUS-AUDITOR',processor='cloud')
+def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V43-AUTONOMOUS-RECOVERY',processor='cloud',autonomous_mode=AUTONOMOUS_MODE,max_topic_recovery=AUTONOMOUS_MAX_TOPIC_RECOVERY)
 @APP.get('/api/state')
 def state():
     # IMPORTANT: never wait on the production LOCK here. The producer/render
