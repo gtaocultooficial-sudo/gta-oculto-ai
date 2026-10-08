@@ -3694,7 +3694,7 @@ def research():
     try:
         radar=radar_scan(); return jsonify(ok=True,message=f'Radar atualizado: {len(radar.get("opportunities",[]))} oportunidades encontradas. Editor-Chefe pronto.',opportunities=radar.get('opportunities',[]),radar_updated=radar.get('updated_at'))
     except Exception as e: return jsonify(error=str(e)),502
-@APP.post('/api/produce')
+@APP.route('/api/produce', methods=['GET','POST'])
 def produce():
     data=request.get_json(silent=True) or {}
     topics,_,_,_,_=current_opportunities()
