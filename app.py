@@ -574,8 +574,15 @@ def choose_topic(data,topics):
         for o in topics:
             if o.get('id')==data['id']: return o
     custom=(data.get('topic') or '').strip()
-    if custom: return {'id':'custom','score':88,'priority':'ALTA','title':custom,'source':'Pesquisa editorial','url':ROCKSTAR_VI,'radar':False}
-    return max(topics,key=lambda x:x.get('score',0))
+    if custom:
+        return {'id':'custom','score':88,'priority':'ALTA','title':custom,'source':'Pesquisa editorial','url':ROCKSTAR_VI,'radar':False}
+    ranked=[dict(x) for x in (topics or [])]
+    if TREND_BRAIN:
+        try:
+            ranked=TREND_BRAIN.rank(ranked)
+        except Exception:
+            pass
+    return max(ranked,key=lambda x:(x.get('trend_score',x.get('score',0)),x.get('score',0)))
 
 
 def _strip_publisher_suffix(text):
