@@ -1,37 +1,32 @@
-# GTA Oculto AI — Primeiro Short Qualidade FINAL
+# GTA OCULTO AI — V42 Autonomous Core
 
-Versão de acabamento do produtor cloud do GTA Oculto AI.
+## O que esta versão entrega
+- mantém o motor de renderização existente;
+- adiciona Auditor IA pós-render;
+- diagnóstico de vídeo com ffprobe;
+- verificação de duração, verticalidade, FPS e áudio;
+- verificação básica do roteiro contra metadados internos;
+- memória persistente de experimentos em SQLite;
+- biblioteca de reparos limitados e reversíveis;
+- limite de tentativas para evitar loop infinito;
+- worker separado para rodar sem você estar no site;
+- endpoint `/api/autonomous` para status;
+- endpoint `/api/autonomous/memory` para memória;
+- preparação para deploy via Render API/Deploy Hook.
 
-## Pipeline
-- Pesquisa automática
-- Análise e escolha de pauta
-- Roteiro
-- Narração PT-BR
-- Visuais
-- Edição vertical 9:16
-- Legendas únicas e limpas
-- Avaliação
-- MP4 final
-
-## Mídia oficial
-- Usa vídeos oficiais disponibilizados pela Rockstar Games.
-- Não usa YouTube.
-- Não usa yt-dlp.
-- Não depende do PC do usuário.
-- Processa a mídia sequencialmente para respeitar o limite de memória do Render Free.
-- Usa até 6 clipes oficiais reais por Short, alternados com 3 visuais preparados.
-- Os clipes intermediários são preparados em baixa resolução e a montagem final é feita em 540x960/15 FPS para manter estabilidade no Render Free.
-- O vídeo final usa compressão melhorada sem aumentar o número de processos concorrentes.
+## Importante
+Esta V42 NÃO faz alteração arbitrária de código-fonte em produção. O próximo nível de autoengenharia deve usar Git + testes + branch + rollback + Render API. Isso é proposital: evita que um erro de vídeo faça a IA destruir o próprio sistema.
 
 ## Render
-Build:
-`pip install -r requirements.txt`
+Use dois serviços:
+1. Web Service: `app_V42_AUTONOMOUS.py`
+2. Background Worker: `worker.py`
 
-Start:
-`gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 2 --timeout 300`
+Configure variáveis no Render, sem enviar segredos pelo chat:
+- `GTA_MAX_REPAIR_ATTEMPTS=3`
+- `GTA_MEMORY_DB=workspace/agent_memory.sqlite3`
+- opcional: `RENDER_API_KEY`
+- opcional: `RENDER_SERVICE_ID`
+- opcional: `RENDER_DEPLOY_HOOK_URL`
 
-## Arquivos
-- app.py
-- requirements.txt
-- Procfile
-- README.md
+Para memória realmente persistente entre deploys, use Postgres/Key Value ou um Persistent Disk. SQLite no filesystem padrão do Render é apenas memória local da instância e não deve ser tratado como armazenamento permanente.
