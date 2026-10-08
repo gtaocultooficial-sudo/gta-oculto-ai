@@ -4,6 +4,12 @@ from pathlib import Path
 from datetime import datetime, timezone
 from urllib.parse import urljoin, urlparse, quote, quote_plus, parse_qs
 
+# V42 bounded auditor: optional module, preserving the proven V41.3 pipeline.
+try:
+    from audit_engine import full_audit as v42_full_audit, caption_audit as v42_caption_audit, repair_captions as v42_repair_captions
+except Exception:
+    v42_full_audit = v42_caption_audit = v42_repair_captions = None
+
 import requests
 import xml.etree.ElementTree as ET
 from bs4 import BeautifulSoup
@@ -2660,8 +2666,37 @@ def produce_job(jid):
             q=_image_quality(sp); visual_quality=min(visual_quality, max(0,q))
         # V41: auditor automático examina o MP4 real e tenta correções seguras antes do gate final.
         audit,beats,repaired=self_heal(jid,script,video,duration,beats,selected_videos,image_scenes,topic,audio)
+
+        # V42: second independent bounded audit. It never replaces the proven
+        # V41.3 renderer; it only gets one safe caption-repair attempt when the
+        # independent audit detects weak caption segmentation.
+        v42_audit = None
+        if v42_full_audit:
+            try:
+                v42_audit = v42_full_audit(video, [b.get('text','') for b in beats], script.get('narration',''))
+                if v42_audit.get('caption',{}).get('score',100) < 85 and v42_repair_captions:
+                    repaired_caps = v42_repair_captions([b.get('text','') for b in beats], script.get('narration',''), target=max(6,min(10,len(beats) or 9)))
+                    if repaired_caps and repaired_caps != [b.get('text','') for b in beats]:
+                        repaired_beats=[]
+                        n=min(len(repaired_caps),len(beats))
+                        for i,c in enumerate(repaired_caps[:n]):
+                            b=dict(beats[i]); b['text']=c; repaired_beats.append(b)
+                        if repaired_beats:
+                            video2=video.with_name('GTA_OCULTO_SHORT_V42_REPAIRED.mp4')
+                            make_multimedia_video(selected_videos,image_scenes,audio,video2,duration,[b['text'] for b in repaired_beats],script,topic['title'],repaired_beats)
+                            va2=v42_full_audit(video2,[b['text'] for b in repaired_beats],script.get('narration',''))
+                            if va2.get('score',0) >= v42_audit.get('score',0):
+                                os.replace(video2,video); beats=repaired_beats; repaired=True; v42_audit=va2
+                            elif video2.exists():
+                                video2.unlink()
+            except Exception as _v42e:
+                v42_audit={'score':None,'error':str(_v42e)[:500]}
+
         score=evaluate(script,duration,len(beats),visual_quality,beats,len(selected_videos),len(image_scenes))
         score=min(score,audit.get('score',score))
+        if v42_audit and isinstance(v42_audit.get('score'),(int,float)):
+            score=min(score,int(v42_audit['score']))
+        audit['v42_independent']=v42_audit
         (jobdir/'audit.json').write_text(json.dumps(audit,ensure_ascii=False,indent=2),encoding='utf-8')
         update_job(jid,stage='AVALIAÇÃO',progress=96,log=f'🧠 AUDITOR IA: {audit.get("score",0)}/100 | reparo automático: {"SIM" if repaired else "NÃO"} | problemas: {len(audit.get("issues",[]))}.')
         if audit.get('score',0)<78:
@@ -2719,7 +2754,7 @@ def processor_loop():
 @APP.get('/')
 def home(): return render_template_string(PAGE)
 @APP.get('/health')
-def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V42-FINAL-V41.3-BASE',processor='cloud',autonomous=bool(os.environ.get('GTA_AUTONOMOUS_DISABLE_LEGACY_WORKER')=='1'))
+def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V42-AUTONOMOUS-AUDITOR',processor='cloud')
 @APP.get('/api/state')
 def state():
     # IMPORTANT: never wait on the production LOCK here. The producer/render
@@ -2782,7 +2817,6 @@ def radar_loop():
         except Exception: pass
         time.sleep(15*60)
 
-if os.environ.get('GTA_AUTONOMOUS_DISABLE_LEGACY_WORKER','0') != '1':
-    threading.Thread(target=processor_loop,daemon=True).start()
+threading.Thread(target=processor_loop,daemon=True).start()
 threading.Thread(target=radar_loop,daemon=True).start()
 if __name__=='__main__': APP.run(host='0.0.0.0',port=int(os.environ.get('PORT',5000)))
