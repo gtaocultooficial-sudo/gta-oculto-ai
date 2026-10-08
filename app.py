@@ -31,7 +31,7 @@ STATE_FILE = WORK / 'jobs.json'
 LOCK = threading.RLock()
 PROCESSING = False
 _last_gnews_diagnostics = []
-UA = 'GTA-Oculto-AI/Cloud-Final/1.9-V40.8'
+UA = 'GTA-Oculto-AI/Cloud-Final/1.10-V41.1'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
@@ -1109,20 +1109,63 @@ def _safe_hook(title,kind):
     return 'VOCÊ PERCEBEU ESSE DETALHE NO GTA 6?'
 
 
+
+def _editorial_noise_score(text, headline=''):
+    """Detects text that looks like a headline/metadata rather than article body."""
+    t=re.sub(r'\s+',' ',str(text or '')).strip()
+    low=t.lower()
+    score=0
+    if '|' in t or 'http://' in low or 'https://' in low: score += 3
+    if re.search(r'\b(?:ign brasil|tudocelular|canaltech|olhar digital|adrenaline|terra|tecnoblog|the verge|uol|tecmundo)\b',low):
+        score += 3
+    if re.search(r'\b(?:terça|terca|segunda|quarta|quinta|sexta|sábado|sabado|domingo)-feira\s*\(\d{1,2}\)',low):
+        score += 1
+    if re.search(r'\b(?:revela|revelou|nega|nega que|garante|confirma|afirma|afirmou)\b',low) and len(t.split()) < 22:
+        score += 1
+    if headline:
+        hw=set(re.findall(r'[a-zà-ÿ0-9]+',headline.lower()))
+        tw=set(re.findall(r'[a-zà-ÿ0-9]+',low))
+        if hw and tw:
+            overlap=len(hw & tw)/max(1,len(hw))
+            if overlap>=0.65: score += 2
+    return score
+
+def _clean_evidence_for_script(items, headline):
+    """Keep factual article-body sentences and reject headline-like fragments."""
+    out=[]
+    seen=set()
+    for raw in items or []:
+        x=_clean_narrative_text(_fact_sentence(raw))
+        x=re.sub(r'\s+',' ',x).strip()
+        words=re.findall(r"[A-Za-zÀ-ÿ0-9']+",x)
+        if len(words)<8 or len(words)>42:
+            continue
+        if _editorial_noise_score(x,headline)>=3:
+            continue
+        key=re.sub(r'[^a-zà-ÿ0-9]+',' ',x.lower()).strip()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(x.rstrip('.!?')+'.')
+    return out
+
 def _clean_narrative_text(text):
-    """Remove rastros de manchete, fonte, domínio e metadados internos da fala."""
+    """V41.1: limpa rastros de manchete, fonte e metadados sem inventar fatos."""
     t=BeautifulSoup(str(text or ''),'html.parser').get_text(' ',strip=True)
+    t=re.sub(r'https?://\S+',' ',t)
     t=_strip_publisher_suffix(t)
     banned=[
         r'\b(?:score|confiança|confianca|matérias|materias|fontes|menções|mencoes)\s*[:=]?\s*\d+%?\b',
-        r'\b(?:IGN\s*Brasil|TudoCelular(?:\.com)?|Canaltech|Olhar\s+Digital|Adrenaline|Omelete|Exame|UOL|TecMundo|Combo\s+Infinito|Rolling\s+Stone(?:\s+Brasil)?)\b',
+        r'\b(?:IGN\s*Brasil|TudoCelular(?:\.com)?|Canaltech|Olhar\s+Digital|Adrenaline|Omelete|Exame|UOL|TecMundo|Combo\s+Infinito|Rolling\s+Stone(?:\s+Brasil)?|Terra|Tecnoblog|The\s+Verge)\b',
         r'\b(?:radar|editor-chefe|editorial|pauta selecionada|produzir agora)\b',
+        r'\b(?:leia mais|leia também|compartilhe|siga-nos|newsletter|publicidade)\b',
     ]
     for pat in banned:
         t=re.sub(pat,'',t,flags=re.I)
     t=re.sub(r'\s+',' ',t).strip(' -–—,;:')
+    # Remove leftover separators commonly created when metadata is stripped.
+    t=re.sub(r'\s+[|•]\s+',' ',t)
     return t
-
 
 def _sentence_from_evidence(evidence):
     """Escolhe UMA evidência da matéria, evitando juntar frases de fontes diferentes."""
@@ -1156,9 +1199,8 @@ def make_script(topic):
                     f'MATÉRIA SEM CORPO ORIGINAL CONFIÁVEL — produção bloqueada ({extraction_method}). '
                     f'GoogleResolver={" | ".join(_last_gnews_diagnostics[-8:]) if _last_gnews_diagnostics else "sem diagnóstico"}'
                 )
-    evidence=_evidence_sentences('',article_lines,title,extraction_method)
-    evidence=[_clean_narrative_text(_fact_sentence(x)) for x in evidence]
-    evidence=[x for x in evidence if len(re.findall(r"[A-Za-zÀ-ÿ0-9']+",x))>=8]
+    evidence_raw=_evidence_sentences('',article_lines,title,extraction_method)
+    evidence=_clean_evidence_for_script(evidence_raw,title)
 
     # Só aceita produção quando há conteúdo factual da matéria principal.
     if not evidence:
@@ -1182,9 +1224,10 @@ def make_script(topic):
     }
     hook=hook_map[kind]
 
-    # Usa até três fatos consecutivos do MESMO corpo principal. Não concatena títulos.
+    # Usa no máximo dois fatos fortes do MESMO corpo principal.
+    # Menos fatos, melhor retenção e menor chance de carregar ruído editorial.
     fact_parts=[]
-    for item in evidence[:3]:
+    for item in evidence[:2]:
         item=_clean_narrative_text(item).rstrip('.!?')
         if item and item not in fact_parts:
             fact_parts.append(item)
@@ -1219,6 +1262,8 @@ def make_script(topic):
     # Defesa final: nenhum título de outra pauta deve aparecer como bloco na fala.
     if narration.count('GTA 6')>4:
         narration=re.sub(r'\bGTA 6\b','GTA VI',narration,count=max(0,narration.count('GTA 6')-3),flags=re.I)
+    if _editorial_noise_score(narration,title)>=3:
+        raise ValueError('GATE EDITORIAL: roteiro contaminado por manchete/metadado detectado antes da narração.')
     word_count=len(re.findall(r"[A-Za-zÀ-ÿ0-9']+",narration))
     estimated_seconds=max(20,min(60,round(word_count/2.55)))
     return {
@@ -1228,7 +1273,7 @@ def make_script(topic):
         'editorial_score':topic.get('editorial_score'),'editorial_decision':topic.get('editorial_decision','PRODUZIR'),
         'editorial_reason':topic.get('editorial_reason',''),'sections':sections,
         'evidence':evidence[:3],'word_count':word_count,'estimated_seconds':estimated_seconds,
-        'script_version':'V41.0-SELF-HEALING-AUDITOR','extraction_method':extraction_method
+        'script_version':'V41.1-SELF-HEALING-AUDITOR','extraction_method':extraction_method
     }
 
 def build_dynamic_captions(script, topic, count=9):
@@ -1794,57 +1839,92 @@ def select_video_clips(videos,title,count=5):
 
 
 def _caption_overlay(path,caption,idx,total,W=320,H=568,highlight=None):
-    """Editorial Shorts caption + discreet GTA OCULTO watermark.
-    The watermark is branding, never a headline. Captions stay short and content-led.
+    """V41.1 — legenda editorial com quebra visual equilibrada.
+    O texto continua sendo exatamente a fala; só a disposição em 1–2 linhas muda.
+    Evita linhas com uma única palavra e quebras visualmente tortas.
     """
     im=Image.new('RGBA',(W,H),(0,0,0,0)); d=ImageDraw.Draw(im)
 
-    # --- GTA OCULTO watermark: small, fixed, low-opacity, bottom-right ---
+    # GTA OCULTO watermark: small, fixed, low opacity.
     wm=font(11,True)
     wm_text='GTA OCULTO'
     wb=d.textbbox((0,0),wm_text,font=wm)
-    wx=W-(wb[2]-wb[0])-12; wy=H-(wb[3]-wb[1])-13
-    d.rounded_rectangle((wx-7,wy-4,wx+(wb[2]-wb[0])+7,wy+(wb[3]-wb[1])+4),radius=6,fill=(0,0,0,75))
+    wx=W-wb[2]-14; wy=H-wb[3]-10
     d.text((wx,wy),wm_text,font=wm,fill=(255,255,255,105))
 
     f=font(24,True)
     text=re.sub(r'\s+',' ',str(caption)).strip().upper()
     words=text.split()
-    lines=[]; cur=''
-    for w in words:
-        test=(cur+' '+w).strip()
-        if d.textbbox((0,0),test,font=f,stroke_width=1)[2] <= W-40:
-            cur=test
+    if not words:
+        im.save(path); return
+
+    max_width=W-42
+
+    # Build all valid 1/2-line splits and choose the most balanced one.
+    # Never create a one-word second line when there is a better alternative.
+    lines=[]
+    if len(words)<=4:
+        # Short phrases stay on one line when they fit.
+        test=' '.join(words)
+        if d.textbbox((0,0),test,font=f,stroke_width=1)[2] <= max_width:
+            lines=[test]
         else:
+            lines=[test]
+    else:
+        candidates=[]
+        for cut in range(2,len(words)-1):
+            a=' '.join(words[:cut]); b=' '.join(words[cut:])
+            wa=d.textbbox((0,0),a,font=f,stroke_width=1)[2]
+            wb2=d.textbbox((0,0),b,font=f,stroke_width=1)[2]
+            if wa>max_width or wb2>max_width:
+                continue
+            # Prefer balanced visual width and 2+ words on each line.
+            balance=abs(wa-wb2)
+            count_balance=abs(len(words[:cut])-len(words[cut:]))*18
+            candidates.append((balance+count_balance,cut,a,b))
+        if candidates:
+            _,cut,a,b=min(candidates,key=lambda x:x[0])
+            lines=[a,b]
+        else:
+            # Fallback greedy wrap, still forbidding a lone final word.
+            cur=''
+            for w in words:
+                test=(cur+' '+w).strip()
+                if cur and d.textbbox((0,0),test,font=f,stroke_width=1)[2] > max_width:
+                    lines.append(cur); cur=w
+                else:
+                    cur=test
             if cur: lines.append(cur)
-            cur=w
-    if cur: lines.append(cur)
-    lines=lines[:2]
+            if len(lines)>2:
+                # Merge the last line backwards where possible.
+                tail=lines[-1]
+                prev=lines[-2]
+                merged=(prev+' '+tail).strip()
+                if d.textbbox((0,0),merged,font=f,stroke_width=1)[2] <= max_width:
+                    lines=lines[:-2]+[merged]
+            if len(lines)==2 and len(lines[1].split())==1 and len(lines[0].split())>2:
+                w=lines[1]
+                parts=lines[0].split()
+                candidate=' '.join(parts[-2:] + [w])
+                first=' '.join(parts[:-2])
+                if first and d.textbbox((0,0),candidate,font=f,stroke_width=1)[2] <= max_width:
+                    lines=[first,candidate]
+
+    lines=[x for x in lines if x.strip()]
     if not lines:
         im.save(path); return
 
-    # Caption sits above the lower safe area and watermark, with a cleaner pill.
     line_h=30
     box_h=22+len(lines)*line_h
     y=H-box_h-45
     d.rounded_rectangle((18,y,W-18,H-45),radius=13,fill=(3,5,9,210),outline=(255,255,255,70),width=1)
+
     yy=y+8
-    hi=(str(highlight or '').upper()).strip()
-    for line in lines:
-        parts=line.split()
-        if hi and hi in parts:
-            widths=[d.textlength(w,font=f) for w in parts]
-            spaces=d.textlength(' ',font=f)
-            totalw=sum(widths)+spaces*(len(parts)-1)
-            x=(W-totalw)/2
-            for w,ww in zip(parts,widths):
-                fill=(255,52,68,255) if w==hi else (255,255,255,255)
-                d.text((x,yy),w,font=f,fill=fill,stroke_width=1,stroke_fill=(0,0,0,220))
-                x += ww+spaces
-        else:
-            bb=d.textbbox((0,0),line,font=f,stroke_width=1)
-            x=(W-(bb[2]-bb[0]))/2
-            d.text((x,yy),line,font=f,fill='white',stroke_width=1,stroke_fill=(0,0,0,220))
+    hi=str(highlight or '').strip().upper()
+    for line in lines[:2]:
+        # Render the complete line at once for stable visual rhythm.
+        d.text((W/2,yy),line,font=f,anchor='ma',fill='white',
+               stroke_width=1,stroke_fill=(0,0,0,220))
         yy += line_h
     im.save(path)
 
@@ -2256,14 +2336,14 @@ def make_cover(scene,title,out):
 def _load_learning():
     with LEARNING_LOCK:
         if not LEARNING_FILE.exists():
-            return {'version':'V41.0','errors':{},'strategies':{},'experiments':[],'updated_at':now_iso()}
+            return {'version':'V41.1','errors':{},'strategies':{},'experiments':[],'updated_at':now_iso()}
         try:
             d=json.loads(LEARNING_FILE.read_text(encoding='utf-8'))
             if not isinstance(d,dict): raise ValueError('learning inválido')
-            d.setdefault('version','V41.0'); d.setdefault('errors',{}); d.setdefault('strategies',{}); d.setdefault('experiments',[])
+            d.setdefault('version','V41.1'); d.setdefault('errors',{}); d.setdefault('strategies',{}); d.setdefault('experiments',[])
             return d
         except Exception:
-            return {'version':'V41.0','errors':{},'strategies':{},'experiments':[],'updated_at':now_iso()}
+            return {'version':'V41.1','errors':{},'strategies':{},'experiments':[],'updated_at':now_iso()}
 
 def _save_learning(data):
     data['updated_at']=now_iso()
@@ -2322,8 +2402,30 @@ def _repair_caption_beats(beats, duration, max_words=7):
     if out: out[-1]['end']=min(duration,out[-1]['end']); out[-1]['duration']=max(0.3,out[-1]['end']-out[-1]['start'])
     return out
 
+def _caption_visual_split_quality(text, W=320):
+    """Score 2-line visual balance using the exact caption font."""
+    d=ImageDraw.Draw(Image.new('RGBA',(W,120),(0,0,0,0)))
+    f=font(24,True)
+    words=str(text or '').split()
+    if len(words)<=4: return {'score':100,'lines':[' '.join(words)]}
+    max_width=W-42
+    candidates=[]
+    for cut in range(2,len(words)-1):
+        a=' '.join(words[:cut]); b=' '.join(words[cut:])
+        wa=d.textbbox((0,0),a,font=f,stroke_width=1)[2]
+        wb=d.textbbox((0,0),b,font=f,stroke_width=1)[2]
+        if wa<=max_width and wb<=max_width:
+            candidates.append((abs(wa-wb)+abs(cut-(len(words)-cut))*18,cut,a,b))
+    if not candidates:
+        return {'score':65,'lines':[str(text).upper()]}
+    _,cut,a,b=min(candidates,key=lambda x:x[0])
+    score=100
+    if len(b.split())==1: score-=30
+    if len(a.split())==1: score-=20
+    return {'score':max(0,score),'lines':[a.upper(),b.upper()]}
+
 def _audit_caption_quality(beats):
-    bad_end=[]; bad_start=[]; long=[]; short=[]
+    bad_end=[]; bad_start=[]; long=[]; short=[]; visual_bad=[]
     bad_end_set={'e','de','do','da','em','no','na','que','um','uma','o','a','os','as','para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa','sobre','entre','até','sem'}
     bad_start_set={'e','mas','porque','porém','porem','então','entao','quando','enquanto','para','com','de','do','da','em','no','na','que'}
     for b in beats or []:
@@ -2333,8 +2435,16 @@ def _audit_caption_quality(beats):
         if _caption_clean_word(words[0]) in bad_start_set: bad_start.append(b['text'])
         if len(words)>7: long.append(b['text'])
         if len(words)<2: short.append(b['text'])
-    total=max(1,len(beats or [])); penalty=min(40,len(bad_end)*5+len(bad_start)*4+len(long)*4+len(short)*5)
-    return {'score':max(0,100-penalty),'bad_end':bad_end,'bad_start':bad_start,'long':long,'short':short}
+        vs=_caption_visual_split_quality(b.get('text',''))
+        if vs['score']<85: visual_bad.append({'text':b.get('text',''),'lines':vs['lines']})
+    total=max(1,len(beats or []))
+    penalty=min(55,len(bad_end)*5+len(bad_start)*4+len(long)*4+len(short)*5+len(visual_bad)*4)
+    return {
+        'score':max(0,100-penalty),
+        'bad_end':bad_end,'bad_start':bad_start,'long':long,'short':short,
+        'visual_bad':visual_bad
+    }
+
 
 def _probe_media(path):
     ff=shutil.which('ffprobe') or 'ffprobe'
@@ -2355,6 +2465,13 @@ def audit_short(script, video, duration, beats, selected_videos, image_scenes):
     checks['roteiro']=100 if words>=70 and script.get('evidence') else 0
     if any(x in narration.lower() for x in ('radar','editor-chefe','score','confiança','fontes','matérias','produzir agora')):
         checks['roteiro']=0; issues.append(('EDITORIAL_METADATA','roteiro contém metadado interno'))
+    if _editorial_noise_score(narration,str(script.get('title','')))>2:
+        checks['roteiro']=max(0,checks['roteiro']-20)
+        issues.append(('HEADLINE_CONTAMINATION','narração contém padrão de manchete ou metadado'))
+    evidence=script.get('evidence') or []
+    if not evidence:
+        issues.append(('NO_EVIDENCE','roteiro sem evidência factual'))
+        checks['roteiro']=0
     cap=_audit_caption_quality(beats); checks['legendas']=cap['score']
     if cap['score']<85: issues.append(('CAPTIONS_BAD_BOUNDARY','legendas com cortes semanticamente ruins'))
     media=_probe_media(video); checks['mp4']=100 if media.get('ok') else 0
@@ -2381,10 +2498,10 @@ def self_heal(jid, script, video, duration, beats, selected_videos, image_scenes
     repaired=False
     codes={x['code'] for x in audit['issues']}
     if 'CAPTIONS_BAD_BOUNDARY' in codes:
-        _learn_event('CAPTIONS_BAD_BOUNDARY','auditor detectou cortes semânticos', 'resegmentar captions preservando fala', None)
-        new_beats=_repair_caption_beats(beats,duration,7)
+        _learn_event('CAPTIONS_BAD_BOUNDARY','auditor detectou cortes semânticos/visuais', 'resegmentar captions e equilibrar quebra de linha', None)
+        new_beats=_repair_caption_beats(beats,duration,6)
         if new_beats and new_beats!=beats:
-            update_job(jid,stage='AUTO-CORREÇÃO',progress=94,log='🧠 AUDITOR: legendas abaixo do padrão. Recalculando cortes semânticos e renderizando novamente...')
+            update_job(jid,stage='AUTO-CORREÇÃO',progress=94,log='🧠 AUDITOR IA: legendas abaixo do padrão. Recalculando cortes semânticos e renderizando novamente...')
             caps=[b['text'] for b in new_beats]
             video2=video.with_name('GTA_OCULTO_SHORT_REPAIRED.mp4')
             make_multimedia_video(selected_videos,image_scenes,audio,video2,duration,caps,script,topic['title'],new_beats)
@@ -2460,7 +2577,7 @@ def produce_job(jid):
         score=evaluate(script,duration,len(beats),visual_quality,beats,len(selected_videos),len(image_scenes))
         score=min(score,audit.get('score',score))
         (jobdir/'audit.json').write_text(json.dumps(audit,ensure_ascii=False,indent=2),encoding='utf-8')
-        update_job(jid,stage='AVALIAÇÃO',progress=96,log=f'🧠 AUDITOR: {audit.get("score",0)}/100 | reparo automático: {"SIM" if repaired else "NÃO"} | problemas: {len(audit.get("issues",[]))}.')
+        update_job(jid,stage='AVALIAÇÃO',progress=96,log=f'🧠 AUDITOR IA: {audit.get("score",0)}/100 | reparo automático: {"SIM" if repaired else "NÃO"} | problemas: {len(audit.get("issues",[]))}.')
         if audit.get('score',0)<78:
             for issue in audit.get('issues',[]): _learn_event(issue['code'],issue['message'])
             raise ValueError('AUDITOR IA: vídeo abaixo do padrão mínimo após correções seguras — produção bloqueada para evitar publicar conteúdo ruim.')
@@ -2516,7 +2633,7 @@ def processor_loop():
 @APP.get('/')
 def home(): return render_template_string(PAGE)
 @APP.get('/health')
-def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V41.0-SELF-HEALING-AUDITOR',processor='cloud')
+def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V41.1-SELF-HEALING-AUDITOR',processor='cloud')
 @APP.get('/api/state')
 def state():
     # IMPORTANT: never wait on the production LOCK here. The producer/render
