@@ -1050,9 +1050,25 @@ def _article_url_candidates_from_search(title, source_name=''):
             rss_candidates(q,'site:'+domain,60)
             if len(found)>=6: break
 
-    # Strategy 3: normal search engines. Each engine is independent; one failure does not
-    # poison the next strategy. DuckDuckGo is deliberately last because it can rate-limit cloud IPs.
+    # Strategy 3: Bing RSS. Unlike the HTML search page, this returns direct result URLs
+    # and is much less sensitive to JavaScript/consent pages on cloud IPs.
     query=variants[min(2,len(variants)-1)]['q'] if variants else title
+    try:
+        bing_rss='https://www.bing.com/search?format=rss&q='+quote_plus(query)
+        rr=fetch(bing_rss,timeout=6)
+        note('FALLBACK_BING_RSS:'+str(getattr(rr,'status_code','?')))
+        if rr.ok:
+            root=ET.fromstring(rr.content)
+            for item in root.findall('.//item')[:10]:
+                link_el=item.find('link')
+                href=(link_el.text or '').strip() if link_el is not None else ''
+                add(href,'bing-rss',55)
+                if len(found)>=8: break
+    except Exception as e:
+        note('FALLBACK_BING_RSS_ERROR:'+type(e).__name__+':'+str(e)[:80])
+
+    # Strategy 4: normal search engines. Each engine is independent; one failure does not
+    # poison the next strategy. DuckDuckGo remains last because cloud IPs are often limited.
     engines=(
         ('bing','https://www.bing.com/search?q='+quote_plus(query)+'&setlang=pt-BR'),
         ('google','https://www.google.com/search?q='+quote_plus(query)+'&hl=pt-BR&num=10'),
@@ -1071,6 +1087,28 @@ def _article_url_candidates_from_search(title, source_name=''):
                     add(a.get('href'),'html-'+engine,30)
         except Exception as e:
             note('FALLBACK_SEARCH_ERROR:'+engine+':'+type(e).__name__+':'+str(e)[:80])
+
+    # Strategy 5: publisher-specific search queries. This is the important recovery path
+    # when general search returns no parseable links. Only four trusted domains are tried,
+    # and only the direct result URL is accepted.
+    if len(found)<4:
+        for domain in preferred[:4]:
+            if time.monotonic()>resolver_deadline: break
+            q='site:'+domain+' '+query
+            try:
+                u='https://www.bing.com/search?format=rss&q='+quote_plus(q)
+                rr=fetch(u,timeout=5)
+                note('FALLBACK_SITE_RSS:'+domain+':'+str(getattr(rr,'status_code','?')))
+                if rr.ok:
+                    root=ET.fromstring(rr.content)
+                    for item in root.findall('.//item')[:5]:
+                        link_el=item.find('link')
+                        href=(link_el.text or '').strip() if link_el is not None else ''
+                        add(href,'bing-rss-site:'+domain,50)
+                        if len(found)>=8: break
+            except Exception as e:
+                note('FALLBACK_SITE_RSS_ERROR:'+domain+':'+type(e).__name__)
+            if len(found)>=8: break
 
     # Final ranking: learned successful domains + discovery quality + original reason.
     def rank(item):
