@@ -108,7 +108,8 @@ class LiveClipper:
         peak_score=max(0,min(20,(pk+30)*0.7))
         boundary_bonus=12 if kind=="boundary" else 0
         duration_bonus=8 if 24<=length<=48 else 0
-        score=max(0,min(100,round(activity+peak_score+boundary_bonus+duration_bonus)))
+        reaction_bonus=10 if pk > -8 and mean > -24 else (5 if pk > -12 and mean > -28 else 0)
+        score=max(0,min(100,round(activity+peak_score+boundary_bonus+duration_bonus+reaction_bonus)))
         return score
 
     def analyze(self, source, max_clips=10, job_id=None):
@@ -138,7 +139,7 @@ class LiveClipper:
         selected=sorted(selected,key=lambda x:x["start"])
         return {"ok":True,"duration":duration,"size":info["size"],
                 "candidate_count":len(scored),"clips":selected,
-                "engine":"V1-LIVE-BLOCKS","transcript":"optional"}
+                "engine":"V1-LIVE-BLOCKS+REACTION-SCORE","transcript":"optional"}
 
     def render_clip(self, source, clip, outdir, index=1):
         outdir=Path(outdir); outdir.mkdir(parents=True,exist_ok=True)
@@ -171,6 +172,6 @@ class LiveClipper:
         return target
 
     def status(self):
-        return {"enabled":True,"engine":"V1-LIVE-BLOCKS",
+        return {"enabled":True,"engine":"V1-LIVE-BLOCKS+REACTION-SCORE",
                 "chunk_seconds":900,"max_clip_seconds":48,
-                "memory_safe":True}
+                "memory_safe":True,"vertical_master":"1080x1920","quality":"CRF18","audio":"AAC160k"}
