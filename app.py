@@ -2,7 +2,7 @@ import struct, zlib
 import os, json, uuid, threading, time, asyncio, subprocess, shutil, re, sys, math
 from pathlib import Path
 from datetime import datetime, timezone
-from urllib.parse import urljoin, urlparse, quote_plus, parse_qs
+from urllib.parse import urljoin, urlparse, quote, quote_plus, parse_qs
 
 import requests
 import xml.etree.ElementTree as ET
@@ -30,7 +30,7 @@ WORK.mkdir(exist_ok=True)
 STATE_FILE = WORK / 'jobs.json'
 LOCK = threading.RLock()
 PROCESSING = False
-UA = 'GTA-Oculto-AI/Cloud-Final/1.7-V40.0'
+UA = 'GTA-Oculto-AI/Cloud-Final/1.7-V40.1'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
@@ -1027,7 +1027,7 @@ def make_script(topic):
         'editorial_score':topic.get('editorial_score'),'editorial_decision':topic.get('editorial_decision','PRODUZIR'),
         'editorial_reason':topic.get('editorial_reason',''),'sections':sections,
         'evidence':evidence[:3],'word_count':word_count,'estimated_seconds':estimated_seconds,
-        'script_version':'V40.0-SOURCE-LOCK-FINAL','extraction_method':extraction_method
+        'script_version':'V40.1-SOURCE-LOCK-FINAL','extraction_method':extraction_method
     }
 
 def build_dynamic_captions(script, topic, count=9):
@@ -2150,7 +2150,7 @@ def processor_loop():
 @APP.get('/')
 def home(): return render_template_string(PAGE)
 @APP.get('/health')
-def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V40.0-SOURCE-LOCK-FINAL',processor='cloud')
+def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V40.1-SOURCE-LOCK-FINAL',processor='cloud')
 @APP.get('/api/state')
 def state():
     with LOCK:
