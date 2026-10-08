@@ -1648,7 +1648,7 @@ def make_script(topic):
         'editorial_score':topic.get('editorial_score'),'editorial_decision':topic.get('editorial_decision','PRODUZIR'),
         'editorial_reason':topic.get('editorial_reason',''),'sections':sections,
         'evidence':evidence[:3],'word_count':word_count,'estimated_seconds':estimated_seconds,
-        'script_version':'V41.1-SELF-HEALING-AUDITOR','extraction_method':extraction_method
+        'script_version':'V46-TIMELINE-SELF-HEALING-AUDITOR','extraction_method':extraction_method
     }
 
 def build_dynamic_captions(script, topic, count=9):
@@ -2550,8 +2550,22 @@ def _build_timed_caption_beats(word_cues, duration, count=10):
 def build_short_timeline(script, topic, duration, count=10, word_cues=None):
     """V31: se houver WordBoundary, usa timestamps reais da voz; caso contrário usa fallback editorial."""
     if word_cues:
-        timed=_build_timed_caption_beats(word_cues,duration,count)
-        if timed: return timed
+        # Edge-TTS pode devolver timestamps que cobrem apenas parte do áudio.
+        # Nesse caso, nunca estenda o último bloco até o fim do MP3 (isso cria
+        # legendas repetidas + uma cena congelada). Só usamos timestamps reais
+        # quando eles cobrem praticamente toda a narração.
+        try:
+            cues_ok=[c for c in (word_cues or []) if _cue_clean(c.get('word'))]
+            last_end=0.0
+            if cues_ok:
+                last=cues_ok[-1]
+                last_end=float(last.get('start',0))+float(last.get('duration',0.25))
+            coverage=last_end/max(0.1,float(duration))
+        except Exception:
+            coverage=0.0
+        if coverage>=0.82:
+            timed=_build_timed_caption_beats(word_cues,duration,count)
+            if timed: return timed
     narration=re.sub(r'\s+',' ',str(script.get('narration','')).strip())
     if not narration:
         return [{'text':'GTA 6','duration':duration,'highlight':'GTA','start':0,'end':duration}]
@@ -2627,6 +2641,45 @@ def _choose_timeline_assets(video_clips, image_paths, beats, topic_title):
         used.add(idx)
     return chosen
 
+def _normalize_visual_beats(beats, duration, max_scene=3.2):
+    """Garante que nenhuma cena visual fique longa demais.
+    O texto só permanece no intervalo real da fala; gaps de áudio viram
+    cenas de apoio sem repetir a última legenda.
+    """
+    src=list(beats or [])
+    if not src:
+        return [{'text':'','highlight':None,'start':0.0,'end':float(duration),'duration':float(duration),'captionless':True}]
+    out=[]
+    cursor=0.0
+    for b in src:
+        start=max(0.0,float(b.get('start',cursor)))
+        end=min(float(duration),float(b.get('end',start+float(b.get('duration',1.0)))))
+        if start>cursor+0.12:
+            gap=start-cursor
+            while gap>0.05:
+                d=min(max_scene,gap)
+                out.append({'text':'','highlight':None,'start':cursor,'end':cursor+d,'duration':d,'captionless':True})
+                cursor+=d; gap-=d
+        if end<=start: continue
+        span=end-start
+        pieces=max(1,int(__import__('math').ceil(span/max_scene)))
+        d=span/pieces
+        for i in range(pieces):
+            a=start+i*d; z=end if i==pieces-1 else start+(i+1)*d
+            out.append({'text':str(b.get('text','')) if i==0 else '',
+                        'highlight':b.get('highlight') if i==0 else None,
+                        'start':a,'end':z,'duration':max(0.35,z-a),
+                        'captionless':i>0})
+        cursor=end
+    if cursor<float(duration)-0.05:
+        gap=float(duration)-cursor
+        while gap>0.05:
+            d=min(max_scene,gap)
+            out.append({'text':'','highlight':None,'start':cursor,'end':cursor+d,'duration':d,'captionless':True})
+            cursor+=d; gap-=d
+    return out
+
+
 def make_multimedia_video(video_clips, image_paths, audio, out, duration, captions, script=None, topic_title='GTA 6', beats=None, motion_boost=False):
     # FFmpeg/yuv420p requires even width/height. Keep the Render Free
     # intermediate at an even 320x568 and upscale only at the final render.
@@ -2643,25 +2696,25 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
     if script is None:
         script={'narration':' '.join(captions)}
     beats=beats or build_short_timeline(script, {'title':topic_title}, duration, count=10)
-    # Use up to six images so the timeline can reach 10-12 cuts without repeating shots.
-    imgs=list(image_paths)[:5]
+    # Nunca permita que uma legenda/beat de timestamps incompletos vire uma
+    # cena final de 10–15s. A timeline visual é normalizada independentemente.
+    beats=_normalize_visual_beats(beats,duration,max_scene=3.2)
+    # Use todos os assets disponíveis; quando há poucos, o renderer aplica
+    # enquadramentos diferentes em cada reutilização em vez de congelar a tela.
+    imgs=list(image_paths)[:6]
     assets=_choose_timeline_assets(video_clips,imgs,beats,topic_title)
-    # Keep the exact audio length by adjusting the final beat.
-    diff=duration-sum(b['duration'] for b in beats)
-    beats[-1]['duration']=max(1.0,beats[-1]['duration']+diff)
     scene_files=[]
     for i,(beat,(kind,src)) in enumerate(zip(beats,assets)):
         scene=work/f'scene_{i:02d}.mp4'; overlay=work/f'overlay_{i:02d}.png'
         _caption_overlay(overlay,beat['text'],i,len(beats),320,568,beat.get('highlight'))
         if kind=='video':
-            if motion_boost:
-                # Movimento suave para impedir que clipes estáticos terminem como uma tela congelada.
-                vf="scale=340:604:force_original_aspect_ratio=increase,crop=320:568:x='10+8*sin(n/18)':y='18+6*cos(n/23)',setsar=1,fps=15"
-            else:
-                vf='scale=320:568:force_original_aspect_ratio=increase,crop=320:568,setsar=1,fps=15'
+            # Movimento leve em todas as cenas. Em reparos, aumenta a amplitude.
+            amp=12 if motion_boost else 7
+            vf=f"scale=340:604:force_original_aspect_ratio=increase,crop=320:568:x='10+{amp}*sin(n/18)':y='18+{max(4,amp//2)}*cos(n/23)',setsar=1,fps=15"
             inp=['-stream_loop','-1','-i',str(src)]
         else:
-            vf="scale=320:568:force_original_aspect_ratio=increase,crop=320:568,setsar=1,zoompan=z='min(zoom+0.002,1.04)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=320x568:fps=15"
+            zoom='0.003' if motion_boost else '0.002'
+            vf=f"scale=320:568:force_original_aspect_ratio=increase,crop=320:568,setsar=1,zoompan=z='min(zoom+{zoom},1.06)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=320x568:fps=15"
             inp=['-loop','1','-i',str(src)]
         cmd=[ff,'-loglevel','error','-y']+inp+['-loop','1','-i',str(overlay),'-t',f'{beat["duration"]:.3f}',
              '-filter_complex',f'[0:v]{vf}[v];[1:v]format=rgba[o];[v][o]overlay=0:0:shortest=1[outv]',
@@ -2938,6 +2991,7 @@ def self_heal(jid, script, video, duration, beats, selected_videos, image_scenes
     if 'VISUAL_STAGNATION' in codes or 'HIGH_FROZEN_RATIO' in codes:
         _learn_event('VISUAL_STAGNATION','auditor detectou repetição/congelamento visual', 'rerender com movimento suave e ordem alternativa de ativos', None)
         update_job(jid,stage='AUTO-CORREÇÃO',progress=94,log='🧠 AUDITOR IA: visual repetitivo/congelado detectado. Reorganizando ativos e renderizando com movimento automático...')
+        # Não basta inverter a lista: força movimento e reordenação por relevância.
         alt_videos=list(reversed(selected_videos)) if selected_videos else selected_videos
         alt_images=list(reversed(image_scenes)) if image_scenes else image_scenes
         video2=video.with_name('GTA_OCULTO_SHORT_VISUAL_REPAIRED.mp4')
