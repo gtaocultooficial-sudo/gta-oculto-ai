@@ -37,7 +37,7 @@ STATE_FILE = WORK / 'jobs.json'
 LOCK = threading.RLock()
 PROCESSING = False
 _last_gnews_diagnostics = []
-UA = 'GTA-Oculto-AI/Cloud-Final/1.10-V41.3'
+UA = 'GTA-Oculto-AI/Cloud-Final/1.12-V42.2'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
@@ -865,14 +865,14 @@ def _resolver_memory_load():
     """
     with RESOLVER_LOCK:
         if not RESOLVER_MEMORY_FILE.exists():
-            return {'version':'V41.3','domains':{},'strategies':{},'updated_at':now_iso()}
+            return {'version':'V42.2','domains':{},'strategies':{},'updated_at':now_iso()}
         try:
             d=json.loads(RESOLVER_MEMORY_FILE.read_text(encoding='utf-8'))
             if not isinstance(d,dict): raise ValueError('resolver memory inválida')
             d.setdefault('version','V41.3'); d.setdefault('domains',{}); d.setdefault('strategies',{})
             return d
         except Exception:
-            return {'version':'V41.3','domains':{},'strategies':{},'updated_at':now_iso()}
+            return {'version':'V42.2','domains':{},'strategies':{},'updated_at':now_iso()}
 
 
 def _resolver_memory_save(d):
@@ -1094,30 +1094,64 @@ def _fetch_topic_evidence(topic):
     original_url=str(topic.get('url') or '').strip()
     title=str(topic.get('title') or '').strip()
     source_name=str(topic.get('source') or '').strip()
+    # Important V42.2 change: a failed Google News decode MUST NOT end production.
+    # The previous implementation returned BLOCKED_URL here and never reached the
+    # secondary-source resolver. That made a temporary Google 429 indistinguishable
+    # from a genuinely unresolved story. We now keep the unresolved URL as discovery
+    # context and continue automatically to independent trusted-source discovery.
     url=_resolve_article_url(original_url, title, source_name)
-    if not url or _is_google_news_url(url):
-        return [], original_url, 'BLOCKED_URL'
 
     # Primary publisher: preserve strict source lock when its real article body is reachable.
+    if url and not _is_google_news_url(url):
+        try:
+            r=fetch(url,timeout=22); r.raise_for_status()
+            final_url=str(getattr(r,'url','') or url).strip()
+            if not _is_google_news_url(final_url):
+                lines,method=_extract_article_body_from_html(r.text)
+                if lines:
+                    topic['_original_url']=original_url
+                    topic['_resolved_url']=final_url
+                    topic['_source_original']=source_name
+                    topic['_source_used']=source_name
+                    _resolver_learn(_resolver_domain(final_url),'primary-source',True)
+                    return lines, final_url, method
+                _resolver_learn(_resolver_domain(final_url),'article-body-extraction',False)
+        except Exception as e:
+            try:
+                global _last_gnews_diagnostics
+                _last_gnews_diagnostics=(list(_last_gnews_diagnostics or [])+[f'PRIMARY_FETCH_ERROR:{type(e).__name__}:{str(e)[:100]}'])[-24:]
+            except Exception:
+                pass
+
+    # V42.2: autonomous secondary-source recovery. A Google News decoder failure
+    # (especially HTTP 429) is treated as a discovery problem, never as a content
+    # failure. We immediately switch to independent trusted publishers/search engines.
     try:
-        r=fetch(url,timeout=22); r.raise_for_status()
-        final_url=str(getattr(r,'url','') or url).strip()
-        if not _is_google_news_url(final_url):
-            lines,method=_extract_article_body_from_html(r.text)
-            if lines:
-                topic['_original_url']=original_url
-                topic['_resolved_url']=final_url
-                topic['_source_original']=source_name
-                topic['_source_used']=source_name
-                return lines, final_url, method
+        diag_text=' | '.join(_last_gnews_diagnostics[-8:])
+        if '429' in diag_text:
+            _last_gnews_diagnostics=(list(_last_gnews_diagnostics or [])+['AUTONOMOUS_FALLBACK_TRIGGER:GOOGLE_429'])[-24:]
+        else:
+            _last_gnews_diagnostics=(list(_last_gnews_diagnostics or [])+['AUTONOMOUS_FALLBACK_TRIGGER:PRIMARY_UNRESOLVED'])[-24:]
     except Exception:
         pass
-
     # Secondary source fallback: adaptive same-story resolver. It can run a second
     # discovery pass with different semantic queries if the first candidate set fails.
     tried=set()
-    for resolver_pass in range(2):
-        candidates=_article_url_candidates_from_search(title, source_name)
+    for resolver_pass in range(3):
+        # Pass 0/1 use the normal adaptive resolver. Pass 2 deliberately broadens
+        # the query by dropping the original publisher name, which helps when the
+        # headline itself is too publisher-specific. The candidate function remains
+        # source-locked and trusted-domain-only for factual extraction.
+        if resolver_pass < 2:
+            candidates=_article_url_candidates_from_search(title, source_name)
+        else:
+            broad_title=re.sub(r'\s+-\s+[^-]+$','',title).strip()
+            broad_title=re.sub(r'\b(?:confirma|confirmou|revela|revelou|segundo executivo|diz executivo)\b','',broad_title,flags=re.I)
+            candidates=_article_url_candidates_from_search(broad_title or title, '')
+            try:
+                _last_gnews_diagnostics=(list(_last_gnews_diagnostics or [])+['FALLBACK_PASS:3_BROAD_QUERY'])[-24:]
+            except Exception:
+                pass
         if not candidates: continue
         for alt_url in candidates:
             if alt_url in tried: continue
@@ -1151,11 +1185,17 @@ def _fetch_topic_evidence(topic):
                 topic['_source_used']=alt_name
                 topic['_source_fallback']=True
                 topic['_resolver_score']=overlap
+                _last_gnews_diagnostics=(list(_last_gnews_diagnostics or [])+[f'SECONDARY_RECOVERED:{host}:{method}'])[-24:]
                 return lines, final_alt, f'SECONDARY_{method}'
             except Exception as e:
                 _resolver_learn(host_guess,'candidate-fetch',False)
                 continue
 
+    # We reached the end only after exhausting trusted-source discovery.
+    # Distinguish an unresolved Google URL from a resolved page with no article body
+    # so the autonomous engine can learn which strategy actually failed.
+    if not url or _is_google_news_url(url):
+        return [], original_url, 'BLOCKED_URL'
     return [], url, 'BLOCKED_NO_ARTICLE_BODY'
 
 def _evidence_sentences(desc, article_lines=None, title='', extraction_method=''):
@@ -2428,14 +2468,14 @@ def make_cover(scene,title,out):
 def _load_learning():
     with LEARNING_LOCK:
         if not LEARNING_FILE.exists():
-            return {'version':'V41.3','errors':{},'strategies':{},'experiments':[],'updated_at':now_iso()}
+            return {'version':'V42.2','errors':{},'strategies':{},'experiments':[],'updated_at':now_iso()}
         try:
             d=json.loads(LEARNING_FILE.read_text(encoding='utf-8'))
             if not isinstance(d,dict): raise ValueError('learning inválido')
             d.setdefault('version','V41.3'); d.setdefault('errors',{}); d.setdefault('strategies',{}); d.setdefault('experiments',[])
             return d
         except Exception:
-            return {'version':'V41.3','errors':{},'strategies':{},'experiments':[],'updated_at':now_iso()}
+            return {'version':'V42.2','errors':{},'strategies':{},'experiments':[],'updated_at':now_iso()}
 
 def _save_learning(data):
     data['updated_at']=now_iso()
