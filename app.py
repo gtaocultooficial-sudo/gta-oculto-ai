@@ -52,7 +52,7 @@ UA = 'GTA-Oculto-AI/Cloud-Final/V55-SOURCE-RECOVERY-3'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
-BUILD_VERSION = 'V55.9-CAPTION-ALIGNMENT-SAFE-20261008'
+BUILD_VERSION = 'V56-VISUAL-DIVERSITY-RETENTION-20261008'
 
 FALLBACK_TOPICS = [
     {'id':'leonida','score':96,'priority':'ALTA','title':'GTA 6: o detalhe de Leonida que pode mudar a história','source':'Rockstar Games','url':ROCKSTAR_VI,
@@ -2781,31 +2781,61 @@ def _asset_relevance(path, title, beat_text, kind):
     return score
 
 def _choose_timeline_assets(video_clips, image_paths, beats, topic_title, variant=0):
-    """Assign unique assets where possible and avoid repetitive adjacent shots."""
-    pool=[]
-    for p in video_clips: pool.append(('video',p))
-    for p in image_paths: pool.append(('image',p))
+    """V56: schedule assets for retention, not just relevance.
+    Uses every unique asset before reuse, enforces motion variety, and protects
+    the final seconds from immediately repeating an early visual.
+    """
+    videos=[p for p in video_clips if p]
+    images=[p for p in image_paths if p]
+    pool=[('video',p) for p in videos]+[('image',p) for p in images]
     chosen=[]; used=set()
+
+    def recent_penalty(p, bi):
+        pen=0
+        recent=[x[1] for x in chosen[-3:]]
+        if p in recent:
+            pen += 90
+        if chosen and chosen[-1][0]=='image' and p in [x[1] for x in chosen[-2:]]:
+            pen += 35
+        if beats and bi >= max(0, int(len(beats)*0.80)) and p in [x[1] for x in chosen[:3]]:
+            pen += 75
+        return pen
+
     for bi,beat in enumerate(beats):
+        remaining=[(idx,kind,p) for idx,(kind,p) in enumerate(pool) if idx not in used]
+        candidates=remaining or [(idx,kind,p) for idx,(kind,p) in enumerate(pool)]
         ranked=[]
-        for idx,(kind,p) in enumerate(pool):
-            if idx in used:
-                continue
-            s=_asset_relevance(p,topic_title,beat['text'],kind)
-            # Prefer video on hook and then alternate motion/still where possible.
-            if bi==0 and kind=='video': s+=25
-            if chosen and chosen[-1][1]==p: s-=100
-            if bi%2==0 and kind=='video': s+=5
-            if variant and idx % 4 == (bi + variant) % 4: s += 18
-            if variant >= 2 and bi % 3 == 1 and kind == 'image': s += 10
-            ranked.append((s,kind,p,idx))
-        if not ranked:
-            # Reuse the least-recent asset only when unique assets are exhausted.
-            ranked=[(_asset_relevance(p,topic_title,beat['text'],kind),kind,p,idx) for idx,(kind,p) in enumerate(pool)]
+        for idx,kind,p in candidates:
+            score=_asset_relevance(p,topic_title,beat.get('text',''),kind)
+            if bi==0 and kind=='video':
+                score += 35
+            if bi>0 and chosen[-1][0] != kind:
+                score += 12
+            if bi % 2 == 0 and kind=='video':
+                score += 9
+            if bi % 2 == 1 and kind=='image':
+                score += 5
+            if bi >= max(0,int(len(beats)*0.75)) and kind=='video':
+                score += 16
+            if variant and idx % 4 == (bi+variant)%4:
+                score += 10
+            score -= recent_penalty(p,bi)
+            ranked.append((score,kind,p,idx))
         ranked.sort(key=lambda x:x[0],reverse=True)
         _,kind,p,idx=ranked[0]
         chosen.append((kind,p))
         used.add(idx)
+
+    # Protect the ending from immediately reusing one of the opening visuals.
+    if len(chosen)>=6:
+        early={chosen[0][1],chosen[1][1]}
+        for j in range(max(0,len(chosen)-3),len(chosen)):
+            if chosen[j][1] in early:
+                limit=max(2, len(chosen)-3)
+                for k in range(2,limit):
+                    if chosen[k][1] not in early and chosen[k][1] != chosen[j][1]:
+                        chosen[j],chosen[k]=chosen[k],chosen[j]
+                        break
     return chosen
 
 def _normalize_visual_beats(beats, duration, max_scene=3.2):
