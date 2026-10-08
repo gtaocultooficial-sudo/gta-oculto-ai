@@ -838,35 +838,76 @@ def _extract_article_body_from_html(html):
 
 
 def _article_url_candidates_from_search(title, source_name=''):
-    """Find same-story publisher pages when the primary publisher blocks server-side fetches."""
+    """Find same-story publisher pages through several lightweight search paths.
+
+    V40.4: DuckDuckGo can return an empty page from cloud IPs. We therefore try
+    Google News RSS, Bing HTML, Google HTML and DuckDuckGo, then normalize every
+    candidate. Google News RSS candidates are resolved with the decoder that is
+    already proven working above.
+    """
     query=' '.join(x for x in (str(title or '').strip(), str(source_name or '').strip()) if x)
     if not query: return []
+    preferred=(
+        'tecnoblog.net','omelete.com.br','exame.com','terra.com.br',
+        'meups.com.br','criticalhits.com.br','games.gg','antihype.com.br',
+        'portaldopixel.com.br','portaldovideogame.com.br','centralxbox.com.br',
+        'gamevicio.com','purexbox.com'
+    )
+    blocked={'br.ign.com','ign.com'}
+    found=[]; seen=set()
+
+    def add(href):
+        href=str(href or '').strip()
+        if not href: return
+        try:
+            qs=parse_qs(urlparse(href).query)
+            for key in ('uddg','url','q'):
+                if qs.get(key) and qs[key][0].startswith(('http://','https://')):
+                    href=qs[key][0]; break
+        except Exception:
+            pass
+        if not href.startswith(('http://','https://')) or _is_google_news_url(href): return
+        host=urlparse(href).netloc.lower().replace('www.','')
+        if host in blocked: return
+        if not any(host==d or host.endswith('.'+d) for d in preferred): return
+        if href not in seen:
+            seen.add(href); found.append(href)
+
+    # 1) Google News RSS: very reliable for finding the same story, and its links
+    # are subsequently resolved by our working Google News decoder.
     try:
-        qurl='https://html.duckduckgo.com/html/?q=' + quote_plus(query)
-        rr=fetch(qurl, timeout=18)
-        if not rr.ok: return []
-        soup=BeautifulSoup(rr.text,'html.parser')
-        preferred=(
-            'tecnoblog.net','omelete.com.br','exame.com','terra.com.br',
-            'meups.com.br','criticalhits.com.br','games.gg','antihype.com.br',
-            'portaldopixel.com.br','portaldovideogame.com.br','centralxbox.com.br'
-        )
-        found=[]; seen=set()
-        for a in soup.select('a.result__a, a[href]'):
-            href=str(a.get('href') or '').strip()
-            try:
-                qs=parse_qs(urlparse(href).query)
-                if qs.get('uddg'): href=qs['uddg'][0]
-            except Exception: pass
-            if not href.startswith(('http://','https://')) or _is_google_news_url(href): continue
-            host=urlparse(href).netloc.lower().replace('www.','')
-            if host in {'br.ign.com','ign.com'}: continue
-            if not any(host==d or host.endswith('.'+d) for d in preferred): continue
-            if href not in seen:
-                seen.add(href); found.append(href)
-        return found[:8]
+        rss_url='https://news.google.com/rss/search?q=' + quote_plus(query) + '&hl=pt-BR&gl=BR&ceid=BR:pt-419'
+        rr=fetch(rss_url, timeout=18)
+        if rr.ok:
+            rs=BeautifulSoup(rr.text,'xml')
+            for item in rs.find_all('item')[:12]:
+                link=str(item.find('link').get_text(strip=True) if item.find('link') else '').strip()
+                if not link: continue
+                decoded=_resolve_article_url(link, title, source_name)
+                add(decoded)
+                if len(found)>=8: return found[:8]
     except Exception:
-        return []
+        pass
+
+    # 2) Bing HTML.
+    engines=[
+        'https://www.bing.com/search?q=' + quote_plus(query) + '&setlang=pt-BR',
+        'https://www.google.com/search?q=' + quote_plus(query) + '&hl=pt-BR&num=10',
+        'https://html.duckduckgo.com/html/?q=' + quote_plus(query),
+    ]
+    for qurl in engines:
+        try:
+            rr=fetch(qurl, timeout=18)
+            if not rr.ok: continue
+            soup=BeautifulSoup(rr.text,'html.parser')
+            selectors=['li.b_algo h2 a','a.result__a','a[href]']
+            for sel in selectors:
+                for a in soup.select(sel):
+                    add(a.get('href'))
+                    if len(found)>=8: return found[:8]
+        except Exception:
+            continue
+    return found[:8]
 
 
 def _topic_title_overlap(title, lines):
@@ -1099,7 +1140,7 @@ def make_script(topic):
         'editorial_score':topic.get('editorial_score'),'editorial_decision':topic.get('editorial_decision','PRODUZIR'),
         'editorial_reason':topic.get('editorial_reason',''),'sections':sections,
         'evidence':evidence[:3],'word_count':word_count,'estimated_seconds':estimated_seconds,
-        'script_version':'V40.1-SOURCE-LOCK-FINAL','extraction_method':extraction_method
+        'script_version':'V40.4-SOURCE-LOCK-SEARCH-FALLBACK','extraction_method':extraction_method
     }
 
 def build_dynamic_captions(script, topic, count=9):
