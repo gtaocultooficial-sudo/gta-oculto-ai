@@ -61,7 +61,7 @@ UA = 'GTA-Oculto-AI/Cloud-Final/V55-SOURCE-RECOVERY-3'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
-BUILD_VERSION = 'V58-LIVE-CLIPS-20261008'
+BUILD_VERSION = 'V59-QUALITY-ENGINE-20261008'
 
 FALLBACK_TOPICS = [
     {'id':'leonida','score':96,'priority':'ALTA','title':'GTA 6: o detalhe de Leonida que pode mudar a história','source':'Rockstar Games','url':ROCKSTAR_VI,
@@ -2940,7 +2940,7 @@ def _normalize_visual_beats(beats, duration, max_scene=3.2):
 def make_multimedia_video(video_clips, image_paths, audio, out, duration, captions, script=None, topic_title='GTA 6', beats=None, motion_boost=False, asset_variant=0):
     # FFmpeg/yuv420p requires even width/height. Keep the Render Free
     # intermediate at an even 320x568 and upscale only at the final render.
-    INTER_W, INTER_H = 320, 568
+    INTER_W, INTER_H = 540, 960
     if INTER_W % 2 or INTER_H % 2:
         raise RuntimeError(f'Dimensões intermediárias inválidas: {INTER_W}x{INTER_H}.')
     """V25 editor: narration-driven timeline, 12 short beats, real clips + images.
@@ -2966,16 +2966,16 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
         _caption_overlay(overlay,beat['text'],i,len(beats),320,568,beat.get('highlight'))
         if kind=='video':
             # Movimento leve em todas as cenas. Em reparos, aumenta a amplitude.
-            amp=18 if motion_boost else 7
-            vf=f"scale=340:604:force_original_aspect_ratio=increase,crop=320:568:x='10+{amp}*sin(n/18)':y='18+{max(4,amp//2)}*cos(n/23)',setsar=1,fps=15"
+            amp=28 if motion_boost else 10
+            vf=f"scale=574:1020:force_original_aspect_ratio=increase,crop=540:960:x='10+{amp}*sin(n/18)':y='18+{max(4,amp//2)}*cos(n/23)',setsar=1,fps=30"
             inp=['-stream_loop','-1','-i',str(src)]
         else:
-            zoom='0.006' if motion_boost else '0.002'
-            vf=f"scale=320:568:force_original_aspect_ratio=increase,crop=320:568,setsar=1,zoompan=z='min(zoom+{zoom},1.06)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=320x568:fps=15"
+            zoom='0.008' if motion_boost else '0.003'
+            vf=f"scale=540:960:force_original_aspect_ratio=increase,crop=540:960,setsar=1,zoompan=z='min(zoom+{zoom},1.06)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=540x960:fps=30"
             inp=['-loop','1','-i',str(src)]
         cmd=[ff,'-loglevel','error','-y']+inp+['-loop','1','-i',str(overlay),'-t',f'{beat["duration"]:.3f}',
              '-filter_complex',f'[0:v]{vf}[v];[1:v]format=rgba[o];[v][o]overlay=0:0:shortest=1[outv]',
-             '-map','[outv]','-an','-c:v','libx264','-preset','ultrafast','-crf','28',
+             '-map','[outv]','-an','-c:v','libx264','-preset','veryfast','-crf','21',
              '-threads','1','-filter_threads','1','-filter_complex_threads','1',
              '-x264-params','threads=1:lookahead-threads=1','-pix_fmt','yuv420p','-movflags','+faststart',str(scene)]
         run_cmd(cmd,75)
@@ -2986,9 +2986,9 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
     with listfile.open('w',encoding='utf-8') as f:
         for sf in scene_files: f.write(f"file '{sf.as_posix()}'\n")
     run_cmd([ff,'-loglevel','error','-y','-f','concat','-safe','0','-i',str(listfile),'-i',str(audio),
-             '-t',f'{duration:.2f}','-vf','scale=540:960:flags=lanczos,format=yuv420p','-r','15',
-             '-c:v','libx264','-preset','ultrafast','-crf','26','-threads','1','-filter_threads','1','-filter_complex_threads','1',
-             '-x264-params','threads=1:lookahead-threads=1','-c:a','aac','-b:a','128k',
+             '-t',f'{duration:.2f}','-vf','scale=1080:1920:flags=lanczos,format=yuv420p','-r','30',
+             '-c:v','libx264','-preset','veryfast','-crf','20','-threads','1','-filter_threads','1','-filter_complex_threads','1',
+             '-x264-params','threads=1:lookahead-threads=1','-c:a','aac','-b:a','160k',
              '-movflags','+faststart','-shortest',str(out)],180)
     for p in scene_files:
         try: p.unlink()
