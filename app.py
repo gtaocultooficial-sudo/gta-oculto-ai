@@ -52,7 +52,7 @@ UA = 'GTA-Oculto-AI/Cloud-Final/V55-SOURCE-RECOVERY-3'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
-BUILD_VERSION = 'V55.6-AUDITOR-DIAGNOSTIC-20261008'
+BUILD_VERSION = 'V55.7-HEADLINE-GATE-FIX-20261008'
 
 FALLBACK_TOPICS = [
     {'id':'leonida','score':96,'priority':'ALTA','title':'GTA 6: o detalhe de Leonida que pode mudar a história','source':'Rockstar Games','url':ROCKSTAR_VI,
@@ -1553,11 +1553,15 @@ def _editorial_noise_score(text, headline=''):
     if re.search(r'\b(?:revela|revelou|nega|nega que|garante|confirma|afirma|afirmou)\b',low) and len(t.split()) < 22:
         score += 1
     if headline:
+        # V55.7: topic overlap alone is NOT headline contamination.
+        # A narration is expected to repeat the subject/title naturally.
+        # Only flag a near-verbatim short headline fragment.
         hw=set(re.findall(r'[a-zà-ÿ0-9]+',headline.lower()))
         tw=set(re.findall(r'[a-zà-ÿ0-9]+',low))
         if hw and tw:
             overlap=len(hw & tw)/max(1,len(hw))
-            if overlap>=0.65: score += 2
+            if overlap>=0.95 and len(t.split())<=16:
+                score += 2
     return score
 
 def _clean_evidence_for_script(items, headline):
