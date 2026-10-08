@@ -1,0 +1,44 @@
+name: Autonomous Free Production
+
+on:
+  schedule:
+    # 10:00 and 22:00 BRT (UTC-3)
+    - cron: "0 13,1 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check cloud and trigger only when idle
+        shell: bash
+        run: |
+          set -e
+          BASE="https://gta-oculto-ai.onrender.com"
+          echo "Checking GTA Oculto AI..."
+          health=$(curl -fsS --max-time 60 "$BASE/health")
+          echo "$health"
+
+          state=$(curl -fsS --max-time 60 "$BASE/api/state")
+          echo "$state" > /tmp/state.json
+
+          python - <<'PY'
+          import json, urllib.request
+          base="https://gta-oculto-ai.onrender.com"
+          with open("/tmp/state.json", encoding="utf-8") as f:
+              state=json.load(f)
+          queue=int(state.get("queue",0) or 0)
+          if queue:
+              print(f"Production already active (queue={queue}). Nothing to trigger.")
+              raise SystemExit(0)
+          req=urllib.request.Request(base+"/api/produce", method="GET")
+          with urllib.request.urlopen(req, timeout=60) as r:
+              body=r.read().decode()
+          print("Production trigger:", body)
+          if '"ok":true' not in body:
+              raise SystemExit("Production trigger was not accepted.")
+          PY
