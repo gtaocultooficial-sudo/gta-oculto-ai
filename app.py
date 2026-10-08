@@ -1795,6 +1795,7 @@ def select_visuals(paths, topic_title, count=10):
     if not paths: return []
     plans=_scene_keywords(topic_title)
     chosen=[]; used=set()
+    variant=int(variant or 0)
     for kws in plans:
         ranked=[]
         for idx,item in enumerate(paths):
@@ -2649,7 +2650,7 @@ def _asset_relevance(path, title, beat_text, kind):
     if kind=='video': score+=3
     return score
 
-def _choose_timeline_assets(video_clips, image_paths, beats, topic_title):
+def _choose_timeline_assets(video_clips, image_paths, beats, topic_title, variant=0):
     """Assign unique assets where possible and avoid repetitive adjacent shots."""
     pool=[]
     for p in video_clips: pool.append(('video',p))
@@ -2665,6 +2666,8 @@ def _choose_timeline_assets(video_clips, image_paths, beats, topic_title):
             if bi==0 and kind=='video': s+=25
             if chosen and chosen[-1][1]==p: s-=100
             if bi%2==0 and kind=='video': s+=5
+            if variant and idx % 4 == (bi + variant) % 4: s += 18
+            if variant >= 2 and bi % 3 == 1 and kind == 'image': s += 10
             ranked.append((s,kind,p,idx))
         if not ranked:
             # Reuse the least-recent asset only when unique assets are exhausted.
@@ -2714,7 +2717,7 @@ def _normalize_visual_beats(beats, duration, max_scene=3.2):
     return out
 
 
-def make_multimedia_video(video_clips, image_paths, audio, out, duration, captions, script=None, topic_title='GTA 6', beats=None, motion_boost=False):
+def make_multimedia_video(video_clips, image_paths, audio, out, duration, captions, script=None, topic_title='GTA 6', beats=None, motion_boost=False, asset_variant=0):
     # FFmpeg/yuv420p requires even width/height. Keep the Render Free
     # intermediate at an even 320x568 and upscale only at the final render.
     INTER_W, INTER_H = 320, 568
@@ -2732,22 +2735,22 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
     beats=beats or build_short_timeline(script, {'title':topic_title}, duration, count=10)
     # Nunca permita que uma legenda/beat de timestamps incompletos vire uma
     # cena final de 10–15s. A timeline visual é normalizada independentemente.
-    beats=_normalize_visual_beats(beats,duration,max_scene=3.2)
+    beats=_normalize_visual_beats(beats,duration,max_scene=2.4)
     # Use todos os assets disponíveis; quando há poucos, o renderer aplica
     # enquadramentos diferentes em cada reutilização em vez de congelar a tela.
     imgs=list(image_paths)[:6]
-    assets=_choose_timeline_assets(video_clips,imgs,beats,topic_title)
+    assets=_choose_timeline_assets(video_clips,imgs,beats,topic_title,variant=asset_variant)
     scene_files=[]
     for i,(beat,(kind,src)) in enumerate(zip(beats,assets)):
         scene=work/f'scene_{i:02d}.mp4'; overlay=work/f'overlay_{i:02d}.png'
         _caption_overlay(overlay,beat['text'],i,len(beats),320,568,beat.get('highlight'))
         if kind=='video':
             # Movimento leve em todas as cenas. Em reparos, aumenta a amplitude.
-            amp=12 if motion_boost else 7
+            amp=18 if motion_boost else 7
             vf=f"scale=340:604:force_original_aspect_ratio=increase,crop=320:568:x='10+{amp}*sin(n/18)':y='18+{max(4,amp//2)}*cos(n/23)',setsar=1,fps=15"
             inp=['-stream_loop','-1','-i',str(src)]
         else:
-            zoom='0.003' if motion_boost else '0.002'
+            zoom='0.006' if motion_boost else '0.002'
             vf=f"scale=320:568:force_original_aspect_ratio=increase,crop=320:568,setsar=1,zoompan=z='min(zoom+{zoom},1.06)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=320x568:fps=15"
             inp=['-loop','1','-i',str(src)]
         cmd=[ff,'-loglevel','error','-y']+inp+['-loop','1','-i',str(overlay),'-t',f'{beat["duration"]:.3f}',
@@ -2904,11 +2907,14 @@ def _audit_caption_quality(beats):
         vs=_caption_visual_split_quality(b.get('text',''))
         if vs['score']<85: visual_bad.append({'text':b.get('text',''),'lines':vs['lines']})
     total=max(1,len(beats or []))
-    penalty=min(55,len(bad_end)*5+len(bad_start)*4+len(long)*4+len(short)*5+len(visual_bad)*4)
+    texts=[re.sub(r'\s+',' ',str(b.get('text','')).strip().lower()) for b in (beats or []) if str(b.get('text','')).strip()]
+    repeated_adj=sum(1 for i in range(1,len(texts)) if texts[i] and texts[i]==texts[i-1])
+    repeated_total=max(0,len(texts)-len(set(texts))) if texts else 0
+    penalty=min(65,len(bad_end)*5+len(bad_start)*4+len(long)*4+len(short)*5+len(visual_bad)*4+repeated_adj*8+repeated_total*3)
     return {
         'score':max(0,100-penalty),
         'bad_end':bad_end,'bad_start':bad_start,'long':long,'short':short,
-        'visual_bad':visual_bad
+        'visual_bad':visual_bad,'repeated_adjacent':repeated_adj,'repeated_total':repeated_total
     }
 
 
@@ -2993,6 +2999,7 @@ def audit_short(script, video, duration, beats, selected_videos, image_scenes):
         checks['roteiro']=0
     cap=_audit_caption_quality(beats); checks['legendas']=cap['score']
     if cap['score']<85: issues.append(('CAPTIONS_BAD_BOUNDARY','legendas com cortes semanticamente ruins'))
+    if cap.get('repeated_adjacent',0)>0: issues.append(('CAPTIONS_REPEATED','legenda repetida em blocos consecutivos'))
     media=_probe_media(video); checks['mp4']=100 if media.get('ok') else 0
     if not media.get('ok'): issues.append(('MEDIA_UNREADABLE',media.get('error','MP4 inválido')))
     else:
@@ -3023,22 +3030,39 @@ def self_heal(jid, script, video, duration, beats, selected_videos, image_scenes
     repaired=False
     codes={x['code'] for x in audit['issues']}
     if 'VISUAL_STAGNATION' in codes or 'HIGH_FROZEN_RATIO' in codes:
-        _learn_event('VISUAL_STAGNATION','auditor detectou repetição/congelamento visual', 'rerender com movimento suave e ordem alternativa de ativos', None)
-        update_job(jid,stage='AUTO-CORREÇÃO',progress=94,log='🧠 AUDITOR IA: visual repetitivo/congelado detectado. Reorganizando ativos e renderizando com movimento automático...')
-        # Não basta inverter a lista: força movimento e reordenação por relevância.
-        alt_videos=list(reversed(selected_videos)) if selected_videos else selected_videos
-        alt_images=list(reversed(image_scenes)) if image_scenes else image_scenes
-        video2=video.with_name('GTA_OCULTO_SHORT_VISUAL_REPAIRED.mp4')
-        make_multimedia_video(alt_videos,alt_images,audio,video2,duration,[b.get('text','') for b in beats],script,topic['title'],beats,motion_boost=True)
-        audit2=audit_short(script,video2,duration,beats,alt_videos,alt_images)
-        if audit2.get('score',0)>=audit.get('score',0):
+        _learn_event('VISUAL_STAGNATION','auditor detectou repetição/congelamento visual', 'testar múltiplas timelines com cenas curtas, ordem alternativa e movimento aumentado', None)
+        update_job(jid,stage='AUTO-CORREÇÃO',progress=94,log='🧠 AUDITOR IA: visual repetitivo/congelado detectado. Testando variações de timeline automaticamente...')
+        base_score=audit.get('score',0)
+        best=None
+        variants=[]
+        if selected_videos: variants.append((list(reversed(selected_videos)), list(reversed(image_scenes)), 1))
+        if selected_videos: variants.append((selected_videos[1:]+selected_videos[:1], image_scenes[1:]+image_scenes[:1], 2))
+        if selected_videos: variants.append((selected_videos[::2]+selected_videos[1::2], image_scenes[::2]+image_scenes[1::2], 3))
+        for attempt,(alt_videos,alt_images,variant) in enumerate(variants,1):
+            video2=video.with_name(f'GTA_OCULTO_SHORT_VISUAL_REPAIR_{attempt}.mp4')
+            try:
+                make_multimedia_video(alt_videos,alt_images,audio,video2,duration,[b.get('text','') for b in beats],script,topic['title'],beats,motion_boost=True,asset_variant=variant)
+                audit2=audit_short(script,video2,duration,beats,alt_videos,alt_images)
+                if best is None or audit2.get('score',0)>best[0]:
+                    best=(audit2.get('score',0),audit2,video2,alt_videos,alt_images)
+                if audit2.get('score',0)>=90 and audit2.get('score',0)>base_score:
+                    break
+            except Exception as e:
+                _learn_event('VISUAL_REPAIR_ERROR',f'variação {attempt} falhou: {e}',f'asset_variant={variant}',False)
+                try: video2.unlink()
+                except Exception: pass
+        if best and best[0]>base_score:
+            _,audit2,video2,alt_videos,alt_images=best
             os.replace(video2,video); selected_videos[:]=alt_videos; image_scenes[:]=alt_images; audit=audit2; repaired=True
-            _learn_event('VISUAL_STAGNATION','reparo visual concluído', 'movimento suave + ordem alternativa de ativos', True)
+            _learn_event('VISUAL_STAGNATION','reparo visual concluído com melhor variante', 'múltiplas timelines + movimento aumentado', True)
         else:
-            try: video2.unlink()
-            except Exception: pass
-            _learn_event('VISUAL_STAGNATION','reparo visual não melhorou o score', 'movimento suave + ordem alternativa de ativos', False)
-    if 'CAPTIONS_BAD_BOUNDARY' in {x['code'] for x in audit['issues']}:
+            for attempt in range(1,len(variants)+1):
+                try:
+                    q=video.with_name(f'GTA_OCULTO_SHORT_VISUAL_REPAIR_{attempt}.mp4')
+                    if q.exists(): q.unlink()
+                except Exception: pass
+            _learn_event('VISUAL_STAGNATION','nenhuma variante melhorou o score', 'bloquear publicação para evitar Short visualmente ruim', False)
+    if 'CAPTIONS_BAD_BOUNDARY' in {x['code'] for x in audit['issues']} or 'CAPTIONS_REPEATED' in {x['code'] for x in audit['issues']}:
         _learn_event('CAPTIONS_BAD_BOUNDARY','auditor detectou cortes semânticos/visuais', 'resegmentar captions e equilibrar quebra de linha', None)
         new_beats=_repair_caption_beats(beats,duration,6)
         if new_beats and new_beats!=beats:
@@ -3155,7 +3179,7 @@ def produce_job(jid):
         audit['v42_independent']=v42_audit
         (jobdir/'audit.json').write_text(json.dumps(audit,ensure_ascii=False,indent=2),encoding='utf-8')
         update_job(jid,stage='AVALIAÇÃO',progress=96,log=f'🧠 AUDITOR IA: {audit.get("score",0)}/100 | reparo automático: {"SIM" if repaired else "NÃO"} | problemas: {len(audit.get("issues",[]))}.')
-        if audit.get('score',0)<78:
+        if audit.get('score',0)<82:
             for issue in audit.get('issues',[]): _learn_event(issue['code'],issue['message'])
             raise ValueError('AUDITOR IA: vídeo abaixo do padrão mínimo após correções seguras — produção bloqueada para evitar publicar conteúdo ruim.')
         # V33 hard gate: rendering is not enough; reject editorially contaminated/weak scripts.
