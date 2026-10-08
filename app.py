@@ -31,7 +31,7 @@ STATE_FILE = WORK / 'jobs.json'
 LOCK = threading.RLock()
 PROCESSING = False
 _last_gnews_diagnostics = []
-UA = 'GTA-Oculto-AI/Cloud-Final/1.8-V40.7'
+UA = 'GTA-Oculto-AI/Cloud-Final/1.9-V40.8'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
@@ -1226,7 +1226,7 @@ def make_script(topic):
         'editorial_score':topic.get('editorial_score'),'editorial_decision':topic.get('editorial_decision','PRODUZIR'),
         'editorial_reason':topic.get('editorial_reason',''),'sections':sections,
         'evidence':evidence[:3],'word_count':word_count,'estimated_seconds':estimated_seconds,
-        'script_version':'V40.7-SOURCE-LOCK-ROBUST-FALLBACK','extraction_method':extraction_method
+        'script_version':'V40.8-SOURCE-LOCK-FFMPEG-RUNTIME-FIX','extraction_method':extraction_method
     }
 
 def build_dynamic_captions(script, topic, count=9):
@@ -1581,6 +1581,22 @@ def prepare_scene(src,dst,caption,idx,total):
     im.close()
 
 
+def _ffmpeg_executable():
+    """Resolve FFmpeg robustly on Render/Linux.
+    Prefer the system binary (already used by ffprobe/rendering), then fall back
+    to imageio-ffmpeg only if it is installed. This prevents a missing optional
+    Python module from breaking the entire production pipeline.
+    """
+    ff = shutil.which('ffmpeg')
+    if ff:
+        return ff
+    try:
+        import imageio_ffmpeg
+        return str(imageio_ffmpeg.get_ffmpeg_exe())
+    except Exception as e:
+        raise RuntimeError('FFmpeg não encontrado no ambiente. Instale ffmpeg ou imageio-ffmpeg. Detalhe: '+str(e)[:500])
+
+
 def run_cmd(cmd,timeout=240):
     # Render Free has only 512 MB. Never retain FFmpeg's stderr in Python memory.
     err_path=WORK/'ffmpeg_last_error.log'
@@ -1738,7 +1754,7 @@ def download_official_video_clips(outdir, jid=None):
         for key in ('Jason','Lucia','Cal','Boobie','Raul','Brian','Real','Dre'):
             preferred += [e for e in media if key.lower() in Path(e['name']).stem.lower() and e not in preferred]
         chosen=(preferred+[e for e in media if e not in preferred])[:6]
-        ff=str(__import__('imageio_ffmpeg').get_ffmpeg_exe())
+        ff=_ffmpeg_executable()
         for i,entry in enumerate(chosen):
             target=cache/f'rockstar_real_v251_{i}.mp4'
             if target.exists() and target.stat().st_size>20000:
@@ -2163,7 +2179,7 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
     """V25 editor: narration-driven timeline, 12 short beats, real clips + images.
     Still optimized for Render Free by encoding one scene at a time.
     """
-    ff=str(__import__('imageio_ffmpeg').get_ffmpeg_exe())
+    ff=_ffmpeg_executable()
     work=out.parent/'timeline'; work.mkdir(exist_ok=True)
     if len(video_clips)<3:
         raise RuntimeError('A edição precisa de pelo menos 3 vídeos reais.')
@@ -2217,7 +2233,7 @@ def make_video(scenes,audio,out,duration):
         for p in scenes:
             f.write(f"file '{p.as_posix()}'\nduration {per:.3f}\n")
         f.write(f"file '{scenes[-1].as_posix()}'\n")
-    ff=str(__import__('imageio_ffmpeg').get_ffmpeg_exe())
+    ff=_ffmpeg_executable()
     run_cmd([ff,'-y','-f','concat','-safe','0','-i',str(listfile),'-i',str(audio),
              '-t',f'{duration:.2f}','-r','24','-c:v','libx264','-preset','ultrafast',
              '-crf','22','-threads','2','-profile:v','high','-pix_fmt','yuv420p',
