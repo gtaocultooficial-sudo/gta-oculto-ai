@@ -1795,7 +1795,6 @@ def select_visuals(paths, topic_title, count=10):
     if not paths: return []
     plans=_scene_keywords(topic_title)
     chosen=[]; used=set()
-    variant=int(variant or 0)
     for kws in plans:
         ranked=[]
         for idx,item in enumerate(paths):
