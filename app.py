@@ -44,6 +44,8 @@ FALLBACK_TOPICS = [
 ]
 
 RADAR_FILE = WORK / 'radar.json'
+LEARNING_FILE = WORK / 'learning.json'
+LEARNING_LOCK = threading.RLock()
 RADAR_LOCK = threading.RLock()
 RADAR_FEEDS = [
     ('Google News — GTA VI', 'https://news.google.com/rss/search?q=GTA+VI&hl=pt-BR&gl=BR&ceid=BR:pt-419'),
@@ -1226,7 +1228,7 @@ def make_script(topic):
         'editorial_score':topic.get('editorial_score'),'editorial_decision':topic.get('editorial_decision','PRODUZIR'),
         'editorial_reason':topic.get('editorial_reason',''),'sections':sections,
         'evidence':evidence[:3],'word_count':word_count,'estimated_seconds':estimated_seconds,
-        'script_version':'V40.8-SOURCE-LOCK-FFMPEG-RUNTIME-FIX','extraction_method':extraction_method
+        'script_version':'V41.0-SELF-HEALING-AUDITOR','extraction_method':extraction_method
     }
 
 def build_dynamic_captions(script, topic, count=9):
@@ -2251,6 +2253,147 @@ def make_cover(scene,title,out):
     d.text((100,120),'GTA OCULTO',font=font(30,True),fill=(255,255,255,180))
     im.save(out,quality=92)
 
+def _load_learning():
+    with LEARNING_LOCK:
+        if not LEARNING_FILE.exists():
+            return {'version':'V41.0','errors':{},'strategies':{},'experiments':[],'updated_at':now_iso()}
+        try:
+            d=json.loads(LEARNING_FILE.read_text(encoding='utf-8'))
+            if not isinstance(d,dict): raise ValueError('learning inválido')
+            d.setdefault('version','V41.0'); d.setdefault('errors',{}); d.setdefault('strategies',{}); d.setdefault('experiments',[])
+            return d
+        except Exception:
+            return {'version':'V41.0','errors':{},'strategies':{},'experiments':[],'updated_at':now_iso()}
+
+def _save_learning(data):
+    data['updated_at']=now_iso()
+    _atomic_write_json(LEARNING_FILE,data)
+
+def _learn_event(code, message, strategy=None, success=None):
+    try:
+        with LEARNING_LOCK:
+            d=_load_learning()
+            e=d['errors'].setdefault(code,{'count':0,'last':'','messages':[]})
+            e['count']=int(e.get('count',0))+1; e['last']=now_iso()
+            msgs=e.setdefault('messages',[]); msgs.append(str(message)[:500]); e['messages']=msgs[-8:]
+            if strategy:
+                st=d['strategies'].setdefault(code,{'uses':0,'success':0,'last':'','strategy':strategy})
+                st['uses']=int(st.get('uses',0))+1; st['last']=now_iso(); st['strategy']=strategy
+                if success is True: st['success']=int(st.get('success',0))+1
+            _save_learning(d)
+    except Exception:
+        pass
+
+def _repair_caption_beats(beats, duration, max_words=7):
+    """Auto-repair caption timing/text without changing the narration."""
+    repaired=[]
+    bad_end={'e','de','do','da','em','no','na','que','um','uma','o','a','os','as','para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa','sobre','entre','até','sem'}
+    bad_start={'e','mas','porque','porém','porem','então','entao','quando','enquanto','para','com','de','do','da','em','no','na','que'}
+    for b in beats or []:
+        words=_caption_words(b.get('text',''))
+        if not words: continue
+        # Split overlong captions first, preserving timing proportionally.
+        chunks=[words[i:i+max_words] for i in range(0,len(words),max_words)]
+        start=float(b.get('start',0)); end=float(b.get('end',start+b.get('duration',0.5))); span=max(0.4,end-start)
+        total=max(1,sum(len(c) for c in chunks)); cursor=start
+        for ci,ch in enumerate(chunks):
+            d=span*(len(ch)/total); ce=end if ci==len(chunks)-1 else cursor+d
+            text=_clean_caption_phrase(' '.join(ch))
+            if len(ch)>=2:
+                repaired.append({'text':text,'highlight':None,'start':cursor,'end':ce,'duration':max(0.3,ce-cursor)})
+            cursor=ce
+    # Merge fragments and avoid bad boundaries.
+    out=[]
+    for b in repaired:
+        words=_caption_words(b['text'])
+        if not words: continue
+        last=_caption_clean_word(words[-1]); first=_caption_clean_word(words[0])
+        if out and (len(words)<3 or last in bad_end or first in bad_start):
+            merged=_caption_words(out[-1]['text'])+words
+            if len(merged)<=max_words+3:
+                out[-1]['text']=_clean_caption_phrase(' '.join(merged)); out[-1]['end']=b['end']; out[-1]['duration']=max(0.3,out[-1]['end']-out[-1]['start']); continue
+        out.append(b)
+    for i,b in enumerate(out):
+        ws=re.findall(r"[A-Za-zÀ-ÿ0-9']+",b['text'])
+        pref=[w for w in ws if w.lower() in {'gta','6','rockstar','jason','lucia','leonida','vice','city','cloud','gaming','xbox','microsoft'}]
+        b['highlight']=pref[0] if pref else (ws[-1] if len(ws)>=4 else None)
+        if i and b['start']<out[i-1]['end']:
+            b['start']=out[i-1]['end']; b['duration']=max(0.3,b['end']-b['start'])
+    if out: out[-1]['end']=min(duration,out[-1]['end']); out[-1]['duration']=max(0.3,out[-1]['end']-out[-1]['start'])
+    return out
+
+def _audit_caption_quality(beats):
+    bad_end=[]; bad_start=[]; long=[]; short=[]
+    bad_end_set={'e','de','do','da','em','no','na','que','um','uma','o','a','os','as','para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa','sobre','entre','até','sem'}
+    bad_start_set={'e','mas','porque','porém','porem','então','entao','quando','enquanto','para','com','de','do','da','em','no','na','que'}
+    for b in beats or []:
+        words=_caption_words(b.get('text',''))
+        if not words: continue
+        if _caption_clean_word(words[-1]) in bad_end_set: bad_end.append(b['text'])
+        if _caption_clean_word(words[0]) in bad_start_set: bad_start.append(b['text'])
+        if len(words)>7: long.append(b['text'])
+        if len(words)<2: short.append(b['text'])
+    total=max(1,len(beats or [])); penalty=min(40,len(bad_end)*5+len(bad_start)*4+len(long)*4+len(short)*5)
+    return {'score':max(0,100-penalty),'bad_end':bad_end,'bad_start':bad_start,'long':long,'short':short}
+
+def _probe_media(path):
+    ff=shutil.which('ffprobe') or 'ffprobe'
+    try:
+        cmd=[ff,'-v','error','-show_entries','format=duration,size:stream=index,codec_type,width,height,codec_name','-of','json',str(path)]
+        out=subprocess.check_output(cmd,stderr=subprocess.DEVNULL,text=True,timeout=30)
+        d=json.loads(out); streams=d.get('streams',[]); fmt=d.get('format',{})
+        video=[x for x in streams if x.get('codec_type')=='video']; audio=[x for x in streams if x.get('codec_type')=='audio']
+        return {'ok':True,'duration':float(fmt.get('duration') or 0),'size':int(fmt.get('size') or 0),'video':video,'audio':audio}
+    except Exception as e:
+        return {'ok':False,'error':str(e)[:500]}
+
+def audit_short(script, video, duration, beats, selected_videos, image_scenes):
+    """Auditor V41: checks editorial, captions and actual MP4 before delivery."""
+    issues=[]; checks={}
+    narration=str(script.get('narration',''))
+    words=len(re.findall(r"[A-Za-zÀ-ÿ0-9']+",narration))
+    checks['roteiro']=100 if words>=70 and script.get('evidence') else 0
+    if any(x in narration.lower() for x in ('radar','editor-chefe','score','confiança','fontes','matérias','produzir agora')):
+        checks['roteiro']=0; issues.append(('EDITORIAL_METADATA','roteiro contém metadado interno'))
+    cap=_audit_caption_quality(beats); checks['legendas']=cap['score']
+    if cap['score']<85: issues.append(('CAPTIONS_BAD_BOUNDARY','legendas com cortes semanticamente ruins'))
+    media=_probe_media(video); checks['mp4']=100 if media.get('ok') else 0
+    if not media.get('ok'): issues.append(('MEDIA_UNREADABLE',media.get('error','MP4 inválido')))
+    else:
+        dur=media['duration']; v=media['video']; a=media['audio']
+        if not v: checks['mp4']-=50; issues.append(('NO_VIDEO_STREAM','MP4 sem vídeo'))
+        if not a: checks['mp4']-=50; issues.append(('NO_AUDIO_STREAM','MP4 sem áudio'))
+        if v and (int(v[0].get('width',0))!=540 or int(v[0].get('height',0))!=960):
+            checks['mp4']-=15; issues.append(('WRONG_ASPECT','vídeo final não está em 540x960'))
+        if abs(dur-float(duration))>1.5: checks['mp4']-=10; issues.append(('DURATION_DRIFT',f'duração final {dur:.2f}s vs áudio {duration:.2f}s'))
+        if media['size']<150000: checks['mp4']-=15; issues.append(('TINY_OUTPUT','MP4 suspeito: arquivo muito pequeno'))
+    checks['visuais']=100
+    unique=len({str(x) for x in selected_videos})
+    if unique<4: checks['visuais']-=15; issues.append(('LOW_VIDEO_VARIETY',f'apenas {unique} clipes únicos'))
+    if len(image_scenes)<4: checks['visuais']-=5; issues.append(('LOW_IMAGE_VARIETY','poucas imagens auxiliares'))
+    final=max(0,round((checks['roteiro']+checks['legendas']+checks['mp4']+checks['visuais'])/4))
+    return {'score':final,'checks':checks,'issues':[{'code':c,'message':m} for c,m in issues],'media':media,'caption_audit':cap}
+
+def self_heal(jid, script, video, duration, beats, selected_videos, image_scenes, topic, audio):
+    """Run bounded safe repairs. No endless retry and no self-modifying source code."""
+    audit=audit_short(script,video,duration,beats,selected_videos,image_scenes)
+    if audit['score']>=90: return audit,beats,False
+    repaired=False
+    codes={x['code'] for x in audit['issues']}
+    if 'CAPTIONS_BAD_BOUNDARY' in codes:
+        _learn_event('CAPTIONS_BAD_BOUNDARY','auditor detectou cortes semânticos', 'resegmentar captions preservando fala', None)
+        new_beats=_repair_caption_beats(beats,duration,7)
+        if new_beats and new_beats!=beats:
+            update_job(jid,stage='AUTO-CORREÇÃO',progress=94,log='🧠 AUDITOR: legendas abaixo do padrão. Recalculando cortes semânticos e renderizando novamente...')
+            caps=[b['text'] for b in new_beats]
+            video2=video.with_name('GTA_OCULTO_SHORT_REPAIRED.mp4')
+            make_multimedia_video(selected_videos,image_scenes,audio,video2,duration,caps,script,topic['title'],new_beats)
+            os.replace(video2,video)
+            audit2=audit_short(script,video,duration,new_beats,selected_videos,image_scenes)
+            _learn_event('CAPTIONS_BAD_BOUNDARY','reparo de legendas concluído', 'resegmentar captions preservando fala', audit2['score']>=audit['score'])
+            repaired=True; beats=new_beats; audit=audit2
+    return audit,beats,repaired
+
 def evaluate(script,duration,scene_count,visual_quality,beats=None,video_count=0,image_count=0):
     """V25 quality gate: checks pacing, caption density, visual variety and hook."""
     score=100
@@ -2312,7 +2455,15 @@ def produce_job(jid):
         update_job(jid,stage='AVALIAÇÃO',progress=92,log='Avaliando hook, ritmo, visuais, duração e sincronização real das legendas...'); visual_quality=100
         for sp in image_scenes:
             q=_image_quality(sp); visual_quality=min(visual_quality, max(0,q))
+        # V41: auditor automático examina o MP4 real e tenta correções seguras antes do gate final.
+        audit,beats,repaired=self_heal(jid,script,video,duration,beats,selected_videos,image_scenes,topic,audio)
         score=evaluate(script,duration,len(beats),visual_quality,beats,len(selected_videos),len(image_scenes))
+        score=min(score,audit.get('score',score))
+        (jobdir/'audit.json').write_text(json.dumps(audit,ensure_ascii=False,indent=2),encoding='utf-8')
+        update_job(jid,stage='AVALIAÇÃO',progress=96,log=f'🧠 AUDITOR: {audit.get("score",0)}/100 | reparo automático: {"SIM" if repaired else "NÃO"} | problemas: {len(audit.get("issues",[]))}.')
+        if audit.get('score',0)<78:
+            for issue in audit.get('issues',[]): _learn_event(issue['code'],issue['message'])
+            raise ValueError('AUDITOR IA: vídeo abaixo do padrão mínimo após correções seguras — produção bloqueada para evitar publicar conteúdo ruim.')
         # V33 hard gate: rendering is not enough; reject editorially contaminated/weak scripts.
         banned_editorial=('radar','editor-chefe','score','confiança','fontes','matérias','produzir agora')
         low=narration_check=str(script.get('narration','')).lower()
@@ -2326,7 +2477,7 @@ def produce_job(jid):
             raise ValueError('GATE SOURCE-LOCK: a URL final ainda é Google News.')
         if str(script.get('extraction_method','')).startswith('BLOCKED_'):
             raise ValueError('GATE SOURCE-LOCK: extração da matéria original não confiável.')
-        meta={'title':topic['title'].upper()+' 👀','description':script['narration']+'\n\n🔎 GTA Oculto — onde os segredos vêm à tona.','hashtags':['#GTA6','#GTAVI','#GTAOculto','#RockstarGames','#GTA'],'tags':['GTA 6','GTA VI','GTA 6 Brasil','GTA 6 teorias','GTA 6 segredos','Rockstar Games','GTA Oculto'],'score':score,'script_version':script.get('script_version','V33.0-MAIN-ARTICLE-LOCKED')}
+        meta={'title':topic['title'].upper()+' 👀','description':script['narration']+'\n\n🔎 GTA Oculto — onde os segredos vêm à tona.','hashtags':['#GTA6','#GTAVI','#GTAOculto','#RockstarGames','#GTA'],'tags':['GTA 6','GTA VI','GTA 6 Brasil','GTA 6 teorias','GTA 6 segredos','Rockstar Games','GTA Oculto'],'score':score,'audit_score':audit.get('score',0),'audit':audit,'script_version':script.get('script_version','V33.0-MAIN-ARTICLE-LOCKED')}
         (jobdir/'metadata.json').write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding='utf-8')
         update_job(jid,status='DONE',stage='PRONTO',progress=100,log=f'PRONTO — Short gerado e avaliado em {score}/100.',video=f'{jid}/GTA_OCULTO_SHORT.mp4',cover=f'{jid}/CAPA.jpg',score=score,metadata=meta)
     except Exception as e:
@@ -2365,7 +2516,7 @@ def processor_loop():
 @APP.get('/')
 def home(): return render_template_string(PAGE)
 @APP.get('/health')
-def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V40.9-WORKER-TIMEOUT-FIX',processor='cloud')
+def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V41.0-SELF-HEALING-AUDITOR',processor='cloud')
 @APP.get('/api/state')
 def state():
     # IMPORTANT: never wait on the production LOCK here. The producer/render
