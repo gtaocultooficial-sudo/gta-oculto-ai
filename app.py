@@ -30,7 +30,7 @@ WORK.mkdir(exist_ok=True)
 STATE_FILE = WORK / 'jobs.json'
 LOCK = threading.RLock()
 PROCESSING = False
-UA = 'GTA-Oculto-AI/Cloud-Final/1.7-V36.0'
+UA = 'GTA-Oculto-AI/Cloud-Final/1.7-V37.0'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
@@ -567,7 +567,7 @@ def _clean_article_text(text):
 
 
 def _resolve_article_url(url, title='', source_name=''):
-    """V36: resolve Google News links with multiple independent fallbacks.
+    """V37: resolve Google News links with multiple independent fallbacks.
 
     Order:
       1) googlenewsdecoder (preferred)
@@ -661,7 +661,7 @@ def _is_google_news_url(url):
 
 
 def _fetch_topic_evidence(topic):
-    """V36 FINAL: extrai exclusivamente o corpo da matéria original.
+    """V37 FINAL: extrai exclusivamente o corpo da matéria original.
 
     Regras duras:
     1) resolve a URL do Google News;
@@ -907,7 +907,7 @@ def make_script(topic):
         'editorial_score':topic.get('editorial_score'),'editorial_decision':topic.get('editorial_decision','PRODUZIR'),
         'editorial_reason':topic.get('editorial_reason',''),'sections':sections,
         'evidence':evidence[:3],'word_count':word_count,'estimated_seconds':estimated_seconds,
-        'script_version':'V36.0-SOURCE-LOCK-FINAL','extraction_method':extraction_method
+        'script_version':'V37.0-SOURCE-LOCK-FINAL','extraction_method':extraction_method
     }
 
 def build_dynamic_captions(script, topic, count=9):
@@ -2030,18 +2030,32 @@ def processor_loop():
 @APP.get('/')
 def home(): return render_template_string(PAGE)
 @APP.get('/health')
-def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V36.0-SOURCE-LOCK-FINAL',processor='cloud')
+def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V37.0-SOURCE-LOCK-FINAL',processor='cloud')
 @APP.get('/api/state')
 def state():
     with LOCK:
         js=list(load_jobs().values())[-30:]
     topics,updated,radar_status,radar_error,sources_ok=current_opportunities()
     editor_pick=editor_chief_select(topics) if topics else None
+
+    # V37: NEVER execute the full editorial/source resolver inside /api/state.
+    # The dashboard polls this endpoint repeatedly. make_script() can perform
+    # external network resolution (Google News decoder/search) and could make
+    # the browser appear to load forever. The real script is generated only
+    # after /api/produce starts the production job.
     if editor_pick:
-        try:
-            editor_pick['script_preview']=make_script(editor_pick)
-        except Exception as e:
-            editor_pick['script_preview']={'error':str(e)}
+        editor_pick['script_preview'] = {
+            'word_count': 0,
+            'estimated_seconds': 0,
+            'sections': {
+                'hook': editor_pick.get('editorial_hook',''),
+                'context': '',
+                'proof': '',
+                'payoff': editor_pick.get('editorial_angle',''),
+                'cta': ''
+            }
+        }
+
     return jsonify(opportunities=topics,jobs=js,produced=sum(x.get('status')=='DONE' for x in js),queue=sum(x.get('status') in ('QUEUED','RUNNING') for x in js),radar_updated=updated,radar_status=radar_status,radar_error=radar_error,radar_sources_ok=sources_ok,editor_pick=editor_pick)
 @APP.post('/api/research')
 def research():
