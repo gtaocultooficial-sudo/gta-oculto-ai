@@ -15,6 +15,10 @@ import xml.etree.ElementTree as ET
 from bs4 import BeautifulSoup
 from flask import Flask, request, jsonify, render_template_string, send_from_directory
 from PIL import Image, ImageDraw, ImageFont, ImageEnhance, ImageChops, ImageStat
+try:
+    from live_clipper import LiveClipper
+except Exception:
+    LiveClipper = None
 
 try:
     import edge_tts
@@ -57,7 +61,7 @@ UA = 'GTA-Oculto-AI/Cloud-Final/V55-SOURCE-RECOVERY-3'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
-BUILD_VERSION = 'V57-TREND-BRAIN-20261008'
+BUILD_VERSION = 'V58-LIVE-CLIPS-20261008'
 
 FALLBACK_TOPICS = [
     {'id':'leonida','score':96,'priority':'ALTA','title':'GTA 6: o detalhe de Leonida que pode mudar a história','source':'Rockstar Games','url':ROCKSTAR_VI,
@@ -3713,6 +3717,45 @@ def produce():
 @APP.get('/api/job/<jid>')
 def one(jid):
     j=load_jobs().get(jid); return (jsonify(j) if j else (jsonify(error='not found'),404))
+@APP.post('/api/live/analyze')
+def live_analyze():
+    if not LiveClipper:
+        return jsonify(error='Live Clipper indisponível no servidor.'), 503
+    data=request.get_json(silent=True) or {}
+    source=str(data.get('url') or data.get('source') or '').strip()
+    try:
+        max_clips=max(1,min(20,int(data.get('max_clips',10) or 10)))
+    except Exception:
+        max_clips=10
+    if not source:
+        return jsonify(error='Informe a URL pública ou caminho do arquivo da live.'),400
+    try:
+        result=LiveClipper(WORK).analyze(source,max_clips=max_clips)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify(error=str(e)[:2500]),502
+
+@APP.post('/api/live/render')
+def live_render():
+    if not LiveClipper:
+        return jsonify(error='Live Clipper indisponível no servidor.'), 503
+    data=request.get_json(silent=True) or {}
+    source=str(data.get('url') or data.get('source') or '').strip()
+    clips=data.get('clips') or []
+    if not source or not isinstance(clips,list):
+        return jsonify(error='Informe source e clips.'),400
+    jid='live-'+uuid.uuid4().hex[:10]
+    jobdir=WORK/'live_clips'/jid
+    try:
+        jobdir.mkdir(parents=True,exist_ok=True)
+        engine=LiveClipper(WORK)
+        outputs=[]
+        for i,clip in enumerate(clips[:20],1):
+            outputs.append(str(engine.render_clip(source,clip,jobdir,i).relative_to(WORK)))
+        return jsonify(ok=True,job_id=jid,clips=outputs)
+    except Exception as e:
+        return jsonify(error=str(e)[:2500]),502
+
 @APP.get('/output/<path:p>')
 def output(p):
     full=(WORK/p).resolve(); base=WORK.resolve()
