@@ -172,7 +172,44 @@ async function createShort(id){
 }
 async function research(){try{let r=await fetch('/api/research',{method:'POST'});let d=await r.json();if(!r.ok||d.error){alert(d.error||'Falha no radar');return}drawState(d);alert('Radar atualizado: '+(d.opportunities||[]).length+' oportunidades encontradas.')}catch(e){alert('Não foi possível atualizar o radar agora. O fallback continua disponível.')}}
 load();setInterval(load,3000);
-</script></body></html>'''
+</script><section class="panel" id="liveClipperPanel" style="border-color:#2d6bff">
+<h3>✂️ CORTES DE LIVE — IA AUTÔNOMA</h3>
+<div class="notice">Aceita lives longas. O motor trabalha por blocos e procura os melhores momentos sem carregar a gravação inteira na memória.</div>
+<div class="control"><input id="liveSource" placeholder="URL pública da gravação da live"><input id="liveMax" type="number" min="1" max="20" value="10" style="max-width:90px"><button class="btn red" onclick="startLiveClips()">ANALISAR LIVE</button></div>
+<div id="liveStatus" class="notice" style="margin-top:8px">Aguardando uma live.</div>
+<div id="liveResults"></div>
+</section>
+<script>
+async function startLiveClips(){
+ const source=document.getElementById('liveSource').value.trim(), max=parseInt(document.getElementById('liveMax').value||10);
+ if(!source){document.getElementById('liveStatus').textContent='Cole a URL da gravação da live.';return}
+ document.getElementById('liveStatus').textContent='Enfileirando análise...';
+ const r=await fetch('/api/live/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:source,max_clips:max})});
+ const j=await r.json(); if(!j.ok){document.getElementById('liveStatus').textContent='Erro: '+(j.error||'falha');return}
+ pollLive(j.job_id,source);
+}
+async function pollLive(id,source){
+ const r=await fetch('/api/live/job/'+id),j=await r.json();
+ document.getElementById('liveStatus').textContent=(j.stage||'PROCESSANDO')+' — '+(j.progress||0)+'%';
+ if(j.status==='RUNNING'||j.status==='QUEUED'){setTimeout(()=>pollLive(id,source),4000);return}
+ if(j.status==='ERROR'){document.getElementById('liveStatus').textContent='Erro: '+j.error;return}
+ const clips=j.clips||[];
+ document.getElementById('liveResults').innerHTML='<div class="notice">Encontrados '+clips.length+' cortes. Renderizando automaticamente...</div>';
+ const rr=await fetch('/api/live/render',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:source,clips})});
+ const q=await rr.json(); if(!q.ok){document.getElementById('liveStatus').textContent='Erro no render: '+q.error;return}
+ pollLiveRender(q.job_id);
+}
+async function pollLiveRender(id){
+ const r=await fetch('/api/live/job/'+id),j=await r.json();
+ document.getElementById('liveStatus').textContent=(j.stage||'RENDERIZANDO')+' — '+(j.progress||0)+'%';
+ if(j.status==='RUNNING'||j.status==='QUEUED'){setTimeout(()=>pollLiveRender(id),4000);return}
+ if(j.status==='ERROR'){document.getElementById('liveStatus').textContent='Erro: '+j.error;return}
+ const links=(j.outputs||[]).map(x=>'<div style="margin:6px 0"><a href="/output/'+x+'" target="_blank" style="color:#7dc7ff">🎬 '+x.split('/').pop()+'</a></div>').join('');
+ document.getElementById('liveResults').innerHTML='<div class="notice">✅ '+(j.outputs||[]).length+' cortes prontos.</div>'+links;
+ document.getElementById('liveStatus').textContent='CORTES PRONTOS';
+}
+</script>
+</body></html>'''
 PAGE = PAGE.replace('__OPPORTUNITIES__', ''.join(f'<div class="row"><div class="score">{o["score"]}</div><div><div class="title">{o["title"]}</div><div class="source">{o["source"]} · {o.get("content_type","CURIOSIDADE")} · confiança {o.get("confidence","-")} % · {o.get("reason","")}</div></div><div class="pill">{o["priority"]}</div><div class="pill">{o.get("status","PRODUZIR")}</div><button class="produce" onclick="createShort(\'{o["id"]}\')">PRODUZIR</button></div>' for o in FALLBACK_TOPICS))
 
 def now_iso(): return datetime.now(timezone.utc).isoformat()
