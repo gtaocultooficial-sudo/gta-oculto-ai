@@ -4,5 +4,5 @@ beautifulsoup4
 Pillow
 edge-tts
 gunicorn
-googleNewsDecoder==0.1.7
 imageio-ffmpeg
+googleNewsDecoder==0.1.7

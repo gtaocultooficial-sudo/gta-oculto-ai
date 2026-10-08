@@ -2719,7 +2719,7 @@ def processor_loop():
 @APP.get('/')
 def home(): return render_template_string(PAGE)
 @APP.get('/health')
-def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V42-FINAL-V41.3-BASE',processor='cloud',autonomous=bool(os.environ.get('GTA_AUTONOMOUS_DISABLE_LEGACY_WORKER')=='1'))
+def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V41.1-SELF-HEALING-AUDITOR',processor='cloud')
 @APP.get('/api/state')
 def state():
     # IMPORTANT: never wait on the production LOCK here. The producer/render
@@ -2782,7 +2782,6 @@ def radar_loop():
         except Exception: pass
         time.sleep(15*60)
 
-if os.environ.get('GTA_AUTONOMOUS_DISABLE_LEGACY_WORKER','0') != '1':
-    threading.Thread(target=processor_loop,daemon=True).start()
+threading.Thread(target=processor_loop,daemon=True).start()
 threading.Thread(target=radar_loop,daemon=True).start()
 if __name__=='__main__': APP.run(host='0.0.0.0',port=int(os.environ.get('PORT',5000)))
