@@ -52,7 +52,7 @@ UA = 'GTA-Oculto-AI/Cloud-Final/V55-SOURCE-RECOVERY-3'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
-BUILD_VERSION = 'V55.1-SOURCE-RECOVERY-3-FIX-20261008'
+BUILD_VERSION = 'V55.2-SOURCE-RECOVERY-EDITORIAL-GATE-FIX-20261008'
 
 FALLBACK_TOPICS = [
     {'id':'leonida','score':96,'priority':'ALTA','title':'GTA 6: o detalhe de Leonida que pode mudar a história','source':'Rockstar Games','url':ROCKSTAR_VI,
@@ -1736,7 +1736,10 @@ def make_script(topic):
     # Defesa final: nenhum título de outra pauta deve aparecer como bloco na fala.
     if narration.count('GTA 6')>4:
         narration=re.sub(r'\bGTA 6\b','GTA VI',narration,count=max(0,narration.count('GTA 6')-3),flags=re.I)
-    if _editorial_noise_score(narration,title)>=3:
+    # Não comparar a fala inteira com a manchete: o roteiro legítimo pode repetir
+    # o assunto da pauta no contexto. A comparação com headline continua sendo
+    # usada na limpeza das evidências, onde ela é apropriada.
+    if _editorial_noise_score(narration)>=3:
         raise ValueError('GATE EDITORIAL: roteiro contaminado por manchete/metadado detectado antes da narração.')
     word_count=len(re.findall(r"[A-Za-zÀ-ÿ0-9']+",narration))
     estimated_seconds=max(20,min(60,round(word_count/2.55)))
