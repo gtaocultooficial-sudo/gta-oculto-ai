@@ -850,16 +850,20 @@ def _extract_article_body_from_html(html):
 
 
 def _article_url_candidates_from_search(title, source_name=''):
-    """V40.7: robust same-story fallback using Google News RSS per publisher.
+    """V41.2: robust same-story fallback.
 
-    The primary IGN page can resolve correctly but still refuse server-side article
-    extraction. In that situation we MUST find a second publisher's real article
-    body, never use a search snippet or RSS description as evidence.
+    Primary-source locking remains strict. When the original publisher cannot
+    expose a trustworthy article body, this resolver searches for a second
+    reputable article about the SAME story. It deliberately avoids relying on
+    search snippets or RSS descriptions as evidence.
 
-    Strategy:
-      1) Google News RSS for the exact title (without the blocked publisher name).
-      2) Google News RSS scoped to each trusted publisher domain.
-      3) Bing / Google / DuckDuckGo HTML as a last URL-discovery fallback.
+    Improvements over V40.x/V41.1:
+      - semantic keyword queries when titles differ between outlets;
+      - broader trusted-publisher allowlist;
+      - Google News RSS is the primary discovery mechanism;
+      - HTML search engines are only a last resort;
+      - DuckDuckGo failure never aborts the resolver;
+      - candidates are deduplicated and ranked before being returned.
     """
     title=str(title or '').strip()
     source_name=str(source_name or '').strip()
@@ -870,19 +874,21 @@ def _article_url_candidates_from_search(title, source_name=''):
         'tecnoblog.net','omelete.com.br','exame.com','terra.com.br',
         'meups.com.br','criticalhits.com.br','games.gg','antihype.com.br',
         'portaldopixel.com.br','portaldovideogame.com.br','centralxbox.com.br',
-        'gamevicio.com','purexbox.com'
+        'gamevicio.com','purexbox.com','flowgames.gg','olhardigital.com.br',
+        'tecmundo.com.br','tecnologiaarretada.com.br','jorgelar.com.br',
+        'lootsecreto.com','culpadolag.com.br','teratime.com.br'
     )
-    blocked={'br.ign.com','ign.com'}
+    blocked={'br.ign.com','ign.com','theverge.com'}
     found=[]; seen=set()
 
     def note(msg):
         try:
             global _last_gnews_diagnostics
-            _last_gnews_diagnostics = (list(_last_gnews_diagnostics or []) + [str(msg)])[-12:]
+            _last_gnews_diagnostics=(list(_last_gnews_diagnostics or [])+[str(msg)])[-20:]
         except Exception:
             pass
 
-    def add(href, reason=''):
+    def add(href, reason='', priority=0):
         href=str(href or '').strip()
         if not href:
             return
@@ -903,100 +909,111 @@ def _article_url_candidates_from_search(title, source_name=''):
             return
         if href not in seen:
             seen.add(href)
-            found.append(href)
-            note('FALLBACK_CANDIDATE: ' + host + (' ['+reason+']' if reason else ''))
+            found.append((int(priority), href))
+            note('FALLBACK_CANDIDATE: '+host+(' ['+reason+']' if reason else ''))
 
-    def rss_candidates(query, reason='rss'):
+    def rss_candidates(query, reason='rss', priority=0):
         if not query:
             return
         try:
-            rss_url=('https://news.google.com/rss/search?q=' + quote_plus(query) +
+            rss_url=('https://news.google.com/rss/search?q='+quote_plus(query)+
                      '&hl=pt-BR&gl=BR&ceid=BR:pt-419')
             rr=fetch(rss_url, timeout=18)
-            note('FALLBACK_RSS: ' + str(getattr(rr,'status_code','?')) + ' q=' + query[:90])
+            note('FALLBACK_RSS: '+str(getattr(rr,'status_code','?'))+' q='+query[:110])
             if not rr.ok:
                 return
-            # Do NOT depend on BeautifulSoup's XML parser here. Render may have
-            # bs4 installed without lxml, which makes BeautifulSoup(..., 'xml')
-            # raise FeatureNotFound and kills the fallback before it can inspect
-            # the RSS links. xml.etree is part of Python's standard library and
-            # is sufficient for the small RSS structure we need.
             try:
                 root=ET.fromstring(rr.text)
                 items=root.findall('.//item')
-                for item in items[:20]:
+                for item in items[:30]:
                     link_el=item.find('link')
                     link=(link_el.text or '').strip() if link_el is not None else ''
                     if not link:
                         continue
-                    decoded=_resolve_article_url(link, title, source_name)
-                    add(decoded, reason)
-                    if len(found)>=12:
-                        return
+                    decoded=_resolve_article_url(link,title,source_name)
+                    add(decoded,reason,priority)
             except Exception as xml_err:
-                # Last-resort HTML parser: Google News RSS is XML-ish and the
-                # link text is still recoverable from <link> elements.
                 note('FALLBACK_RSS_XML_ERROR: '+type(xml_err).__name__+':'+str(xml_err)[:100])
                 try:
                     rs=BeautifulSoup(rr.text,'html.parser')
-                    for item in rs.find_all('item')[:20]:
+                    for item in rs.find_all('item')[:30]:
                         link_el=item.find('link')
                         link=(link_el.get_text(strip=True) if link_el else '').strip()
                         if not link:
                             continue
-                        decoded=_resolve_article_url(link, title, source_name)
-                        add(decoded, reason)
-                        if len(found)>=12:
-                            return
+                        decoded=_resolve_article_url(link,title,source_name)
+                        add(decoded,reason,priority)
                 except Exception as html_err:
                     note('FALLBACK_RSS_HTML_ERROR: '+type(html_err).__name__+':'+str(html_err)[:100])
         except Exception as e:
             note('FALLBACK_RSS_ERROR: '+type(e).__name__+':'+str(e)[:100])
 
-    # 1) Exact story, deliberately excluding the blocked publisher from the query.
-    rss_candidates(title, 'exact-title')
-    if len(found)>=8:
-        return found[:8]
+    # Remove common publisher suffixes and build a compact semantic query.
+    short=re.sub(
+        r'\s*[-–—|]\s*(?:IGN Brasil|IGN|Adrenaline|Tecnoblog|Terra|Exame|Olhar Digital|'
+        r'Canaltech|UOL|The Verge)\s*$','',title,flags=re.I
+    ).strip()
 
-    # 2) Search each trusted publisher directly. This avoids a search engine
-    # returning only the blocked IGN page for an exact-title query.
+    # Keep the important GTA/Xbox/cloud/PC concepts and named people.
+    stop={
+        'sobre','relato','confirma','confirmado','confirmada','executivo',
+        'executiva','afirma','afirmou','nega','negação','negaque','para',
+        'com','uma','um','que','não','nao','pelo','pela','via','como',
+        'poderá','podera','jogado','ser','ter','terá','tera','de','do','da',
+        'no','na','os','as','e','a','o','em','lançamento','lancamento'
+    }
+    words=re.findall(r"[A-Za-zÀ-ÿ0-9]{3,}", short.lower())
+    keywords=[]
+    for w in words:
+        if w in stop or w in keywords:
+            continue
+        keywords.append(w)
+    # Prefer a compact query so outlets with different headlines can still match.
+    priority_terms=[
+        w for w in keywords
+        if w in ('gta','xbox','cloud','gaming','pc','microsoft','rockstar','matthew','ball','streaming')
+    ]
+    semantic=' '.join(priority_terms[:8])
+    if len(semantic.split())<3:
+        semantic=' '.join(keywords[:8])
+
+    # 1) Exact title.
+    rss_candidates(short or title,'exact-title',30)
+
+    # 2) Search each trusted publisher using the exact title.
     for domain in preferred:
-        q=f'"{title}" site:{domain}'
-        rss_candidates(q, 'site:'+domain)
-        if len(found)>=8:
-            return found[:8]
+        rss_candidates(f'"{short or title}" site:{domain}','site:'+domain,20)
 
-    # 3) Shorter query without the original source name, useful when the headline
-    # has punctuation or a publisher suffix that differs between outlets.
-    short=re.sub(r'\s*[-–—|]\s*(?:IGN Brasil|IGN|'+re.escape(source_name)+r')\s*$', '', title, flags=re.I).strip()
-    if short and short != title:
-        rss_candidates(short, 'short-title')
-        if len(found)>=8:
-            return found[:8]
+    # 3) Crucial V41.2 improvement: semantic query without requiring the
+    # secondary outlet to reuse the original headline word-for-word.
+    if semantic:
+        rss_candidates(semantic,'semantic',50)
+        for domain in preferred[:14]:
+            rss_candidates(f'{semantic} site:{domain}','semantic-site:'+domain,40)
 
-    # 4) Last resort: HTML search engines, still accepting only trusted domains.
-    query=' '.join(x for x in (short or title, ) if x)
+    # 4) Last-resort HTML discovery. A failure from one engine is harmless.
+    query=semantic or short or title
     engines=(
-        'https://www.bing.com/search?q=' + quote_plus(query) + '&setlang=pt-BR',
-        'https://www.google.com/search?q=' + quote_plus(query) + '&hl=pt-BR&num=10',
-        'https://html.duckduckgo.com/html/?q=' + quote_plus(query),
+        ('bing','https://www.bing.com/search?q='+quote_plus(query)+'&setlang=pt-BR'),
+        ('google','https://www.google.com/search?q='+quote_plus(query)+'&hl=pt-BR&num=10'),
+        ('ddg','https://html.duckduckgo.com/html/?q='+quote_plus(query)),
     )
-    for qurl in engines:
+    for engine,qurl in engines:
         try:
-            rr=fetch(qurl, timeout=18)
-            note('FALLBACK_SEARCH: '+str(getattr(rr,'status_code','?')))
+            rr=fetch(qurl,timeout=15)
+            note('FALLBACK_SEARCH:'+engine+':'+str(getattr(rr,'status_code','?')))
             if not rr.ok:
                 continue
             soup=BeautifulSoup(rr.text,'html.parser')
             for sel in ('li.b_algo h2 a','a.result__a','a[href]'):
                 for a in soup.select(sel):
-                    add(a.get('href'),'html-search')
-                    if len(found)>=8:
-                        return found[:8]
+                    add(a.get('href'),'html-'+engine,10)
         except Exception as e:
-            note('FALLBACK_SEARCH_ERROR: '+type(e).__name__+':'+str(e)[:80])
-    return found[:8]
+            note('FALLBACK_SEARCH_ERROR:'+engine+':'+type(e).__name__+':'+str(e)[:80])
 
+    # Stable ranking: prefer semantic discovery, then exact/site candidates.
+    found.sort(key=lambda x:x[0])
+    return [href for _,href in found[:20]]
 
 def _topic_title_overlap(title, lines):
     """Require meaningful lexical overlap so a secondary article cannot hijack the topic."""
