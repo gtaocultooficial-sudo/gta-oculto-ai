@@ -1024,12 +1024,14 @@ def _article_url_candidates_from_search(title, source_name=''):
                 continue
 
     preferred=[
-        'tecnoblog.net','omelete.com.br','exame.com','terra.com.br',
+        # Official publisher first: known-source recovery must be allowed to reach
+        # Rockstar Newswire instead of being discarded by the trusted-domain gate.
+        'rockstargames.com','tecnoblog.net','omelete.com.br','exame.com','terra.com.br',
         'meups.com.br','criticalhits.com.br','games.gg','antihype.com.br',
         'portaldopixel.com.br','portaldovideogame.com.br','centralxbox.com.br',
         'gamevicio.com','purexbox.com','flowgames.gg','olhardigital.com.br',
         'tecmundo.com.br','tecnologiaarretada.com.br','jorgelar.com.br',
-        'lootsecreto.com','culpadolag.com.br','teratime.com.br'
+        'lootsecreto.com','culpadolag.com.br','teratime.com.br','gamenoticias.com.br'
     ]
     blocked={'br.ign.com','ign.com','theverge.com'}
     mem=_resolver_memory_load()
@@ -1062,6 +1064,12 @@ def _article_url_candidates_from_search(title, source_name=''):
             if any(tok in path for tok in blocked_path_tokens) or path in ('','/feed','/rss','/atom'):
                 note('CANDIDATE_REJECTED_NONARTICLE:'+href[:140])
                 return
+            # A bare publisher homepage is never an article. Several RSS/search
+            # fallbacks on cloud hosts return https://exame.com/ (HTTP 200) instead
+            # of the requested story; accepting it causes repeated BLOCKED_NO_ARTICLE_BODY.
+            if path in ('','/'):
+                note('CANDIDATE_REJECTED_ROOT:'+href[:140])
+                return
             if query_keys & {'s','search','feed','rss','output','format'}:
                 note('CANDIDATE_REJECTED_QUERY:'+href[:140])
                 return
@@ -1082,9 +1090,13 @@ def _article_url_candidates_from_search(title, source_name=''):
             found.append((int(priority),href,reason))
             note('FALLBACK_CANDIDATE: '+host+' ['+reason+']')
 
-    # Direct candidates are intentionally added only after the validator is defined.
+    # Direct candidates are the highest-confidence recovery path. They are known
+    # article URLs captured from validated source research and are tried before any
+    # search-engine budget is spent.
     for href in _known_source_candidates(title):
-        add(href,'known-source',100)
+        add(href,'known-source',120)
+    if found:
+        note('KNOWN_SOURCE_CANDIDATES:'+str(len(found)))
 
     def rss_candidates(query, reason, priority):
         # V42.3: bounded resolver. Never allow Google News decoding to consume the
@@ -1199,6 +1211,9 @@ def _article_url_candidates_from_search(title, source_name=''):
     # publishers. It is discovery only; the article body is still fetched and checked
     # later by the strict source-lock gate.
     if len(found)<4 and time.monotonic() < resolver_deadline:
+        # Skip the first domains when they have already returned only non-article
+        # roots/feed URLs in this resolver pass. This prevents burning the budget
+        # on the same publisher repeatedly.
         feed_domains=preferred[:10]
         for domain in feed_domains:
             if time.monotonic() >= resolver_deadline: break
