@@ -16,6 +16,8 @@ jobs:
         shell: bash
         run: |
           set -e
+          # Render auto-deploy is asynchronous; avoid accepting the previous live instance.
+          sleep 75
           for i in {1..30}; do
             code=$(curl -s -o /dev/null -w "%{http_code}" https://gta-oculto-ai.onrender.com/health || true)
             echo "health=$code attempt=$i"
