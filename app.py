@@ -999,6 +999,26 @@ def _article_url_candidates_from_search(title, source_name=''):
     def add(href, reason='', priority=0):
         href=str(href or '').strip()
         if not href: return
+        # V42.7: never treat feeds/search/category/tag/author pages as article candidates.
+        # Publisher RSS endpoints can legally return 200 but point their item link back
+        # to the feed/search URL; accepting those URLs creates a resolver loop and burns
+        # the entire production budget without ever reaching article-body extraction.
+        try:
+            parsed=urlparse(href)
+            path=(parsed.path or '').lower().rstrip('/')
+            query_keys={str(k).lower() for k in parse_qs(parsed.query).keys()}
+            blocked_path_tokens=(
+                '/feed','/rss','/atom','/search','/tag/','/category/','/author/',
+                '/page/','/sitemap','/wp-json','/amp/feeds'
+            )
+            if any(tok in path for tok in blocked_path_tokens) or path in ('','/feed','/rss','/atom'):
+                note('CANDIDATE_REJECTED_NONARTICLE:'+href[:140])
+                return
+            if query_keys & {'s','search','feed','rss','output','format'}:
+                note('CANDIDATE_REJECTED_QUERY:'+href[:140])
+                return
+        except Exception:
+            pass
         try:
             qs=parse_qs(urlparse(href).query)
             for key in ('uddg','url','q'):
@@ -1138,7 +1158,10 @@ def _article_url_candidates_from_search(title, source_name=''):
                     root=ET.fromstring(rr.content)
                     for item in root.findall('.//item')[:8]:
                         link=(item.findtext('link') or '').strip()
+                        before=len(found)
                         add(link,'publisher-feed:'+domain,48)
+                        if len(found)==before and link:
+                            note('PUBLISHER_FEED_NONARTICLE:'+domain+':'+link[:120])
                         if len(found)>=8: break
             except Exception as e:
                 note('FALLBACK_PUBLISHER_FEED_ERROR:'+domain+':'+type(e).__name__)
@@ -1228,18 +1251,18 @@ def _fetch_topic_evidence(topic):
             try: _last_gnews_diagnostics=(list(_last_gnews_diagnostics or [])+['RESOLVER_BUDGET_EXCEEDED'])[-24:]
             except Exception: pass
             break
-        # Pass 0/1 use the normal adaptive resolver. Pass 2 deliberately broadens
+        # Pass 0 uses the normal adaptive resolver. Pass 1 deliberately broadens
         # the query by dropping the original publisher name, which helps when the
         # headline itself is too publisher-specific. The candidate function remains
         # source-locked and trusted-domain-only for factual extraction.
-        if resolver_pass < 2:
+        if resolver_pass == 0:
             candidates=_article_url_candidates_from_search(title, source_name)
         else:
             broad_title=re.sub(r'\s+-\s+[^-]+$','',title).strip()
             broad_title=re.sub(r'\b(?:confirma|confirmou|revela|revelou|segundo executivo|diz executivo)\b','',broad_title,flags=re.I)
             candidates=_article_url_candidates_from_search(broad_title or title, '')
             try:
-                _last_gnews_diagnostics=(list(_last_gnews_diagnostics or [])+['FALLBACK_PASS:3_BROAD_QUERY'])[-24:]
+                _last_gnews_diagnostics=(list(_last_gnews_diagnostics or [])+['FALLBACK_PASS:2_BROAD_QUERY'])[-24:]
             except Exception:
                 pass
         if not candidates: continue
@@ -1248,8 +1271,15 @@ def _fetch_topic_evidence(topic):
             if alt_url in tried: continue
             tried.add(alt_url)
             host_guess=_resolver_domain(alt_url)
+            # Defensive second gate before spending network time on a candidate.
             try:
-                ar=fetch(alt_url,timeout=20); ar.raise_for_status()
+                p=urlparse(alt_url); path=(p.path or '').lower()
+                if any(tok in path for tok in ('/feed','/rss','/atom','/search','/tag/','/category/','/author/','/sitemap','/wp-json')):
+                    continue
+            except Exception:
+                pass
+            try:
+                ar=fetch(alt_url,timeout=12); ar.raise_for_status()
                 final_alt=str(getattr(ar,'url','') or alt_url).strip()
                 if _is_google_news_url(final_alt): continue
                 lines,method=_extract_article_body_from_html(ar.text)
