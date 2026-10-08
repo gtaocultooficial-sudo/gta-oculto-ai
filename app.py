@@ -31,7 +31,7 @@ STATE_FILE = WORK / 'jobs.json'
 LOCK = threading.RLock()
 PROCESSING = False
 _last_gnews_diagnostics = []
-UA = 'GTA-Oculto-AI/Cloud-Final/1.8-V40.6'
+UA = 'GTA-Oculto-AI/Cloud-Final/1.8-V40.7'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
@@ -848,7 +848,7 @@ def _extract_article_body_from_html(html):
 
 
 def _article_url_candidates_from_search(title, source_name=''):
-    """V40.6: robust same-story fallback using Google News RSS per publisher.
+    """V40.7: robust same-story fallback using Google News RSS per publisher.
 
     The primary IGN page can resolve correctly but still refuse server-side article
     extraction. In that situation we MUST find a second publisher's real article
@@ -914,15 +914,40 @@ def _article_url_candidates_from_search(title, source_name=''):
             note('FALLBACK_RSS: ' + str(getattr(rr,'status_code','?')) + ' q=' + query[:90])
             if not rr.ok:
                 return
-            rs=BeautifulSoup(rr.text,'xml')
-            for item in rs.find_all('item')[:20]:
-                link=str(item.find('link').get_text(strip=True) if item.find('link') else '').strip()
-                if not link:
-                    continue
-                decoded=_resolve_article_url(link, title, source_name)
-                add(decoded, reason)
-                if len(found)>=12:
-                    return
+            # Do NOT depend on BeautifulSoup's XML parser here. Render may have
+            # bs4 installed without lxml, which makes BeautifulSoup(..., 'xml')
+            # raise FeatureNotFound and kills the fallback before it can inspect
+            # the RSS links. xml.etree is part of Python's standard library and
+            # is sufficient for the small RSS structure we need.
+            try:
+                root=ET.fromstring(rr.text)
+                items=root.findall('.//item')
+                for item in items[:20]:
+                    link_el=item.find('link')
+                    link=(link_el.text or '').strip() if link_el is not None else ''
+                    if not link:
+                        continue
+                    decoded=_resolve_article_url(link, title, source_name)
+                    add(decoded, reason)
+                    if len(found)>=12:
+                        return
+            except Exception as xml_err:
+                # Last-resort HTML parser: Google News RSS is XML-ish and the
+                # link text is still recoverable from <link> elements.
+                note('FALLBACK_RSS_XML_ERROR: '+type(xml_err).__name__+':'+str(xml_err)[:100])
+                try:
+                    rs=BeautifulSoup(rr.text,'html.parser')
+                    for item in rs.find_all('item')[:20]:
+                        link_el=item.find('link')
+                        link=(link_el.get_text(strip=True) if link_el else '').strip()
+                        if not link:
+                            continue
+                        decoded=_resolve_article_url(link, title, source_name)
+                        add(decoded, reason)
+                        if len(found)>=12:
+                            return
+                except Exception as html_err:
+                    note('FALLBACK_RSS_HTML_ERROR: '+type(html_err).__name__+':'+str(html_err)[:100])
         except Exception as e:
             note('FALLBACK_RSS_ERROR: '+type(e).__name__+':'+str(e)[:100])
 
@@ -981,7 +1006,7 @@ def _topic_title_overlap(title, lines):
 
 
 def _fetch_topic_evidence(topic):
-    """V40.3: source-locked first, then same-story trusted-source fallback.
+    """V40.7: source-locked first, then same-story trusted-source fallback.
 
     The original publisher remains the preferred source. If it resolves correctly but
     blocks the server-side body (common with anti-bot/robots pages), the producer may
@@ -1201,7 +1226,7 @@ def make_script(topic):
         'editorial_score':topic.get('editorial_score'),'editorial_decision':topic.get('editorial_decision','PRODUZIR'),
         'editorial_reason':topic.get('editorial_reason',''),'sections':sections,
         'evidence':evidence[:3],'word_count':word_count,'estimated_seconds':estimated_seconds,
-        'script_version':'V40.6-SOURCE-LOCK-ROBUST-FALLBACK','extraction_method':extraction_method
+        'script_version':'V40.7-SOURCE-LOCK-ROBUST-FALLBACK','extraction_method':extraction_method
     }
 
 def build_dynamic_captions(script, topic, count=9):
