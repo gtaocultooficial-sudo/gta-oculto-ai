@@ -2365,11 +2365,17 @@ def processor_loop():
 @APP.get('/')
 def home(): return render_template_string(PAGE)
 @APP.get('/health')
-def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V40.1-SOURCE-LOCK-FINAL',processor='cloud')
+def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V40.9-WORKER-TIMEOUT-FIX',processor='cloud')
 @APP.get('/api/state')
 def state():
-    with LOCK:
-        js=list(load_jobs().values())[-30:]
+    # IMPORTANT: never wait on the production LOCK here. The producer/render
+    # runs in a background thread inside the Gunicorn worker and may legitimately
+    # spend minutes downloading/encoding media. Waiting for LOCK makes the
+    # dashboard polling request hang until Gunicorn kills the worker with
+    # WORKER TIMEOUT, which in turn kills the production thread.
+    # jobs.json is written with atomic os.replace(), so a lock-free read is safe:
+    # readers see either the previous complete JSON or the next complete JSON.
+    js=list(load_jobs().values())[-30:]
     topics,updated,radar_status,radar_error,sources_ok=current_opportunities()
     editor_pick=editor_chief_select(topics) if topics else None
 
