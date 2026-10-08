@@ -29,7 +29,19 @@ class AutonomousEngine:
             try:
                 topics,_,_,_,_=app_module.current_opportunities()
                 current=(job.get('opportunity') or {}).get('id')
-                candidates=[t for t in topics if t.get('id')!=current]
+                # Never select an obviously non-direct/feed candidate as a recovery topic.
+                # If the Radar returns no safe alternative, retry the Radar once rather than
+                # converting a recoverable source problem into a terminal ERROR.
+                def _safe_topic(t):
+                    u=str(t.get('url','')).lower()
+                    src=str(t.get('source','')).lower()
+                    return (t.get('id')!=current and u and 'news.google.com' not in u
+                            and 'rss' not in src and 'feed' not in src)
+                candidates=[t for t in topics if _safe_topic(t)]
+                if not candidates:
+                    # Use a direct official article candidate when available.
+                    for t in getattr(app_module,'FALLBACK_TOPICS',[]) or []:
+                        if _safe_topic(t): candidates.append(t)
                 if candidates:
                     candidate=sorted(candidates,key=lambda x:float(x.get('score',0)),reverse=True)[0]
                     app_module.update_job(jid,status='QUEUED',stage='AUTO-RECUPERAÇÃO',progress=2,log=f'🤖 AUTO-RECUPERAÇÃO: fonte não validada. Mudando para outra pauta automaticamente: {candidate.get("title")}.',opportunity=candidate,autonomous_recovery_count=count)

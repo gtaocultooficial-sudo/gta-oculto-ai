@@ -1,6 +1,6 @@
-GTA OCULTO AI V52
-STRICT QUALITY GATE
-- captions must be derived from narration
-- hard-block semantic/bad captions
-- hard-block visual repetition/stagnation issues
-- stricter post-repair approval
+GTA OCULTO AI V53
+SOURCE RECOVERY GATE
+- never promote feed/search candidates to primary source
+- source failure retries with a safe direct candidate
+- unresolved source failures remain recoverable instead of terminal ERROR
+- preserves V52 strict caption and visual gates
