@@ -1,6 +1,7 @@
-GTA OCULTO AI V53
-SOURCE RECOVERY GATE
-- never promote feed/search candidates to primary source
-- source failure retries with a safe direct candidate
-- unresolved source failures remain recoverable instead of terminal ERROR
-- preserves V52 strict caption and visual gates
+GTA OCULTO AI V54
+SOURCE RECOVERY 2.0
+- direct recovery pool before search engines
+- source preflight before rendering
+- automatic topic abandonment and topic switching
+- strict article-body evidence only
+- unique health build id: V54-SOURCE-RECOVERY-2-20261008

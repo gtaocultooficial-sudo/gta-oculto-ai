@@ -48,17 +48,23 @@ PROCESSING = False
 AUTONOMOUS_MODE = os.getenv('GTA_AUTONOMOUS_MODE','1').strip().lower() not in ('0','false','off','no')
 AUTONOMOUS_MAX_TOPIC_RECOVERY = max(1, min(6, int(os.getenv('GTA_AUTONOMOUS_MAX_TOPIC_RECOVERY','5'))))
 _last_gnews_diagnostics = []
-UA = 'GTA-Oculto-AI/Cloud-Final/1.16-V52' 
+UA = 'GTA-Oculto-AI/Cloud-Final/V54-SOURCE-RECOVERY-2' 
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
+BUILD_VERSION = 'V54-SOURCE-RECOVERY-2-20261008'
 
 FALLBACK_TOPICS = [
-    {'id':'leonida','score':96,'priority':'ALTA','title':'GTA 6: o detalhe de Leonida que pode mudar a história','source':'Rockstar Games','url':ROCKSTAR_VI},
-    {'id':'jason-lucia','score':93,'priority':'ALTA','title':'Jason e Lucia: o que a Rockstar já confirmou oficialmente','source':'Rockstar Games','url':ROCKSTAR_VI},
-    {'id':'estado-leonida','score':90,'priority':'ALTA','title':'A história de GTA 6 vai muito além de Vice City','source':'Rockstar Games','url':ROCKSTAR_NEWS},
-    {'id':'detalhes','score':84,'priority':'MÉDIA','title':'Os detalhes escondidos que a Rockstar colocou em GTA 6','source':'Rockstar Games','url':ROCKSTAR_VI},
+    {'id':'leonida','score':96,'priority':'ALTA','title':'GTA 6: o detalhe de Leonida que pode mudar a história','source':'Rockstar Games','url':ROCKSTAR_VI,
+     'recovery_urls':[ROCKSTAR_NEWS,'https://gamenoticias.com.br/gta-6-50-novidades-incriveis-confirmadas-no-novo-jogo-da-rockstar/']},
+    {'id':'jason-lucia','score':93,'priority':'ALTA','title':'Jason e Lucia: o que a Rockstar já confirmou oficialmente','source':'Rockstar Games','url':ROCKSTAR_VI,
+     'recovery_urls':[ROCKSTAR_NEWS,'https://leonidainteractive.com/wiki/pt-br/trailers/trailer-3/']},
+    {'id':'estado-leonida','score':90,'priority':'ALTA','title':'A história de GTA 6 vai muito além de Vice City','source':'Rockstar Games','url':ROCKSTAR_NEWS,
+     'recovery_urls':[ROCKSTAR_NEWS,'https://gamenoticias.com.br/gta-6-50-novidades-incriveis-confirmadas-no-novo-jogo-da-rockstar/']},
+    {'id':'detalhes','score':84,'priority':'MÉDIA','title':'Os detalhes escondidos que a Rockstar colocou em GTA 6','source':'Rockstar Games','url':ROCKSTAR_VI,
+     'recovery_urls':['https://gamenoticias.com.br/gta-6-50-novidades-incriveis-confirmadas-no-novo-jogo-da-rockstar/',ROCKSTAR_NEWS,'https://leonidainteractive.com/wiki/pt-br/trailers/trailer-3/']},
 ]
+
 
 RADAR_FILE = WORK / 'radar.json'
 LEARNING_FILE = WORK / 'learning.json'
@@ -1278,6 +1284,41 @@ def _topic_title_overlap(title, lines):
     return round(base*0.65+important_score*0.35,3)
 
 
+def _topic_recovery_urls(topic):
+    out=[]; seen=set()
+    for u in (topic.get('recovery_urls') or []):
+        u=str(u or '').strip()
+        if u and u not in seen: seen.add(u); out.append(u)
+    for u in _known_source_candidates(str(topic.get('title') or '')):
+        u=str(u or '').strip()
+        if u and u not in seen: seen.add(u); out.append(u)
+    return out[:10]
+
+
+def _fetch_direct_article_candidate(url, title, topic, strategy='direct-recovery', timeout=12):
+    url=str(url or '').strip()
+    if not url or _is_google_news_url(url): return None
+    try:
+        p=urlparse(url); path=(p.path or '').lower()
+        if any(tok in path for tok in ('/feed','/rss','/atom','/search','/tag/','/category/','/author/','/sitemap','/wp-json')): return None
+        r=fetch(url,timeout=timeout); r.raise_for_status()
+        final=str(getattr(r,'url','') or url).strip()
+        if not final or _is_google_news_url(final): return None
+        lines,method=_extract_article_body_from_html(r.text)
+        if not lines:
+            _resolver_learn(_resolver_domain(final),strategy,False); return None
+        overlap=_topic_title_overlap(title,lines)
+        if overlap < 0.18:
+            _resolver_learn(_resolver_domain(final),'story-match',False); return None
+        host=_resolver_domain(final); _resolver_learn(host,strategy,True)
+        topic['_resolved_url']=final; topic['_source_used']=host; topic['_source_fallback']=True; topic['_resolver_score']=overlap
+        _last_gnews_diagnostics=(list(_last_gnews_diagnostics or [])+[f'V54_DIRECT_RECOVERED:{host}:{method}'])[-24:]
+        return lines,final,f'SECONDARY_{method}'
+    except Exception as e:
+        _last_gnews_diagnostics=(list(_last_gnews_diagnostics or [])+[f'V54_DIRECT_FAIL:{_resolver_domain(url)}:{type(e).__name__}'])[-24:]
+        return None
+
+
 def _fetch_topic_evidence(topic):
     global _last_gnews_diagnostics
     """V40.7: source-locked first, then same-story trusted-source fallback.
@@ -1293,6 +1334,15 @@ def _fetch_topic_evidence(topic):
     except Exception: pass
     title=str(topic.get('title') or '').strip()
     source_name=str(topic.get('source') or '').strip()
+    direct_candidates=_topic_recovery_urls(topic)
+    if direct_candidates:
+        _last_gnews_diagnostics=(list(_last_gnews_diagnostics or [])+[f'V54_DIRECT_RECOVERY_POOL:{len(direct_candidates)}'])[-24:]
+        for direct_url in direct_candidates:
+            recovered=_fetch_direct_article_candidate(direct_url,title,topic,'direct-recovery',timeout=12)
+            if recovered:
+                lines,final_url,method=recovered
+                topic['_original_url']=original_url; topic['_source_original']=source_name
+                return lines,final_url,method
     # Important V42.2 change: a failed Google News decode MUST NOT end production.
     # The previous implementation returned BLOCKED_URL here and never reached the
     # secondary-source resolver. That made a temporary Google 429 indistinguishable
@@ -1534,62 +1584,36 @@ def _is_source_recovery_error(exc):
 
 
 def _autonomous_make_script(jid, topic, topics):
-    """V43 autonomous source recovery.
-
-    The production job does not die on a recoverable source failure. The agent
-    tries the selected topic, then other already-scored Radar opportunities.
-    It never invents evidence and never uses snippets as facts. If a candidate
-    topic resolves, production continues with that topic. Every attempt is
-    persisted in the job log so the owner can see what the agent did.
-    """
+    """V54: validates source before committing to a production topic and changes topic automatically on failure."""
     if not AUTONOMOUS_MODE:
         return topic, make_script(topic)
-
-    candidates=[]
-    seen=set()
+    candidates=[]; seen=set()
     recovery_pool=[topic] + list(topics or []) + list(FALLBACK_TOPICS)
     for t in recovery_pool:
-        if not isinstance(t,dict):
-            continue
+        if not isinstance(t,dict): continue
         key=str(t.get('id') or t.get('title') or '').strip().lower()
-        if not key or key in seen:
-            continue
-        seen.add(key); candidates.append(t)
-        if len(candidates) >= AUTONOMOUS_MAX_TOPIC_RECOVERY:
-            break
-
+        if not key or key in seen: continue
+        seen.add(key); candidates.append(dict(t))
+    candidates.sort(key=lambda x:(1 if x.get('recovery_urls') else 0, int(x.get('score',0))), reverse=True)
+    candidates=candidates[:max(AUTONOMOUS_MAX_TOPIC_RECOVERY,6)]
     last_exc=None
-    for attempt,candidate in enumerate(candidates):
+    for attempt,candidate in enumerate(candidates,1):
         try:
-            if attempt==0:
-                update_job(jid,log='🤖 AGENTE AUTÔNOMO: validando a matéria principal; se a fonte falhar, o Resolver usa biblioteca de fontes, busca independente e muda de pauta automaticamente...')
-            else:
-                update_job(
-                    jid,
-                    title=str(candidate.get('title') or 'GTA 6'),
-                    opportunity=candidate,
-                    stage='AUTO-CORREÇÃO',
-                    progress=29,
-                    log=f'🤖 AUTO-CORREÇÃO {attempt}/{len(candidates)-1}: fonte da pauta anterior indisponível. Mudando para outra oportunidade validada pelo Radar: {candidate.get("title", "")}'
-                )
+            update_job(jid,title=str(candidate.get('title') or 'GTA 6'),opportunity=candidate,stage='AUTO-RECUPERAÇÃO',progress=min(30,24+attempt),
+                       log=f'🤖 V54: validando fonte antes de renderizar — pauta {attempt}/{len(candidates)}: {candidate.get("title","")}')
             script=make_script(candidate)
-            if attempt>0:
-                update_job(jid,log=f'✅ AUTO-CORREÇÃO: nova pauta validada e corpo original encontrado. Continuando produção com: {candidate.get("title", "")}')
+            if attempt>1:
+                update_job(jid,log=f'✅ V54 AUTO-TROCA: corpo original encontrado. Nova pauta: {candidate.get("title","")}')
             return candidate, script
         except Exception as exc:
             last_exc=exc
-            if not _is_source_recovery_error(exc):
-                raise
-            try:
-                _learn_event('AUTONOMOUS_SOURCE_RECOVERY',f'falha de fonte na tentativa {attempt+1}: {str(exc)[:500]}',candidate.get('title',''))
-            except Exception:
-                pass
-            if attempt < len(candidates)-1:
-                continue
-            break
+            if not _is_source_recovery_error(exc): raise
+            try: _learn_event('V54_SOURCE_RECOVERY_FAILED',f'pauta descartada: {str(exc)[:500]}',candidate.get('title',''))
+            except Exception: pass
+            update_job(jid,log='⚠️ V54: pauta descartada por fonte não confiável/indisponível. Tentando automaticamente a próxima pauta...')
     if last_exc:
-        raise last_exc
-    raise ValueError('AGENTE AUTÔNOMO: nenhuma oportunidade disponível para recuperação de fonte.')
+        raise ValueError('V54: nenhuma pauta com corpo original confiável foi encontrada após recuperação automática. Última falha: '+str(last_exc)[:600])
+    raise ValueError('V54: nenhuma oportunidade disponível para recuperação de fonte.')
 
 
 def make_script(topic):
@@ -3418,7 +3442,7 @@ def home(): return render_template_string(PAGE)
 @APP.get('/health')
 def health():
     auto=AUTONOMOUS_ENGINE.status() if AUTONOMOUS_ENGINE else {'mode':'DEGRADED'}
-    return jsonify(ok=True,app='GTA Oculto AI',version='V53-SOURCE-RECOVERY-20261008',processor='cloud',autonomous_mode=AUTONOMOUS_MODE,max_topic_recovery=AUTONOMOUS_MAX_TOPIC_RECOVERY,autonomy=auto)
+    return jsonify(ok=True,app='GTA Oculto AI',version=BUILD_VERSION,processor='cloud',autonomous_mode=AUTONOMOUS_MODE,max_topic_recovery=AUTONOMOUS_MAX_TOPIC_RECOVERY,autonomy=auto)
 @APP.get('/api/autonomy')
 def autonomy_status():
     return jsonify(AUTONOMOUS_ENGINE.status() if AUTONOMOUS_ENGINE else {'mode':'DEGRADED'})
