@@ -48,11 +48,11 @@ PROCESSING = False
 AUTONOMOUS_MODE = os.getenv('GTA_AUTONOMOUS_MODE','1').strip().lower() not in ('0','false','off','no')
 AUTONOMOUS_MAX_TOPIC_RECOVERY = max(1, min(6, int(os.getenv('GTA_AUTONOMOUS_MAX_TOPIC_RECOVERY','5'))))
 _last_gnews_diagnostics = []
-UA = 'GTA-Oculto-AI/Cloud-Final/V54-SOURCE-RECOVERY-2' 
+UA = 'GTA-Oculto-AI/Cloud-Final/V55-SOURCE-RECOVERY-3' 
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
-BUILD_VERSION = 'V54-SOURCE-RECOVERY-2-20261008'
+BUILD_VERSION = 'V55-SOURCE-RECOVERY-3-20261008'
 
 FALLBACK_TOPICS = [
     {'id':'leonida','score':96,'priority':'ALTA','title':'GTA 6: o detalhe de Leonida que pode mudar a história','source':'Rockstar Games','url':ROCKSTAR_VI,
@@ -63,6 +63,8 @@ FALLBACK_TOPICS = [
      'recovery_urls':[ROCKSTAR_NEWS,'https://gamenoticias.com.br/gta-6-50-novidades-incriveis-confirmadas-no-novo-jogo-da-rockstar/']},
     {'id':'detalhes','score':84,'priority':'MÉDIA','title':'Os detalhes escondidos que a Rockstar colocou em GTA 6','source':'Rockstar Games','url':ROCKSTAR_VI,
      'recovery_urls':['https://gamenoticias.com.br/gta-6-50-novidades-incriveis-confirmadas-no-novo-jogo-da-rockstar/',ROCKSTAR_NEWS,'https://leonidainteractive.com/wiki/pt-br/trailers/trailer-3/']},
+    {'id':'extended-look','score':88,'priority':'ALTA','title':'GTA 6: 50 novidades confirmadas no novo jogo da Rockstar','source':'Game Notícias','url':'https://gamenoticias.com.br/gta-6-50-novidades-incriveis-confirmadas-no-novo-jogo-da-rockstar/',
+     'recovery_urls':['https://gamenoticias.com.br/gta-6-50-novidades-incriveis-confirmadas-no-novo-jogo-da-rockstar/','https://www.omelete.com.br/games/gta-6-revela-detalhes-da-historia-confira']},
 ]
 
 
@@ -852,7 +854,11 @@ def _extract_article_body_from_html(html):
         'article', '[itemprop="articleBody"]', '[data-testid="article-body"]',
         '[data-testid="articleBody"]', '.article-body', '.article__body',
         '.article-content', '.article-content-body', '.post-content', '.entry-content',
-        '.story-body', '.story-content', '.articleBody', '.articleBodyText'
+        '.story-body', '.story-content', '.articleBody', '.articleBodyText',
+        '.td-post-content', '.tdb_single_content', '.td-post-content-wrap',
+        '.jeg_inner_content', '.single-post-content', '.single-content',
+        '.content-inner', '.post-single-content', '.post-entry',
+        '[class*=\"article-body\"]', '[class*=\"article-content\"]'
     )
     for sel in selectors:
         for node in soup.select(sel)[:5]:
@@ -999,6 +1005,14 @@ KNOWN_SOURCE_RECOVERY = [
             'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing',
             'https://leonidainteractive.com/wiki/pt-br/trailers/trailer-3/'
         ]
+    },
+    {
+        'match': ('gta 6',),
+        'urls': [
+            'https://gamenoticias.com.br/gta-6-50-novidades-incriveis-confirmadas-no-novo-jogo-da-rockstar/',
+            'https://www.omelete.com.br/games/gta-6-revela-detalhes-da-historia-confira',
+            'https://www.omelete.com.br/games/gta-6-gameplays-ineditos-novos'
+        ]
     }
 ]
 
@@ -1051,6 +1065,7 @@ def _article_url_candidates_from_search(title, source_name=''):
         'portaldopixel.com.br','portaldovideogame.com.br','centralxbox.com.br',
         'gamevicio.com','purexbox.com','flowgames.gg','olhardigital.com.br',
         'tecmundo.com.br','tecnologiaarretada.com.br','jorgelar.com.br',
+        'gamenoticias.com.br','playingvi.com','gta6noticias.com.br',
         'lootsecreto.com','culpadolag.com.br','teratime.com.br','gamenoticias.com.br'
     ]
     blocked={'br.ign.com','ign.com','theverge.com'}
@@ -1330,7 +1345,9 @@ def _fetch_topic_evidence(topic):
     No RSS description, meta description, search snippet, or generic <main> is used.
     """
     original_url=str(topic.get('url') or '').strip()
-    try: _last_gnews_diagnostics=(list(_last_gnews_diagnostics or [])+['V42.3_RESOLVER_START'])[-24:]
+    # V55: diagnostics are per production; old jobs can no longer pollute the next log.
+    _last_gnews_diagnostics=[]
+    try: _last_gnews_diagnostics=['V55_RESOLVER_START']
     except Exception: pass
     title=str(topic.get('title') or '').strip()
     source_name=str(topic.get('source') or '').strip()
@@ -1343,6 +1360,23 @@ def _fetch_topic_evidence(topic):
                 lines,final_url,method=recovered
                 topic['_original_url']=original_url; topic['_source_original']=source_name
                 return lines,final_url,method
+    # V55 deterministic recovery: try a few independently validated direct GTA 6 articles
+    # before spending more resolver budget. They still pass the strict body and story-match gates.
+    v55_direct = [
+        'https://gamenoticias.com.br/gta-6-50-novidades-incriveis-confirmadas-no-novo-jogo-da-rockstar/',
+        'https://www.omelete.com.br/games/gta-6-revela-detalhes-da-historia-confira',
+        'https://www.omelete.com.br/games/gta-6-gameplays-ineditos-novos'
+    ]
+    if 'gta 6' in title.lower() or 'gta vi' in title.lower():
+        for direct_url in v55_direct:
+            if direct_url in direct_candidates: continue
+            recovered=_fetch_direct_article_candidate(direct_url,title,topic,'v55-known-direct',timeout=10)
+            if recovered:
+                lines,final_url,method=recovered
+                topic['_original_url']=original_url; topic['_source_original']=source_name
+                _last_gnews_diagnostics=(list(_last_gnews_diagnostics or [])+[f'V55_KNOWN_DIRECT_RECOVERED:{_resolver_domain(final_url)}'])[-24:]
+                return lines,final_url,method
+
     # Important V42.2 change: a failed Google News decode MUST NOT end production.
     # The previous implementation returned BLOCKED_URL here and never reached the
     # secondary-source resolver. That made a temporary Google 429 indistinguishable
@@ -1584,7 +1618,7 @@ def _is_source_recovery_error(exc):
 
 
 def _autonomous_make_script(jid, topic, topics):
-    """V54: validates source before committing to a production topic and changes topic automatically on failure."""
+    """V55: validates source before committing to a production topic and changes topic automatically on failure."""
     if not AUTONOMOUS_MODE:
         return topic, make_script(topic)
     candidates=[]; seen=set()
@@ -1612,8 +1646,8 @@ def _autonomous_make_script(jid, topic, topics):
             except Exception: pass
             update_job(jid,log='⚠️ V54: pauta descartada por fonte não confiável/indisponível. Tentando automaticamente a próxima pauta...')
     if last_exc:
-        raise ValueError('V54: nenhuma pauta com corpo original confiável foi encontrada após recuperação automática. Última falha: '+str(last_exc)[:600])
-    raise ValueError('V54: nenhuma oportunidade disponível para recuperação de fonte.')
+        raise ValueError('V55: nenhuma pauta com corpo original confiável foi encontrada após recuperação automática. Última falha: '+str(last_exc)[:600])
+    raise ValueError('V55: nenhuma oportunidade disponível para recuperação de fonte.')
 
 
 def make_script(topic):
