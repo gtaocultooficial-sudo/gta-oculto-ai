@@ -52,7 +52,7 @@ UA = 'GTA-Oculto-AI/Cloud-Final/V55-SOURCE-RECOVERY-3'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
-BUILD_VERSION = 'V55.8-CAPTION-ALIGNMENT-FIX-20261008'
+BUILD_VERSION = 'V55.9-CAPTION-ALIGNMENT-SAFE-20261008'
 
 FALLBACK_TOPICS = [
     {'id':'leonida','score':96,'priority':'ALTA','title':'GTA 6: o detalhe de Leonida que pode mudar a história','source':'Rockstar Games','url':ROCKSTAR_VI,
@@ -3478,10 +3478,20 @@ def produce_job(jid):
                             video2=video.with_name('GTA_OCULTO_SHORT_V42_REPAIRED.mp4')
                             make_multimedia_video(selected_videos,image_scenes,audio,video2,duration,[b['text'] for b in repaired_beats],script,topic['title'],repaired_beats)
                             va2=v42_full_audit(video2,[b['text'] for b in repaired_beats],script.get('narration',''))
-                            if va2.get('score',0) >= v42_audit.get('score',0):
+                            # V55.9: never accept an independent caption repair if it
+                            # introduces words that are not present in the actual narration.
+                            # The previous V42 repair could improve visual segmentation while
+                            # silently introducing foreign/metadata text, which then caused the
+                            # final strict caption gate to block the whole production.
+                            va2_align = _caption_narration_alignment(repaired_beats, script.get('narration',''))
+                            va2_safe = (va2_align.get('foreign_ratio', 1.0) <= 0.03 and
+                                        va2_align.get('score', 0) >= 85)
+                            if va2.get('score',0) >= v42_audit.get('score',0) and va2_safe:
                                 os.replace(video2,video); beats=repaired_beats; repaired=True; v42_audit=va2
                             elif video2.exists():
                                 video2.unlink()
+                                if not va2_safe:
+                                    v42_audit.setdefault('notes',[]).append('V55.9: reparo V42 descartado por desalinhamento com a narração.')
             except Exception as _v42e:
                 v42_audit={'score':None,'error':str(_v42e)[:500]}
 
