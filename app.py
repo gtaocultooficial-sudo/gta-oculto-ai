@@ -1311,6 +1311,7 @@ def _topic_recovery_urls(topic):
 
 
 def _fetch_direct_article_candidate(url, title, topic, strategy='direct-recovery', timeout=12):
+    global _last_gnews_diagnostics
     url=str(url or '').strip()
     if not url or _is_google_news_url(url): return None
     try:

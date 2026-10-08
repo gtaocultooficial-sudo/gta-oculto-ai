@@ -1,3 +1,1 @@
-GTA OCULTO AI V55
-V55-SOURCE-RECOVERY-3-20261008
-Source Recovery 3: per-job diagnostics, stronger trusted article adapters, deterministic direct GTA 6 sources.
+V55.1-SOURCE-RECOVERY-3-FIX-20261008
