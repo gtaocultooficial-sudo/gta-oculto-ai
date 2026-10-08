@@ -30,7 +30,7 @@ WORK.mkdir(exist_ok=True)
 STATE_FILE = WORK / 'jobs.json'
 LOCK = threading.RLock()
 PROCESSING = False
-UA = 'GTA-Oculto-AI/Cloud-Final/1.7-V38.0'
+UA = 'GTA-Oculto-AI/Cloud-Final/1.7-V39.0'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
@@ -567,31 +567,31 @@ def _clean_article_text(text):
 
 
 def _decode_google_news_direct(source_url):
-    """V38: direct Google News batchexecute decoder."""
+    """V39: Google News decoder using the current Fbv4je request shape."""
     try:
         u=urlparse(str(source_url or '').strip())
         if 'news.google.com' not in u.netloc.lower():
             return ''
         parts=[p for p in u.path.split('/') if p]
-        if not parts:
+        if len(parts) < 2:
             return ''
-        if 'articles' in parts or 'read' in parts or 'rss' in parts:
-            art_id=parts[-1]
-        else:
+        if parts[-2] not in ('articles','rss','read') and 'articles' not in parts:
             return ''
+        art_id=parts[-1]
 
+        # Google exposes the per-article signature/timestamp on the article page.
         page_url=f'https://news.google.com/articles/{art_id}'
-        r=fetch(page_url, timeout=15)
+        r=fetch(page_url, timeout=18)
         if not getattr(r,'ok',False):
             page_url=f'https://news.google.com/rss/articles/{art_id}'
-            r=fetch(page_url, timeout=15)
+            r=fetch(page_url, timeout=18)
         if not getattr(r,'ok',False):
             return ''
 
         soup=BeautifulSoup(r.text,'html.parser')
         node=soup.select_one('c-wiz > div[data-n-a-sg][data-n-a-ts]')
         if node is None:
-            node=soup.select_one('[data-n-a-sg][data-n-a-ts]')
+            node=soup.select_one('div[data-n-a-sg][data-n-a-ts]')
         if node is None:
             return ''
 
@@ -600,35 +600,65 @@ def _decode_google_news_direct(source_url):
         if not signature or not timestamp:
             return ''
 
-        request_inner = '["garturlreq",[["X","X",["X","X"],null,null,1,1,"BR:pt-BR",null,1,null,null,null,null,null,0,1],"X","X",1,[1,1,1],1,1,null,0,0,null,0],"%s",%s,"%s"]' % (art_id, timestamp, signature)
-        payload="f.req="+quote(json.dumps([["Fbv4je", request_inner]], ensure_ascii=False, separators=(',',':')))
+        # IMPORTANT: Fbv4je expects a list of request tuples wrapped in
+        # another list. This is the shape used by current working decoders.
+        request_inner = (
+            '["garturlreq",[["X","X",["X","X"],null,null,1,1,"US:en",'
+            'null,1,null,null,null,null,null,0,1],"X","X",1,[1,1,1],1,1,'
+            'null,0,0,null,0],"%s",%s,"%s"]'
+            % (art_id, timestamp, signature)
+        )
+        articles_reqs=[["Fbv4je", request_inner]]
+        payload="f.req="+quote(json.dumps([articles_reqs], ensure_ascii=False, separators=(',',':')))
 
         headers={
             'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8',
             'User-Agent':UA,
+            'Referer':'https://news.google.com/',
         }
         rr=requests.post(
-            'https://news.google.com/_/DotsSplashUi/data/batchexecute',
+            'https://news.google.com/_/DotsSplashUi/data/batchexecute?rpcids=Fbv4je',
             headers=headers,
             data=payload,
-            timeout=18,
+            timeout=20,
         )
         if not rr.ok:
             return ''
 
-        body=rr.text.replace('\\u003d','=').replace('\\u0026','&').replace('\\/','/')
-        candidates=re.findall(r'https?://[^"\\s<>]+', body)
-        for cand in candidates:
-            cand=cand.rstrip('.,);]}')
-            if not _is_google_news_url(cand):
-                return cand
+        body=rr.text
+
+        # Current Google response contains an escaped garturlres field.
+        header='[\\"garturlres\\",\\"'
+        footer='\\",'
+        if header in body:
+            tail=body.split(header,1)[1]
+            if footer in tail:
+                decoded=tail.split(footer,1)[0]
+                decoded=decoded.replace('\\u003d','=').replace('\\u0026','&').replace('\\/','/')
+                if decoded.startswith(('http://','https://')) and not _is_google_news_url(decoded):
+                    return decoded
+
+        # Fallback parser for the newer nested response representation.
+        try:
+            chunks=body.split('\n\n')
+            for chunk in chunks:
+                if 'garturlres' not in chunk:
+                    continue
+                vals=re.findall(r'https?://[^"\\\s<>]+', chunk.replace('\\u003d','=').replace('\\u0026','&').replace('\\/','/'))
+                for cand in vals:
+                    cand=cand.rstrip('.,);]}')
+                    if not _is_google_news_url(cand):
+                        return cand
+        except Exception:
+            pass
     except Exception:
         return ''
     return ''
 
 
+
 def _resolve_article_url(url, title='', source_name=''):
-    """V38: resolve Google News links with independent fallbacks."""
+    """V39: resolve Google News links with independent fallbacks."""
     url=str(url or '').strip()
     title=str(title or '').strip()
     source_name=str(source_name or '').strip()
@@ -710,7 +740,7 @@ def _is_google_news_url(url):
 
 
 def _fetch_topic_evidence(topic):
-    """V38 FINAL: extrai exclusivamente o corpo da matéria original.
+    """V39 FINAL: extrai exclusivamente o corpo da matéria original.
 
     Regras duras:
     1) resolve a URL do Google News;
@@ -956,7 +986,7 @@ def make_script(topic):
         'editorial_score':topic.get('editorial_score'),'editorial_decision':topic.get('editorial_decision','PRODUZIR'),
         'editorial_reason':topic.get('editorial_reason',''),'sections':sections,
         'evidence':evidence[:3],'word_count':word_count,'estimated_seconds':estimated_seconds,
-        'script_version':'V38.0-SOURCE-LOCK-FINAL','extraction_method':extraction_method
+        'script_version':'V39.0-SOURCE-LOCK-FINAL','extraction_method':extraction_method
     }
 
 def build_dynamic_captions(script, topic, count=9):
@@ -2079,7 +2109,7 @@ def processor_loop():
 @APP.get('/')
 def home(): return render_template_string(PAGE)
 @APP.get('/health')
-def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V38.0-SOURCE-LOCK-FINAL',processor='cloud')
+def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V39.0-SOURCE-LOCK-FINAL',processor='cloud')
 @APP.get('/api/state')
 def state():
     with LOCK:
@@ -2087,7 +2117,7 @@ def state():
     topics,updated,radar_status,radar_error,sources_ok=current_opportunities()
     editor_pick=editor_chief_select(topics) if topics else None
 
-    # V38: NEVER execute the full editorial/source resolver inside /api/state.
+    # V39: NEVER execute the full editorial/source resolver inside /api/state.
     # The dashboard polls this endpoint repeatedly. make_script() can perform
     # external network resolution (Google News decoder/search) and could make
     # the browser appear to load forever. The real script is generated only
