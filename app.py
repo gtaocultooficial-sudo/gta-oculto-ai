@@ -30,7 +30,7 @@ WORK.mkdir(exist_ok=True)
 STATE_FILE = WORK / 'jobs.json'
 LOCK = threading.RLock()
 PROCESSING = False
-UA = 'GTA-Oculto-AI/Cloud-Final/1.7-V37.0'
+UA = 'GTA-Oculto-AI/Cloud-Final/1.7-V38.0'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
@@ -566,15 +566,69 @@ def _clean_article_text(text):
     return out
 
 
-def _resolve_article_url(url, title='', source_name=''):
-    """V37: resolve Google News links with multiple independent fallbacks.
+def _decode_google_news_direct(source_url):
+    """V38: direct Google News batchexecute decoder."""
+    try:
+        u=urlparse(str(source_url or '').strip())
+        if 'news.google.com' not in u.netloc.lower():
+            return ''
+        parts=[p for p in u.path.split('/') if p]
+        if not parts:
+            return ''
+        if 'articles' in parts or 'read' in parts or 'rss' in parts:
+            art_id=parts[-1]
+        else:
+            return ''
 
-    Order:
-      1) googlenewsdecoder (preferred)
-      2) normal HTTP redirect
-      3) DuckDuckGo HTML search using the exact headline + publisher
-    The function never treats Google News itself as the original article.
-    """
+        page_url=f'https://news.google.com/articles/{art_id}'
+        r=fetch(page_url, timeout=15)
+        if not getattr(r,'ok',False):
+            page_url=f'https://news.google.com/rss/articles/{art_id}'
+            r=fetch(page_url, timeout=15)
+        if not getattr(r,'ok',False):
+            return ''
+
+        soup=BeautifulSoup(r.text,'html.parser')
+        node=soup.select_one('c-wiz > div[data-n-a-sg][data-n-a-ts]')
+        if node is None:
+            node=soup.select_one('[data-n-a-sg][data-n-a-ts]')
+        if node is None:
+            return ''
+
+        signature=str(node.get('data-n-a-sg') or '').strip()
+        timestamp=str(node.get('data-n-a-ts') or '').strip()
+        if not signature or not timestamp:
+            return ''
+
+        request_inner = '["garturlreq",[["X","X",["X","X"],null,null,1,1,"BR:pt-BR",null,1,null,null,null,null,null,0,1],"X","X",1,[1,1,1],1,1,null,0,0,null,0],"%s",%s,"%s"]' % (art_id, timestamp, signature)
+        payload="f.req="+quote(json.dumps([["Fbv4je", request_inner]], ensure_ascii=False, separators=(',',':')))
+
+        headers={
+            'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8',
+            'User-Agent':UA,
+        }
+        rr=requests.post(
+            'https://news.google.com/_/DotsSplashUi/data/batchexecute',
+            headers=headers,
+            data=payload,
+            timeout=18,
+        )
+        if not rr.ok:
+            return ''
+
+        body=rr.text.replace('\\u003d','=').replace('\\u0026','&').replace('\\/','/')
+        candidates=re.findall(r'https?://[^"\\s<>]+', body)
+        for cand in candidates:
+            cand=cand.rstrip('.,);]}')
+            if not _is_google_news_url(cand):
+                return cand
+    except Exception:
+        return ''
+    return ''
+
+
+def _resolve_article_url(url, title='', source_name=''):
+    """V38: resolve Google News links with independent fallbacks."""
     url=str(url or '').strip()
     title=str(title or '').strip()
     source_name=str(source_name or '').strip()
@@ -583,13 +637,17 @@ def _resolve_article_url(url, title='', source_name=''):
     if not _is_google_news_url(url):
         return url
 
-    # 1) Preferred decoder. In V36 the dependency is expected to be installed
-    # by Render during BUILD from requirements.txt, not by a runtime pip call.
+    # 1) Direct Google batchexecute decoder, independent of third-party package.
+    decoded=_decode_google_news_direct(url)
+    if decoded and not _is_google_news_url(decoded):
+        return decoded
+
+    # 2) Maintained Python decoder.
     global _gnewsdecoder
     if _gnewsdecoder is not None:
-        for wait in (0.8, 1.5):
+        for wait in (0.5, 1.0):
             try:
-                result=_gnewsdecoder(url, interval=wait, timeout=20)
+                result=_gnewsdecoder(url, interval=wait, timeout=15)
                 if isinstance(result, dict):
                     decoded=str(result.get('decoded_url') or result.get('url') or '').strip()
                     ok=bool(result.get('success') or result.get('status'))
@@ -598,55 +656,46 @@ def _resolve_article_url(url, title='', source_name=''):
             except Exception:
                 continue
 
-    # 2) Cheap fallback if Google exposes a real HTTP redirect.
+    # 3) Normal HTTP redirect.
     try:
-        r=fetch(url, timeout=20)
+        r=fetch(url, timeout=15)
         final=str(getattr(r, 'url', '') or '').strip()
         if final and not _is_google_news_url(final):
             return final
     except Exception:
         pass
 
-    # 3) Search fallback: find the original publisher page from the exact
-    # headline. This is intentionally constrained to the source domain when
-    # the RSS entry gives us one, preventing a random mirror from being used.
+    # 4) Publisher-constrained search fallback.
     try:
         query=title
         if source_name:
             query += ' ' + source_name
         if query:
             qurl='https://html.duckduckgo.com/html/?q=' + quote_plus(query)
-            rr=fetch(qurl, timeout=18)
+            rr=fetch(qurl, timeout=15)
             if rr.ok:
-                soup=BeautifulSoup(rr.text, 'html.parser')
-                wanted_host=''
-                # source_name can be "ign brasil", "IGN", etc.; use a small
-                # normalization so the fallback does not depend on exact casing.
+                soup=BeautifulSoup(rr.text,'html.parser')
                 sn=re.sub(r'[^a-z0-9]+','',source_name.lower())
+                aliases={
+                    'ignbrasil': ('ign.com','br.ign.com'),
+                    'ign': ('ign.com','br.ign.com'),
+                    'theverge': ('theverge.com',),
+                    'rockstarnewswire': ('rockstargames.com',),
+                }
+                allowed=aliases.get(sn, ())
                 for a in soup.select('a.result__a, a[href]'):
                     href=str(a.get('href') or '').strip()
-                    if not href:
-                        continue
-                    # DuckDuckGo often wraps the destination in uddg=...
                     try:
                         qs=parse_qs(urlparse(href).query)
-                        if 'uddg' in qs and qs['uddg']:
+                        if qs.get('uddg'):
                             href=qs['uddg'][0]
                     except Exception:
                         pass
-                    if not href.startswith(('http://','https://')):
-                        continue
-                    if _is_google_news_url(href):
+                    if not href.startswith(('http://','https://')) or _is_google_news_url(href):
                         continue
                     host=urlparse(href).netloc.lower().replace('www.','')
-                    if not host:
+                    if allowed and not any(host==d or host.endswith('.'+d) for d in allowed):
                         continue
-                    if sn:
-                        hostnorm=re.sub(r'[^a-z0-9]+','',host)
-                        # Prefer a result whose domain contains the publisher
-                        # name. For IGN Brasil this accepts ign.com.
-                        if sn not in hostnorm and not any(part in hostnorm for part in sn.split() if len(part)>3):
-                            continue
                     return href
     except Exception:
         pass
@@ -661,7 +710,7 @@ def _is_google_news_url(url):
 
 
 def _fetch_topic_evidence(topic):
-    """V37 FINAL: extrai exclusivamente o corpo da matéria original.
+    """V38 FINAL: extrai exclusivamente o corpo da matéria original.
 
     Regras duras:
     1) resolve a URL do Google News;
@@ -907,7 +956,7 @@ def make_script(topic):
         'editorial_score':topic.get('editorial_score'),'editorial_decision':topic.get('editorial_decision','PRODUZIR'),
         'editorial_reason':topic.get('editorial_reason',''),'sections':sections,
         'evidence':evidence[:3],'word_count':word_count,'estimated_seconds':estimated_seconds,
-        'script_version':'V37.0-SOURCE-LOCK-FINAL','extraction_method':extraction_method
+        'script_version':'V38.0-SOURCE-LOCK-FINAL','extraction_method':extraction_method
     }
 
 def build_dynamic_captions(script, topic, count=9):
@@ -2030,7 +2079,7 @@ def processor_loop():
 @APP.get('/')
 def home(): return render_template_string(PAGE)
 @APP.get('/health')
-def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V37.0-SOURCE-LOCK-FINAL',processor='cloud')
+def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V38.0-SOURCE-LOCK-FINAL',processor='cloud')
 @APP.get('/api/state')
 def state():
     with LOCK:
@@ -2038,7 +2087,7 @@ def state():
     topics,updated,radar_status,radar_error,sources_ok=current_opportunities()
     editor_pick=editor_chief_select(topics) if topics else None
 
-    # V37: NEVER execute the full editorial/source resolver inside /api/state.
+    # V38: NEVER execute the full editorial/source resolver inside /api/state.
     # The dashboard polls this endpoint repeatedly. make_script() can perform
     # external network resolution (Google News decoder/search) and could make
     # the browser appear to load forever. The real script is generated only
