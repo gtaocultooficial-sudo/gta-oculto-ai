@@ -52,7 +52,7 @@ UA = 'GTA-Oculto-AI/Cloud-Final/V55-SOURCE-RECOVERY-3'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
-BUILD_VERSION = 'V55.2-SOURCE-RECOVERY-EDITORIAL-GATE-FIX-20261008'
+BUILD_VERSION = 'V55.3-CAPTION-REPAIR-20261008'
 
 FALLBACK_TOPICS = [
     {'id':'leonida','score':96,'priority':'ALTA','title':'GTA 6: o detalhe de Leonida que pode mudar a história','source':'Rockstar Games','url':ROCKSTAR_VI,
@@ -2960,41 +2960,76 @@ def _learn_event(code, message, strategy=None, success=None):
         pass
 
 def _repair_caption_beats(beats, duration, max_words=7):
-    """Auto-repair caption timing/text without changing the narration."""
-    repaired=[]
+    """V55.3: reconstrução semântica das legendas usando somente as palavras já faladas.
+    Em vez de apenas juntar blocos ruins, achata a fala existente, resegmenta por
+    unidades de sentido e redistribui o tempo proporcionalmente. Isso elimina falsos
+    positivos como blocos terminando em preposição/conjunção.
+    """
+    if not beats:
+        return []
+
+    # Preserva exatamente o texto que já veio da narração; não cria palavras novas.
+    raw_parts=[re.sub(r'\s+',' ',str(b.get('text','')).strip()) for b in beats if str(b.get('text','')).strip()]
+    full=' '.join(raw_parts).strip()
+    if not full:
+        return []
+
+    # Recria frases a partir de pontuação quando ela ainda existir; caso contrário,
+    # usa a segmentação semântica existente no motor.
+    sentences=[x.strip() for x in re.split(r'(?<=[.!?;:])\s+',full) if x.strip()]
+    chunks=[]
+    for sent in sentences:
+        chunks.extend(_semantic_caption_chunks(sent, min_words=3, max_words=max_words))
+    if not chunks:
+        chunks=[_caption_words(full)]
+
+    # Corrige fragmentos e limita a quantidade de blocos sem alterar a sequência.
+    chunks=[list(c) for c in chunks if c]
+    fixed=[]
+    for ch in chunks:
+        if fixed and len(ch)<3 and len(fixed[-1])+len(ch)<=max_words:
+            fixed[-1].extend(ch)
+        else:
+            fixed.append(ch)
+    chunks=_merge_caption_chunks(fixed,target_count=max(1,min(10,len(fixed))),max_words=max_words+2)
+
+    # Se uma fusão criou um limite ruim, tenta uma nova segmentação global.
     bad_end={'e','de','do','da','em','no','na','que','um','uma','o','a','os','as','para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa','sobre','entre','até','sem'}
     bad_start={'e','mas','porque','porém','porem','então','entao','quando','enquanto','para','com','de','do','da','em','no','na','que'}
-    for b in beats or []:
-        words=_caption_words(b.get('text',''))
-        if not words: continue
-        # Split overlong captions first, preserving timing proportionally.
-        chunks=[words[i:i+max_words] for i in range(0,len(words),max_words)]
-        start=float(b.get('start',0)); end=float(b.get('end',start+b.get('duration',0.5))); span=max(0.4,end-start)
-        total=max(1,sum(len(c) for c in chunks)); cursor=start
-        for ci,ch in enumerate(chunks):
-            d=span*(len(ch)/total); ce=end if ci==len(chunks)-1 else cursor+d
-            text=_clean_caption_phrase(' '.join(ch))
-            if len(ch)>=2:
-                repaired.append({'text':text,'highlight':None,'start':cursor,'end':ce,'duration':max(0.3,ce-cursor)})
-            cursor=ce
-    # Merge fragments and avoid bad boundaries.
-    out=[]
-    for b in repaired:
-        words=_caption_words(b['text'])
-        if not words: continue
-        last=_caption_clean_word(words[-1]); first=_caption_clean_word(words[0])
-        if out and (len(words)<3 or last in bad_end or first in bad_start):
-            merged=_caption_words(out[-1]['text'])+words
-            if len(merged)<=max_words+3:
-                out[-1]['text']=_clean_caption_phrase(' '.join(merged)); out[-1]['end']=b['end']; out[-1]['duration']=max(0.3,out[-1]['end']-out[-1]['start']); continue
-        out.append(b)
-    for i,b in enumerate(out):
-        ws=re.findall(r"[A-Za-zÀ-ÿ0-9']+",b['text'])
-        pref=[w for w in ws if w.lower() in {'gta','6','rockstar','jason','lucia','leonida','vice','city','cloud','gaming','xbox','microsoft'}]
-        b['highlight']=pref[0] if pref else (ws[-1] if len(ws)>=4 else None)
-        if i and b['start']<out[i-1]['end']:
-            b['start']=out[i-1]['end']; b['duration']=max(0.3,b['end']-b['start'])
-    if out: out[-1]['end']=min(duration,out[-1]['end']); out[-1]['duration']=max(0.3,out[-1]['end']-out[-1]['start'])
+    for i in range(len(chunks)-1):
+        last=_caption_clean_word(chunks[i][-1]); first=_caption_clean_word(chunks[i+1][0])
+        if (last in bad_end or first in bad_start) and len(chunks[i])+len(chunks[i+1])<=max_words+2:
+            chunks[i:i+2]=[chunks[i]+chunks[i+1]]
+            break
+
+    # Intervalo temporal coberto pelos beats originais.
+    start_time=float(beats[0].get('start',0.0))
+    end_time=min(float(duration), max(float(b.get('end',0.0)) for b in beats))
+    if end_time<=start_time:
+        start_time=0.0; end_time=float(duration)
+    span=max(0.5,end_time-start_time)
+    weights=[max(1,len(c)) for c in chunks]
+    total=sum(weights) or 1
+
+    out=[]; cursor=start_time
+    for i,ch in enumerate(chunks):
+        d=span*(weights[i]/total)
+        ce=end_time if i==len(chunks)-1 else cursor+d
+        text=_clean_caption_phrase(' '.join(ch))
+        if not text: continue
+        ws=re.findall(r"[A-Za-zÀ-ÿ0-9']+",text)
+        preferred=[w for w in ws if w.lower() in {'gta','6','rockstar','jason','lucia','leonida','vice','city','cloud','gaming','xbox','realismo','novidades','microsoft'}]
+        highlight=preferred[0] if preferred else (ws[-1] if len(ws)>=5 else None)
+        out.append({'text':text,'highlight':highlight,'start':cursor,'end':ce,'duration':max(0.3,ce-cursor)})
+        cursor=ce
+
+    # Sem sobreposição e cobertura final estável.
+    for i in range(len(out)-1):
+        out[i]['end']=min(out[i]['end'],out[i+1]['start'])
+        out[i]['duration']=max(0.3,out[i]['end']-out[i]['start'])
+    if out:
+        out[-1]['end']=min(float(duration),max(out[-1]['end'],end_time))
+        out[-1]['duration']=max(0.3,out[-1]['end']-out[-1]['start'])
     return out
 
 def _caption_visual_split_quality(text, W=320):
@@ -3295,6 +3330,18 @@ def self_heal(jid, script, video, duration, beats, selected_videos, image_scenes
             audit2=audit_short(script,video,duration,new_beats,selected_videos,image_scenes)
             _learn_event('CAPTIONS_BAD_BOUNDARY','reparo de legendas concluído', 'resegmentar captions preservando fala', audit2['score']>=audit['score'])
             repaired=True; beats=new_beats; audit=audit2
+            # V55.3: uma segunda passada só é feita se ainda houver bloqueio de legenda.
+            if any(x.get('code') in {'CAPTIONS_BAD_BOUNDARY','CAPTIONS_REPEATED','CAPTIONS_NOT_FROM_NARRATION'} for x in audit.get('issues',[])):
+                retry=_repair_caption_beats(beats,duration,7)
+                if retry and retry!=beats:
+                    video3=video.with_name('GTA_OCULTO_SHORT_REPAIRED_2.mp4')
+                    make_multimedia_video(selected_videos,image_scenes,audio,video3,duration,[b['text'] for b in retry],script,topic['title'],retry)
+                    audit3=audit_short(script,video3,duration,retry,selected_videos,image_scenes)
+                    if audit3.get('score',0)>=audit.get('score',0) and not any(x.get('code') in {'CAPTIONS_BAD_BOUNDARY','CAPTIONS_REPEATED','CAPTIONS_NOT_FROM_NARRATION'} for x in audit3.get('issues',[])):
+                        os.replace(video3,video); beats=retry; audit=audit3
+                    else:
+                        try: video3.unlink(missing_ok=True)
+                        except Exception: pass
     return audit,beats,repaired
 
 def evaluate(script,duration,scene_count,visual_quality,beats=None,video_count=0,image_count=0):
