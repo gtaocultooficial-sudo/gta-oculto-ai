@@ -1,0 +1,13 @@
+name: V57 Remote Monitor
+on:
+  push:
+    branches: [monitor-v57]
+permissions:
+  contents: read
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read cloud state
+        run: |
+          curl -sS --max-time 20 https://gta-oculto-ai.onrender.com/api/state
