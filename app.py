@@ -2939,7 +2939,7 @@ def _normalize_visual_beats(beats, duration, max_scene=3.2):
 
 def make_multimedia_video(video_clips, image_paths, audio, out, duration, captions, script=None, topic_title='GTA 6', beats=None, motion_boost=False, asset_variant=0):
     # FFmpeg/yuv420p requires even width/height. Keep the Render Free
-    # intermediate at an even 320x568 and upscale only at the final render.
+    # intermediate at an even 540x960 and render the final master at 1080x1920.
     INTER_W, INTER_H = 540, 960
     if INTER_W % 2 or INTER_H % 2:
         raise RuntimeError(f'Dimensões intermediárias inválidas: {INTER_W}x{INTER_H}.')
@@ -2963,7 +2963,7 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
     scene_files=[]
     for i,(beat,(kind,src)) in enumerate(zip(beats,assets)):
         scene=work/f'scene_{i:02d}.mp4'; overlay=work/f'overlay_{i:02d}.png'
-        _caption_overlay(overlay,beat['text'],i,len(beats),320,568,beat.get('highlight'))
+        _caption_overlay(overlay,beat['text'],i,len(beats),540,960,beat.get('highlight'))
         if kind=='video':
             # Movimento leve em todas as cenas. Em reparos, aumenta a amplitude.
             amp=28 if motion_boost else 10
