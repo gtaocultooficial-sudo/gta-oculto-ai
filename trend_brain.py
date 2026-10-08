@@ -91,6 +91,40 @@ class TrendBrain:
             self._write(d)
         return {"ok":True,"videos_learned":len(rows)}
 
+    def record_production(self, topic, metadata=None, quality=0):
+        """Store editorial quality before publication so the brain can learn even without platform APIs."""
+        with self.lock:
+            d=self._read(); k=self._key(topic or {})
+            x=d["topics"].setdefault(k,{"seen":0,"best":0})
+            x["productions"]=int(x.get("productions",0))+1
+            x["quality_sum"]=float(x.get("quality_sum",0))+float(quality or 0)
+            x["last_quality"]=float(quality or 0)
+            if metadata:
+                x["last_title"]=str(metadata.get("title",""))
+                x["last_hook"]=str(metadata.get("hook",metadata.get("editorial_hook","")))
+            self._write(d)
+
+    def recommend_publish_slot(self, now=None):
+        """Free baseline scheduler: choose a strong BR publishing window, then learn later from slot metrics."""
+        from datetime import datetime
+        n=now or datetime.now()
+        slots=[(12,30),(18,30),(20,30),(22,0)]
+        # Prefer evening for GTA audience; once slot scores exist, use learned winners.
+        d=self._read(); scores=d.get("patterns",{}).get("publish_slots",{})
+        if scores:
+            best=max(scores.items(), key=lambda kv:float(kv[1]))[0]
+            h,m=map(int,best.split(':')); return {"time":best,"reason":"aprendido","timezone":"America/Sao_Paulo"}
+        h,m=min(slots,key=lambda x:abs((x[0]*60+x[1])-(n.hour*60+n.minute)))
+        return {"time":f"{h:02d}:{m:02d}","reason":"baseline","timezone":"America/Sao_Paulo"}
+
+    def record_slot_performance(self, slot, score):
+        if not slot: return
+        with self.lock:
+            d=self._read(); p=d.setdefault("patterns",{}).setdefault("publish_slots",{})
+            old=p.get(slot,{"sum":0,"n":0}) if isinstance(p.get(slot),dict) else {"sum":0,"n":0}
+            old["sum"]+=float(score or 0); old["n"]+=1; p[slot]=old["sum"]/old["n"]
+            self._write(d)
+
     def status(self):
         d=self._read()
         return {"version":"V57","topics_seen":len(d["topics"]),"videos_tracked":len(d["videos"])}
