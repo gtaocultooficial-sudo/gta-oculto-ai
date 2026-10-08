@@ -6,10 +6,11 @@ class SocialPublisher:
         self.tiktok_enabled=os.getenv('TIKTOK_AUTO_PUBLISH','0').lower() in ('1','true','yes','on')
         self.instagram_enabled=os.getenv('INSTAGRAM_AUTO_PUBLISH','0').lower() in ('1','true','yes','on')
         self.tiktok_token=os.getenv('TIKTOK_ACCESS_TOKEN','').strip()
+        self.tiktok_consent=os.getenv('TIKTOK_POST_CONSENT','0').lower() in ('1','true','yes','on')
         self.ig_token=os.getenv('INSTAGRAM_ACCESS_TOKEN','').strip()
         self.ig_user=os.getenv('INSTAGRAM_USER_ID','').strip()
     def status(self):
-        return {'tiktok':self.tiktok_enabled and bool(self.tiktok_token),'instagram':self.instagram_enabled and bool(self.ig_token and self.ig_user)}
+        return {'tiktok':self.tiktok_enabled and bool(self.tiktok_token and self.tiktok_consent),'instagram':self.instagram_enabled and bool(self.ig_token and self.ig_user)}
     def _result(self, platform, ok=False, reason=None, **extra):
         d={'ok':ok,'platform':platform}
         if reason: d['reason']=reason
@@ -17,9 +18,15 @@ class SocialPublisher:
     def tiktok(self, video_url, metadata):
         if not self.tiktok_enabled: return self._result('tiktok',reason='TIKTOK_AUTO_PUBLISH_DISABLED')
         if not self.tiktok_token: return self._result('tiktok',reason='TIKTOK_ACCESS_TOKEN_MISSING')
+        if not self.tiktok_consent: return self._result('tiktok',reason='TIKTOK_POST_CONSENT_REQUIRED')
         # Content Posting API: URL pull publishing. TikTok app/account permissions are required.
         try:
-            r=requests.post('https://open.tiktokapis.com/v2/post/publish/video/init/',headers={'Authorization':f'Bearer {self.tiktok_token}','Content-Type':'application/json; charset=UTF-8'},json={'post_info':{'title':metadata.get('title','GTA 6')[:220],'privacy_level':'SELF_ONLY','disable_duet':False,'disable_comment':False,'disable_stitch':False},'source_info':{'source':'PULL_FROM_URL','video_url':video_url}},timeout=60)
+            info=requests.post('https://open.tiktokapis.com/v2/post/publish/creator_info/query/',headers={'Authorization':f'Bearer {self.tiktok_token}','Content-Type':'application/json'},timeout=30)
+            creator=info.json() if info.ok else {}
+            opts=((creator.get('data') or {}).get('privacy_level_options') or ['SELF_ONLY'])
+            privacy=os.getenv('TIKTOK_PRIVACY','SELF_ONLY').strip() or 'SELF_ONLY'
+            if privacy not in opts: privacy='SELF_ONLY' if 'SELF_ONLY' in opts else opts[0]
+            r=requests.post('https://open.tiktokapis.com/v2/post/publish/video/init/',headers={'Authorization':f'Bearer {self.tiktok_token}','Content-Type':'application/json; charset=UTF-8'},json={'post_info':{'title':metadata.get('title','GTA 6')[:2200],'privacy_level':privacy,'disable_duet':False,'disable_comment':False,'disable_stitch':False,'is_aigc':True},'source_info':{'source':'PULL_FROM_URL','video_url':video_url}},timeout=60)
             data=r.json()
             return self._result('tiktok',r.ok and not data.get('error'),response=data)
         except Exception as e: return self._result('tiktok',reason=str(e)[:1000])
