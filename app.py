@@ -1688,7 +1688,7 @@ def make_script(topic):
         'editorial_score':topic.get('editorial_score'),'editorial_decision':topic.get('editorial_decision','PRODUZIR'),
         'editorial_reason':topic.get('editorial_reason',''),'sections':sections,
         'evidence':evidence[:3],'word_count':word_count,'estimated_seconds':estimated_seconds,
-        'script_version':'V46-TIMELINE-SELF-HEALING-AUDITOR','extraction_method':extraction_method
+        'script_version':'V51-SEMANTIC-CAPTION-VISUAL-REPETITION-GATE','extraction_method':extraction_method
     }
 
 def build_dynamic_captions(script, topic, count=9):
@@ -2409,6 +2409,65 @@ def _caption_is_bad_end(word):
     }
 
 
+def _semantic_caption_chunks(sentence, min_words=3, max_words=7):
+    """V51: segmenta legendas por unidade de sentido, preservando a ordem exata da fala.
+    O objetivo é impedir cortes do tipo 'EM UMA' / 'NOVA' ou finais em preposição.
+    Pontuação e conectores recebem prioridade; cortes ruins ficam muito caros.
+    """
+    raw=re.sub(r'\s+', ' ', str(sentence or '')).strip()
+    if not raw: return []
+    tokens=_caption_words(raw)
+    if len(tokens)<=max_words:
+        return [tokens] if len(tokens)>=min_words else [tokens]
+    norm=lambda w:_caption_clean_word(w)
+    bad_end={'e','de','do','da','em','no','na','que','um','uma','o','a','os','as','para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa','sobre','entre','até','sem','como','pelo','pela','pelos','pelas','porém','porem','então','entao'}
+    bad_start={'e','mas','porque','porém','porem','então','entao','quando','enquanto','que','para','com','de','do','da','em','no','na'}
+    preferred={'e','mas','porque','porém','porem','então','entao','quando','enquanto','porque'}
+    protected={('gta','6'),('gta','vi'),('vice','city'),('cloud','gaming'),('xbox','cloud','gaming'),('playstation','5'),('xbox','series')}
+    def protected_cut(cut):
+        left=[norm(x) for x in tokens[max(0,cut-3):cut]]
+        right=[norm(x) for x in tokens[cut:cut+3]]
+        for ph in protected:
+            n=len(ph)
+            if len(left)>=n and tuple(left[-n:])==ph: return True
+            if len(right)>=n and tuple(right[:n])==ph: return True
+        return False
+    out=[]; i=0
+    while i<len(tokens):
+        rem=len(tokens)-i
+        if rem<=max_words:
+            out.append(tokens[i:]); break
+        lo=i+min_words
+        hi=min(i+max_words, len(tokens)-min_words)
+        best=None
+        target=min(max_words, 6 if rem>=10 else 5)
+        for cut in range(lo,hi+1):
+            left=tokens[i:cut]; right=tokens[cut:]
+            if not right: continue
+            lw=norm(left[-1]); rw=norm(right[0])
+            score=abs(len(left)-target)*2.0
+            if re.search(r'[.!?;:]$', left[-1]): score-=30
+            elif re.search(r'[,)]$', left[-1]): score-=12
+            if lw in bad_end: score+=45
+            if rw in bad_start: score+=32
+            if rw in preferred: score-=8
+            if protected_cut(cut): score+=80
+            # Evita blocos visualmente curtos demais.
+            if len(left)<min_words: score+=25
+            if len(right)<min_words and rem>max_words+min_words: score+=25
+            cand=(score,cut)
+            if best is None or cand<best: best=cand
+        cut=best[1] if best else min(i+target,len(tokens))
+        out.append(tokens[i:cut]); i=cut
+    # Último passe: junta um fragmento curto ao vizinho sem criar corte ruim.
+    fixed=[]
+    for ch in out:
+        if fixed and len(ch)<min_words and len(fixed[-1])+len(ch)<=max_words:
+            fixed[-1].extend(ch)
+        else:
+            fixed.append(ch)
+    return fixed
+
 def _caption_phrase_chunks(sentence, min_words=3, max_words=10):
     """V30 — divide by meaning and punctuation, preserving the complete spoken phrase."""
     raw=re.sub(r'\s+',' ',str(sentence)).strip()
@@ -2524,7 +2583,7 @@ def _build_timed_caption_beats(word_cues, duration, count=10):
     if not cues:
         return []
     beats=[]; cur=[]
-    max_words=9; min_words=3
+    max_words=7; min_words=3
     for i,c in enumerate(cues):
         cur.append(c)
         word=_cue_clean(c['word'])
@@ -2611,9 +2670,9 @@ def build_short_timeline(script, topic, duration, count=10, word_cues=None):
         return [{'text':'GTA 6','duration':duration,'highlight':'GTA','start':0,'end':duration}]
     sentences=[s.strip() for s in re.split(r'(?<=[.!?])\s+',narration) if s.strip()]
     all_chunks=[]
-    for sent in sentences: all_chunks.extend(_caption_phrase_chunks(sent,3,10))
+    for sent in sentences: all_chunks.extend(_semantic_caption_chunks(sent,3,7))
     if not all_chunks: all_chunks=[_caption_words(narration)]
-    all_chunks=_merge_caption_chunks(all_chunks,target_count=max(1,count),max_words=12)
+    all_chunks=_merge_caption_chunks(all_chunks,target_count=max(1,count),max_words=9)
     phrases=[]
     for ch in all_chunks:
         phrase=_clean_caption_phrase(' '.join(ch))
@@ -2987,6 +3046,60 @@ def _visual_motion_audit(path):
         try: shutil.rmtree(tmp,ignore_errors=True)
         except Exception: pass
 
+def _visual_repetition_audit(path):
+    """V51: detecta repetição de tomadas mesmo quando o vídeo continua em movimento.
+    Compara amostras a 2 fps e procura quadros quase idênticos separados no tempo.
+    Isso captura 'mesma imagem por 5s' que o motion audit não detecta.
+    """
+    tmp=Path(str(path)+'.repeat_audit')
+    tmp.mkdir(parents=True,exist_ok=True)
+    try:
+        ff=_ffmpeg_executable()
+        run_cmd([ff,'-loglevel','error','-y','-i',str(path),'-vf','fps=2,scale=48:85:flags=bilinear,format=gray',str(tmp/'f_%04d.jpg')],60)
+        frames=sorted(tmp.glob('f_*.jpg'))
+        if len(frames)<8:
+            return {'score':75,'repeated_ratio':0.0,'longest_repeat_s':0.0,'pairs':[],'error':'amostras insuficientes'}
+        imgs=[]
+        for fp in frames:
+            try:
+                im=Image.open(fp).convert('L').resize((48,85))
+                imgs.append(im)
+            except Exception: pass
+        repeated=[]
+        # Only compare frames at least 2 seconds apart; adjacent similarity is expected in clips.
+        min_gap=4
+        for i in range(len(imgs)):
+            for j in range(i+min_gap,len(imgs)):
+                stat=ImageStat.Stat(ImageChops.difference(imgs[i],imgs[j]))
+                d=float(stat.mean[0])
+                if d<3.0:
+                    repeated.append((i,j,d))
+        # Collapse into time ranges based on frames that participate in repetitions.
+        repeated_idx=set()
+        for i,j,d in repeated:
+            repeated_idx.add(i); repeated_idx.add(j)
+        ratio=len(repeated_idx)/max(1,len(imgs))
+        longest=0.0; current=0
+        for k in range(len(imgs)):
+            if k in repeated_idx:
+                current+=1; longest=max(longest,current)
+            else: current=0
+        longest_s=longest/2.0
+        score=100
+        if ratio>0.55: score-=45
+        elif ratio>0.40: score-=30
+        elif ratio>0.28: score-=18
+        elif ratio>0.18: score-=8
+        if longest_s>=8: score-=35
+        elif longest_s>=6: score-=25
+        elif longest_s>=4: score-=12
+        return {'score':max(0,min(100,score)),'repeated_ratio':round(ratio,3),'longest_repeat_s':round(longest_s,1),'pairs':[{'a_s':round(i/2,1),'b_s':round(j/2,1),'diff':round(d,2)} for i,j,d in repeated[:12]]}
+    except Exception as e:
+        return {'score':75,'repeated_ratio':0.0,'longest_repeat_s':0.0,'pairs':[],'error':str(e)[:400]}
+    finally:
+        try: shutil.rmtree(tmp,ignore_errors=True)
+        except Exception: pass
+
 def audit_short(script, video, duration, beats, selected_videos, image_scenes):
     """Auditor V41: checks editorial, captions and actual MP4 before delivery."""
     issues=[]; checks={}
@@ -3021,12 +3134,16 @@ def audit_short(script, video, duration, beats, selected_videos, image_scenes):
     if len(image_scenes)<4: checks['visuais']-=5; issues.append(('LOW_IMAGE_VARIETY','poucas imagens auxiliares'))
     motion=_visual_motion_audit(video) if media.get('ok') else {'score':0,'error':'MP4 inválido'}
     checks['movimento']=int(motion.get('score',0))
+    repetition=_visual_repetition_audit(video) if media.get('ok') else {'score':0,'error':'MP4 inválido'}
+    checks['repeticao_visual']=int(repetition.get('score',0))
     if motion.get('longest_still_seconds',0)>=4:
         issues.append(('VISUAL_STAGNATION',f'visual praticamente parado por {motion.get("longest_still_seconds",0):.0f}s'))
     if motion.get('frozen_ratio',0)>=0.40:
         issues.append(('HIGH_FROZEN_RATIO',f'{motion.get("frozen_ratio",0)*100:.0f}% das transições amostradas com pouca mudança visual'))
-    final=max(0,round((checks['roteiro']+checks['legendas']+checks['mp4']+checks['visuais']+checks['movimento'])/5))
-    return {'score':final,'checks':checks,'issues':[{'code':c,'message':m} for c,m in issues],'media':media,'caption_audit':cap,'motion_audit':motion}
+    if repetition.get('repeated_ratio',0)>=0.28 or repetition.get('longest_repeat_s',0)>=4:
+        issues.append(('VISUAL_REPETITION',f'repetição visual detectada: {repetition.get("repeated_ratio",0)*100:.0f}% das amostras / trecho repetido até {repetition.get("longest_repeat_s",0):.1f}s'))
+    final=max(0,round((checks['roteiro']+checks['legendas']+checks['mp4']+checks['visuais']+checks['movimento']+checks['repeticao_visual'])/6))
+    return {'score':final,'checks':checks,'issues':[{'code':c,'message':m} for c,m in issues],'media':media,'caption_audit':cap,'motion_audit':motion,'repetition_audit':repetition}
 
 def self_heal(jid, script, video, duration, beats, selected_videos, image_scenes, topic, audio):
     """Run bounded safe repairs. No endless retry and no self-modifying source code."""
@@ -3034,8 +3151,8 @@ def self_heal(jid, script, video, duration, beats, selected_videos, image_scenes
     if audit['score']>=90: return audit,beats,False
     repaired=False
     codes={x['code'] for x in audit['issues']}
-    if 'VISUAL_STAGNATION' in codes or 'HIGH_FROZEN_RATIO' in codes:
-        _learn_event('VISUAL_STAGNATION','auditor detectou repetição/congelamento visual', 'testar múltiplas timelines com cenas curtas, ordem alternativa e movimento aumentado', None)
+    if 'VISUAL_STAGNATION' in codes or 'HIGH_FROZEN_RATIO' in codes or 'VISUAL_REPETITION' in codes:
+        _learn_event('VISUAL_REPETITION','auditor detectou repetição/congelamento visual', 'testar múltiplas timelines com cenas curtas, ordem alternativa e movimento aumentado', None)
         update_job(jid,stage='AUTO-CORREÇÃO',progress=94,log='🧠 AUDITOR IA: visual repetitivo/congelado detectado. Testando variações de timeline automaticamente...')
         base_score=audit.get('score',0)
         best=None
@@ -3059,14 +3176,14 @@ def self_heal(jid, script, video, duration, beats, selected_videos, image_scenes
         if best and best[0]>base_score:
             _,audit2,video2,alt_videos,alt_images=best
             os.replace(video2,video); selected_videos[:]=alt_videos; image_scenes[:]=alt_images; audit=audit2; repaired=True
-            _learn_event('VISUAL_STAGNATION','reparo visual concluído com melhor variante', 'múltiplas timelines + movimento aumentado', True)
+            _learn_event('VISUAL_REPETITION','reparo visual concluído com melhor variante', 'múltiplas timelines + movimento aumentado', True)
         else:
             for attempt in range(1,len(variants)+1):
                 try:
                     q=video.with_name(f'GTA_OCULTO_SHORT_VISUAL_REPAIR_{attempt}.mp4')
                     if q.exists(): q.unlink()
                 except Exception: pass
-            _learn_event('VISUAL_STAGNATION','nenhuma variante melhorou o score', 'bloquear publicação para evitar Short visualmente ruim', False)
+            _learn_event('VISUAL_REPETITION','nenhuma variante melhorou o score', 'bloquear publicação para evitar Short visualmente ruim', False)
     if 'CAPTIONS_BAD_BOUNDARY' in {x['code'] for x in audit['issues']} or 'CAPTIONS_REPEATED' in {x['code'] for x in audit['issues']}:
         _learn_event('CAPTIONS_BAD_BOUNDARY','auditor detectou cortes semânticos/visuais', 'resegmentar captions e equilibrar quebra de linha', None)
         new_beats=_repair_caption_beats(beats,duration,6)

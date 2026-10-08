@@ -1,8 +1,11 @@
-Flask
-requests
 beautifulsoup4
 Pillow
 edge-tts
 gunicorn
 imageio-ffmpeg
-googleNewsDecoder==0.1.7
+Flask
+requests
+google-api-python-client
+google-auth
+google-auth-oauthlib
+redis

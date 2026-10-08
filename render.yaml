@@ -1,28 +1,26 @@
 services:
   - type: web
     name: gta-oculto-ai
-    env: python
+    runtime: python
     plan: starter
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:APP --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 600
+    startCommand: gunicorn --workers 1 --threads 4 --timeout 1800 --graceful-timeout 120 --bind 0.0.0.0:$PORT app:APP
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    disk:
+      name: gta-oculto-data
+      mountPath: /var/data
+      sizeGB: 10
     envVars:
-      - key: GTA_AUTONOMOUS_DISABLE_LEGACY_WORKER
+      - key: GTA_WORKSPACE
+        value: /var/data/workspace
+      - key: GTA_AUTONOMOUS_MODE
         value: "1"
-      - key: GTA_MAX_REPAIR_ATTEMPTS
-        value: "3"
-      - key: GTA_MEMORY_DB
-        value: "workspace/agent_memory.sqlite3"
-
-  - type: worker
-    name: gta-oculto-agent
-    env: python
-    plan: starter
-    buildCommand: pip install -r requirements.txt
-    startCommand: python worker.py
-    envVars:
-      - key: GTA_AUTONOMOUS_DISABLE_LEGACY_WORKER
-        value: "1"
-      - key: GTA_MAX_REPAIR_ATTEMPTS
-        value: "3"
-      - key: GTA_MEMORY_DB
-        value: "workspace/agent_memory.sqlite3"
+      - key: GTA_MAX_AUTONOMOUS_RECOVERIES
+        value: "4"
+      - key: GTA_AUTO_DEPLOY
+        value: "0"
+      - key: YOUTUBE_AUTO_PUBLISH
+        value: "0"
+      - key: YOUTUBE_ANALYTICS_ENABLED
+        value: "0"

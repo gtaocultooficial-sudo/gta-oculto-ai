@@ -1,31 +1,43 @@
-# GTA OCULTO AI — V42 FINAL
+# GTA OCULTO AI — V50 FULL AUTONOMY
 
-## Base preservada
-`app.py` é o **V41.3 Self Resolver real**, preservando o painel, Radar, Editor-Chefe, source-lock, TTS, vídeos oficiais, timeline e auditoria que já estavam funcionando.
+Esta versão fecha a arquitetura de automação em camadas:
 
-A V42 adiciona módulos separados para autonomia:
-- `autonomous_engine.py` — ciclo do agente e limite de tentativas
-- `audit_engine.py` — auditoria técnica pós-render
-- `repair_engine.py` — biblioteca de estratégias seguras
-- `memory_store.py` — memória de experimentos em SQLite
-- `deploy_manager.py` — preparação para Render Deploy Hook/API
-- `worker.py` — worker autônomo separado
+1. Radar → Editor-Chefe → roteiro → TTS → edição.
+2. Auditor do MP4 real → reparos seguros → nova auditoria.
+3. Auto-recuperação de produção: troca de pauta/estratégia quando a fonte falha.
+4. Memória persistente de erros, estratégias e experimentos.
+5. Publicação automática no YouTube (opcional, por OAuth).
+6. Coleta periódica de analytics (opcional, por OAuth).
+7. Módulo de deploy seguro para GitHub + Render, com auto-deploy desligado por padrão.
+8. Backup/validação de código e quarentena para erros desconhecidos; o agente nunca deve reescrever código arbitrariamente sem testes.
 
-## Deploy seguro
-1. Faça backup/branch antes de substituir o `app.py`.
-2. Substitua os arquivos pelos desta pasta.
-3. Faça **um único commit**.
-4. Aguarde o Web Service ficar Live.
-5. Só depois configure o Worker.
+## Infraestrutura recomendada para autonomia 24/7 no Render
 
-## Importante sobre Render Free
-O `render.yaml` usa `starter` porque Background Worker não está disponível no plano Free. Não altere seu plano automaticamente; se você estiver no Free, mantenha primeiro apenas o Web Service e valide o painel/motor. O Worker só entra quando o plano permitir.
+A versão de produção usa Web Service pago + Persistent Disk para que jobs, memória e MP4 não desapareçam em reinícios. O Render informa que o filesystem normal é efêmero e que persistent disks preservam apenas o caminho montado; background workers são a opção recomendada para tarefas longas. Free Web Services também entram em sleep após 15 minutos sem tráfego. 
+
+O `render.yaml` já está preparado com `plan: starter`, disco em `/var/data` e `GTA_WORKSPACE=/var/data/workspace`.
 
 ## Segredos
-Nunca coloque chaves no código. Para deploy automático, use Environment Variables no Render:
+
+Nunca coloque tokens no código ou no chat. Configure no Environment do Render:
+
+- `GITHUB_TOKEN`
 - `RENDER_API_KEY`
 - `RENDER_SERVICE_ID`
-- ou `RENDER_DEPLOY_HOOK_URL`
+- `YOUTUBE_TOKEN_JSON`
 
-## Rollback
-`app_legacy_V41_3.py` é uma cópia do núcleo V41.3 e deve ser mantida como backup. O agente V42 não deve editar código de produção arbitrariamente: alterações de código precisam passar por testes e rollback.
+Ative `GTA_AUTO_DEPLOY=1` apenas depois de validar os testes e o fluxo de rollback.
+
+## YouTube
+
+Faça primeiro um OAuth local e coloque o JSON autorizado em `YOUTUBE_TOKEN_JSON` (ou prefixe com `base64:`). Comece com `YOUTUBE_PRIVACY=private`. Depois de validar o pipeline, mude para `public` ou agendamento conforme sua estratégia.
+
+## Testes locais
+
+```bash
+python -m py_compile app.py audit_engine.py autonomous_engine.py memory_store.py repair_engine.py deploy_manager.py youtube_publisher.py analytics_engine.py
+```
+
+## Importante
+
+O sistema tem auto-recuperação real para falhas conhecidas e uma política de quarentena para falhas desconhecidas. Ele não recebe permissão para inventar um patch de código sem validação. A camada de deploy só atua quando explicitamente habilitada por variáveis de ambiente.

@@ -1,26 +1,38 @@
-import json, sqlite3, threading, os
+import json, os, time, threading
 from pathlib import Path
 
 class MemoryStore:
     def __init__(self, path=None):
-        self.path = Path(path or os.getenv('GTA_MEMORY_DB','workspace/agent_memory.sqlite3'))
+        self.path = Path(path or os.getenv('GTA_MEMORY_FILE','workspace/autonomy_memory.json'))
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.lock = threading.RLock()
-        with self.lock, sqlite3.connect(self.path) as c:
-            c.execute('''CREATE TABLE IF NOT EXISTS experiments(id INTEGER PRIMARY KEY, created_at TEXT, problem TEXT, strategy TEXT, result TEXT, score_before REAL, score_after REAL, success INTEGER, details TEXT)''')
-            c.execute('''CREATE TABLE IF NOT EXISTS preferences(key TEXT PRIMARY KEY, value TEXT)''')
+        if not self.path.exists(): self._write({'events': [], 'strategies': {}, 'metrics': {}, 'experiments': []})
 
-    def record(self, problem, strategy, result, score_before=0, score_after=0, success=False, details=None):
-        with self.lock, sqlite3.connect(self.path) as c:
-            c.execute('INSERT INTO experiments(created_at,problem,strategy,result,score_before,score_after,success,details) VALUES(datetime("now"),?,?,?,?,?,?,?)',
-                      (problem,strategy,result,float(score_before),float(score_after),int(bool(success)),json.dumps(details or {},ensure_ascii=False)))
-
-    def best(self, problem):
-        with self.lock, sqlite3.connect(self.path) as c:
-            rows=c.execute('SELECT strategy,AVG(score_after-score_before) gain,SUM(success) wins,COUNT(*) n FROM experiments WHERE problem=? GROUP BY strategy ORDER BY wins DESC,gain DESC,n DESC',(problem,)).fetchall()
-        return [{'strategy':r[0],'gain':r[1],'wins':r[2],'n':r[3]} for r in rows]
-
-    def recent(self, limit=30):
-        with self.lock, sqlite3.connect(self.path) as c:
-            rows=c.execute('SELECT created_at,problem,strategy,result,score_before,score_after,success,details FROM experiments ORDER BY id DESC LIMIT ?', (limit,)).fetchall()
-        return [dict(zip(['created_at','problem','strategy','result','score_before','score_after','success','details'],r)) for r in rows]
+    def _read(self):
+        try: return json.loads(self.path.read_text(encoding='utf-8'))
+        except Exception: return {'events': [], 'strategies': {}, 'metrics': {}, 'experiments': []}
+    def _write(self, data):
+        tmp=self.path.with_suffix(self.path.suffix+'.tmp')
+        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+        os.replace(tmp,self.path)
+    def event(self, kind, message, data=None, success=None):
+        with self.lock:
+            d=self._read(); d.setdefault('events',[]).append({'ts':time.time(),'kind':kind,'message':message,'data':data or {},'success':success})
+            d['events']=d['events'][-1000:]; self._write(d)
+    def strategy(self, key, name, score_delta=0, success=None, details=None):
+        with self.lock:
+            d=self._read(); s=d.setdefault('strategies',{}).setdefault(key,{'tries':0,'wins':0,'losses':0,'score':0,'history':[]})
+            s['tries']+=1; s['score']+=score_delta
+            if success is True: s['wins']+=1
+            if success is False: s['losses']+=1
+            s['history'].append({'ts':time.time(),'name':name,'score_delta':score_delta,'success':success,'details':details or {}})
+            s['history']=s['history'][-50:]; self._write(d)
+    def metric(self, key, value):
+        with self.lock:
+            d=self._read(); d.setdefault('metrics',{})[key]=value; self._write(d)
+    def experiment(self, name, before, after, accepted, details=None):
+        with self.lock:
+            d=self._read(); d.setdefault('experiments',[]).append({'ts':time.time(),'name':name,'before':before,'after':after,'accepted':accepted,'details':details or {}})
+            d['experiments']=d['experiments'][-500:]; self._write(d)
+    def summary(self):
+        d=self._read(); return {'events':len(d.get('events',[])),'strategies':d.get('strategies',{}),'metrics':d.get('metrics',{}),'experiments':len(d.get('experiments',[]))}
