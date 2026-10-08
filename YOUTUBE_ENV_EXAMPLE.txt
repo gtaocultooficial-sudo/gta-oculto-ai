@@ -1,0 +1,14 @@
+# GTA OCULTO AI — YouTube + Analytics
+# Não publique nada antes de testar com YOUTUBE_PRIVACY=private.
+
+YOUTUBE_AUTO_PUBLISH=0
+YOUTUBE_PRIVACY=private
+
+# Cole o JSON OAuth do Google/YouTube em uma única linha:
+# YOUTUBE_TOKEN_JSON={"token":"...","refresh_token":"...","client_id":"...","client_secret":"...","token_uri":"https://oauth2.googleapis.com/token"}
+
+YOUTUBE_ANALYTICS_ENABLED=1
+
+# Depois do primeiro teste privado, altere:
+# YOUTUBE_AUTO_PUBLISH=1
+# YOUTUBE_PRIVACY=public
