@@ -2,27 +2,5 @@ services:
   - type: web
     name: gta-oculto-ai
     env: python
-    plan: starter
-    buildCommand: pip install -r requirements_V42.txt
-    startCommand: gunicorn app_V42_AUTONOMOUS:APP --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 600
-    envVars:
-      - key: GTA_AUTONOMOUS_DISABLE_LEGACY_WORKER
-        value: "1"
-      - key: GTA_MAX_REPAIR_ATTEMPTS
-        value: "3"
-      - key: GTA_MEMORY_DB
-        value: "workspace/agent_memory.sqlite3"
-
-  - type: worker
-    name: gta-oculto-agent
-    env: python
-    plan: starter
-    buildCommand: pip install -r requirements_V42.txt
-    startCommand: python worker.py
-    envVars:
-      - key: GTA_AUTONOMOUS_DISABLE_LEGACY_WORKER
-        value: "1"
-      - key: GTA_MAX_REPAIR_ATTEMPTS
-        value: "3"
-      - key: GTA_MEMORY_DB
-        value: "workspace/agent_memory.sqlite3"
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120
