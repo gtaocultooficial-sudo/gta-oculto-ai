@@ -30,7 +30,7 @@ WORK.mkdir(exist_ok=True)
 STATE_FILE = WORK / 'jobs.json'
 LOCK = threading.RLock()
 PROCESSING = False
-UA = 'GTA-Oculto-AI/Cloud-Final/1.7-V39.0'
+UA = 'GTA-Oculto-AI/Cloud-Final/1.7-V40.0'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
@@ -566,99 +566,132 @@ def _clean_article_text(text):
     return out
 
 
-def _decode_google_news_direct(source_url):
-    """V39: Google News decoder using the current Fbv4je request shape."""
+def _decode_google_news_direct(source_url, diagnostics=None):
+    """V40: direct Google News decoder with explicit diagnostics."""
+    def note(step, detail):
+        if diagnostics is not None:
+            diagnostics.append(f"{step}: {detail}")
+
     try:
         u=urlparse(str(source_url or '').strip())
         if 'news.google.com' not in u.netloc.lower():
+            note('INPUT', 'not_google_news')
             return ''
         parts=[p for p in u.path.split('/') if p]
-        if len(parts) < 2:
+        if not parts:
+            note('INPUT', 'empty_path')
             return ''
-        if parts[-2] not in ('articles','rss','read') and 'articles' not in parts:
+        data_id=parts[-1]
+        if not data_id:
+            note('INPUT', 'missing_article_id')
             return ''
-        art_id=parts[-1]
+        note('INPUT', f'google_news_article_id={data_id[:18]}...')
 
-        # Google exposes the per-article signature/timestamp on the article page.
-        page_url=f'https://news.google.com/articles/{art_id}'
-        r=fetch(page_url, timeout=18)
-        if not getattr(r,'ok',False):
-            page_url=f'https://news.google.com/rss/articles/{art_id}'
-            r=fetch(page_url, timeout=18)
-        if not getattr(r,'ok',False):
+        # Current implementations locate the signature node by data-n-a-id,
+        # then send its data-n-a-sg/data-n-a-ts to Fbv4je.
+        page_candidates=[
+            f'https://news.google.com/articles/{data_id}',
+            f'https://news.google.com/rss/articles/{data_id}',
+            str(source_url),
+        ]
+
+        html=''
+        status_codes=[]
+        for page_url in page_candidates:
+            try:
+                r=fetch(page_url, timeout=18)
+                status_codes.append(str(getattr(r,'status_code','?')))
+                if getattr(r,'ok',False) and getattr(r,'text',''):
+                    html=r.text
+                    note('GOOGLE_PAGE', f'ok status={getattr(r,"status_code","?")} url={page_url.split("?")[0]}')
+                    break
+            except Exception as e:
+                note('GOOGLE_PAGE', f'exception={type(e).__name__}')
+
+        if not html:
+            note('GOOGLE_PAGE', 'FAILED status_chain=' + ','.join(status_codes))
             return ''
 
-        soup=BeautifulSoup(r.text,'html.parser')
-        node=soup.select_one('c-wiz > div[data-n-a-sg][data-n-a-ts]')
+        soup=BeautifulSoup(html,'html.parser')
+        node=soup.select_one(f'div[data-n-a-id="{data_id}"]')
         if node is None:
-            node=soup.select_one('div[data-n-a-sg][data-n-a-ts]')
+            node=soup.select_one('div[data-n-a-id][data-n-a-sg][data-n-a-ts]')
         if node is None:
+            node=soup.select_one('[data-n-a-sg][data-n-a-ts]')
+
+        if node is None:
+            note('SIGNATURE', 'NOT_FOUND')
             return ''
 
         signature=str(node.get('data-n-a-sg') or '').strip()
         timestamp=str(node.get('data-n-a-ts') or '').strip()
+        found_id=str(node.get('data-n-a-id') or '').strip()
+        note('SIGNATURE', f"found ts={bool(timestamp)} sg={bool(signature)} id_match={found_id==data_id or not found_id}")
+
         if not signature or not timestamp:
+            note('SIGNATURE', 'INCOMPLETE')
             return ''
 
-        # IMPORTANT: Fbv4je expects a list of request tuples wrapped in
-        # another list. This is the shape used by current working decoders.
-        request_inner = (
-            '["garturlreq",[["X","X",["X","X"],null,null,1,1,"US:en",'
-            'null,1,null,null,null,null,null,0,1],"X","X",1,[1,1,1],1,1,'
-            'null,0,0,null,0],"%s",%s,"%s"]'
-            % (art_id, timestamp, signature)
-        )
-        articles_reqs=[["Fbv4je", request_inner]]
-        payload="f.req="+quote(json.dumps([articles_reqs], ensure_ascii=False, separators=(',',':')))
+        payload = [
+            "Fbv4je",
+            f'["garturlreq",[["X","X",["X","X"],null,null,1,1,"US:en",null,1,null,null,null,null,null,0,1],"X","X",1,[1,1,1],1,1,null,0,0,null,0],"{data_id}",{timestamp},"{signature}"]'
+        ]
+        data = "f.req=" + quote(json.dumps([[payload]], ensure_ascii=False, separators=(',',':')))
 
         headers={
-            'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8',
-            'User-Agent':UA,
-            'Referer':'https://news.google.com/',
+            "Content-Type":"application/x-www-form-urlencoded;charset=UTF-8",
+            "Referer":"https://news.google.com/",
+            "User-Agent":UA,
         }
-        rr=requests.post(
-            'https://news.google.com/_/DotsSplashUi/data/batchexecute?rpcids=Fbv4je',
-            headers=headers,
-            data=payload,
-            timeout=20,
-        )
-        if not rr.ok:
+
+        try:
+            rr=requests.post(
+                "https://news.google.com/_/DotsSplashUi/data/batchexecute?rpcids=Fbv4je",
+                headers=headers,
+                data=data,
+                timeout=20,
+            )
+        except Exception as e:
+            note('BATCHEXECUTE', f'exception={type(e).__name__}:{e}')
             return ''
 
-        body=rr.text
+        note('BATCHEXECUTE', f'status={getattr(rr,"status_code","?")} bytes={len(getattr(rr,"text","") or "")}')
+        body=getattr(rr,'text','') or ''
+        if not rr.ok:
+            note('BATCHEXECUTE', 'HTTP_ERROR')
+            return ''
 
-        # Current Google response contains an escaped garturlres field.
         header='[\\"garturlres\\",\\"'
         footer='\\",'
-        if header in body:
-            tail=body.split(header,1)[1]
-            if footer in tail:
-                decoded=tail.split(footer,1)[0]
-                decoded=decoded.replace('\\u003d','=').replace('\\u0026','&').replace('\\/','/')
-                if decoded.startswith(('http://','https://')) and not _is_google_news_url(decoded):
-                    return decoded
+        if header not in body:
+            note('GARTURLRES', 'HEADER_NOT_FOUND')
+            # Do not expose Google's full response in the UI/log.
+            sample=re.sub(r'\s+',' ',body[:300])
+            note('GARTURLRES', 'response_prefix=' + sample[:180])
+            return ''
 
-        # Fallback parser for the newer nested response representation.
-        try:
-            chunks=body.split('\n\n')
-            for chunk in chunks:
-                if 'garturlres' not in chunk:
-                    continue
-                vals=re.findall(r'https?://[^"\\\s<>]+', chunk.replace('\\u003d','=').replace('\\u0026','&').replace('\\/','/'))
-                for cand in vals:
-                    cand=cand.rstrip('.,);]}')
-                    if not _is_google_news_url(cand):
-                        return cand
-        except Exception:
-            pass
-    except Exception:
+        tail=body.split(header,1)[1]
+        if footer not in tail:
+            note('GARTURLRES', 'FOOTER_NOT_FOUND')
+            return ''
+
+        decoded=tail.split(footer,1)[0]
+        decoded=decoded.replace('\\u003d','=').replace('\\u0026','&').replace('\\/','/')
+        decoded=decoded.replace('\\u0025','%')
+        if decoded.startswith(('http://','https://')) and not _is_google_news_url(decoded):
+            note('DECODED_URL', decoded[:180])
+            return decoded
+
+        note('DECODED_URL', 'INVALID_OR_STILL_GOOGLE')
         return ''
-    return ''
+    except Exception as e:
+        note('DECODER', f'exception={type(e).__name__}:{e}')
+        return ''
 
 
 
 def _resolve_article_url(url, title='', source_name=''):
-    """V39: resolve Google News links with independent fallbacks."""
+    """V40: resolve Google News links with independent fallbacks."""
     url=str(url or '').strip()
     title=str(title or '').strip()
     source_name=str(source_name or '').strip()
@@ -667,8 +700,9 @@ def _resolve_article_url(url, title='', source_name=''):
     if not _is_google_news_url(url):
         return url
 
-    # 1) Direct Google batchexecute decoder, independent of third-party package.
-    decoded=_decode_google_news_direct(url)
+    # 1) Direct Google batchexecute decoder with diagnostics.
+    diagnostics=[]
+    decoded=_decode_google_news_direct(url, diagnostics)
     if decoded and not _is_google_news_url(decoded):
         return decoded
 
@@ -730,6 +764,10 @@ def _resolve_article_url(url, title='', source_name=''):
     except Exception:
         pass
 
+        # Keep a compact diagnostic trail for the UI/log.
+    if diagnostics:
+        global _last_gnews_diagnostics
+        _last_gnews_diagnostics = diagnostics[-8:]
     return url
 
 def _is_google_news_url(url):
@@ -740,7 +778,7 @@ def _is_google_news_url(url):
 
 
 def _fetch_topic_evidence(topic):
-    """V39 FINAL: extrai exclusivamente o corpo da matéria original.
+    """V40 FINAL: extrai exclusivamente o corpo da matéria original.
 
     Regras duras:
     1) resolve a URL do Google News;
@@ -913,7 +951,10 @@ def make_script(topic):
 
     article_lines,resolved_url,extraction_method=_fetch_topic_evidence(topic)
     if not article_lines or extraction_method.startswith('BLOCKED_'):
-        raise ValueError(f'MATÉRIA SEM CORPO ORIGINAL CONFIÁVEL — produção bloqueada ({extraction_method}).')
+        raise ValueError(
+                    f'MATÉRIA SEM CORPO ORIGINAL CONFIÁVEL — produção bloqueada ({extraction_method}). '
+                    f'GoogleResolver={" | ".join(_last_gnews_diagnostics[-8:]) if _last_gnews_diagnostics else "sem diagnóstico"}'
+                )
     evidence=_evidence_sentences('',article_lines,title,extraction_method)
     evidence=[_clean_narrative_text(_fact_sentence(x)) for x in evidence]
     evidence=[x for x in evidence if len(re.findall(r"[A-Za-zÀ-ÿ0-9']+",x))>=8]
@@ -986,7 +1027,7 @@ def make_script(topic):
         'editorial_score':topic.get('editorial_score'),'editorial_decision':topic.get('editorial_decision','PRODUZIR'),
         'editorial_reason':topic.get('editorial_reason',''),'sections':sections,
         'evidence':evidence[:3],'word_count':word_count,'estimated_seconds':estimated_seconds,
-        'script_version':'V39.0-SOURCE-LOCK-FINAL','extraction_method':extraction_method
+        'script_version':'V40.0-SOURCE-LOCK-FINAL','extraction_method':extraction_method
     }
 
 def build_dynamic_captions(script, topic, count=9):
@@ -2109,7 +2150,7 @@ def processor_loop():
 @APP.get('/')
 def home(): return render_template_string(PAGE)
 @APP.get('/health')
-def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V39.0-SOURCE-LOCK-FINAL',processor='cloud')
+def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V40.0-SOURCE-LOCK-FINAL',processor='cloud')
 @APP.get('/api/state')
 def state():
     with LOCK:
@@ -2117,7 +2158,7 @@ def state():
     topics,updated,radar_status,radar_error,sources_ok=current_opportunities()
     editor_pick=editor_chief_select(topics) if topics else None
 
-    # V39: NEVER execute the full editorial/source resolver inside /api/state.
+    # V40: NEVER execute the full editorial/source resolver inside /api/state.
     # The dashboard polls this endpoint repeatedly. make_script() can perform
     # external network resolution (Google News decoder/search) and could make
     # the browser appear to load forever. The real script is generated only
