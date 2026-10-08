@@ -2,7 +2,7 @@ import json, math, os, re, time, threading
 from pathlib import Path
 
 class TrendBrain:
-    """V57 editorial memory. It ranks radar topics and learns from YouTube Analytics."""
+    """V58 editorial memory. It ranks radar topics and learns from YouTube Analytics."""
     def __init__(self, workspace=None):
         self.root=Path(workspace or os.getenv("GTA_WORKSPACE","workspace"))
         self.root.mkdir(parents=True, exist_ok=True)
@@ -152,4 +152,4 @@ class TrendBrain:
 
     def status(self):
         d=self._read()
-        return {"version":"V57","topics_seen":len(d["topics"]),"videos_tracked":len(d["videos"])}
+        return {"version":"V58","topics_seen":len(d["topics"]),"videos_tracked":len(d["videos"])}
