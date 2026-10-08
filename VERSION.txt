@@ -1,2 +1,6 @@
-GTA OCULTO AI — V51
-Semantic Caption Gate + Visual Repetition Gate + bounded self-healing
+GTA OCULTO AI V52
+STRICT QUALITY GATE
+- captions must be derived from narration
+- hard-block semantic/bad captions
+- hard-block visual repetition/stagnation issues
+- stricter post-repair approval

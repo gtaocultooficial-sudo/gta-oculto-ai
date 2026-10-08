@@ -1,4 +1,4 @@
-# GTA OCULTO AI — V50 FULL AUTONOMY
+# GTA OCULTO AI — V52 FULL AUTONOMY
 
 Esta versão fecha a arquitetura de automação em camadas:
 

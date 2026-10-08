@@ -1,6 +1,6 @@
-# GTA OCULTO AI V51 — STATUS
+# GTA OCULTO AI V52 — STATUS
 
-V51 mantém a arquitetura V50 e adiciona duas travas de qualidade antes de publicar:
+V52 mantém a arquitetura V52 e adiciona duas travas de qualidade antes de publicar:
 
 - **Semantic Caption Gate:** legendas são segmentadas em unidades de sentido menores, com cortes ruins e expressões protegidas penalizados.
 - **Visual Repetition Gate:** análise do MP4 real a 2 fps procura tomadas visualmente repetidas mesmo quando existe movimento; não depende apenas de detectar congelamento.

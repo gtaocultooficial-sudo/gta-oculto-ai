@@ -48,7 +48,7 @@ PROCESSING = False
 AUTONOMOUS_MODE = os.getenv('GTA_AUTONOMOUS_MODE','1').strip().lower() not in ('0','false','off','no')
 AUTONOMOUS_MAX_TOPIC_RECOVERY = max(1, min(6, int(os.getenv('GTA_AUTONOMOUS_MAX_TOPIC_RECOVERY','5'))))
 _last_gnews_diagnostics = []
-UA = 'GTA-Oculto-AI/Cloud-Final/1.15-V50' 
+UA = 'GTA-Oculto-AI/Cloud-Final/1.16-V52' 
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
@@ -3046,10 +3046,44 @@ def _visual_motion_audit(path):
         try: shutil.rmtree(tmp,ignore_errors=True)
         except Exception: pass
 
+def _caption_narration_alignment(beats, narration):
+    """V52 strict gate: every caption must actually come from the narration.
+    This blocks accidental English/source-text captions inside a Portuguese Short.
+    """
+    def toks(s):
+        return [re.sub(r'[^a-z0-9à-ÿ]', '', w.lower()) for w in re.findall(r"[A-Za-zÀ-ÿ0-9']+", str(s or '')) if re.sub(r'[^a-z0-9à-ÿ]', '', w.lower())]
+    n=toks(narration)
+    if not n:
+        return {'score':0,'bad':[],'coverage':0.0}
+    # Multiset coverage catches words that do not belong to the narration at all.
+    from collections import Counter
+    nc=Counter(n)
+    used=Counter(); bad=[]; covered=0; total=0
+    for b in beats or []:
+        ct=toks(b.get('text','')); total += len(ct)
+        local_bad=[]
+        for w in ct:
+            if used[w] < nc[w]:
+                used[w]+=1; covered+=1
+            else:
+                local_bad.append(w)
+        if local_bad:
+            bad.append({'text':b.get('text',''),'words':local_bad})
+    coverage=covered/max(1,total)
+    # A single foreign fragment is enough to reject if it is substantial.
+    foreign_ratio=sum(len(x['words']) for x in bad)/max(1,total)
+    score=100
+    if foreign_ratio>0.08: score-=45
+    elif foreign_ratio>0.03: score-=25
+    elif foreign_ratio>0: score-=12
+    if bad and any(len(x['words'])>=3 for x in bad): score-=25
+    return {'score':max(0,min(100,score)),'bad':bad[:12],'coverage':round(coverage,3),'foreign_ratio':round(foreign_ratio,3) ,'caption_count':len([b for b in beats or [] if str(b.get('text','')).strip()])}
+
+
 def _visual_repetition_audit(path):
-    """V51: detecta repetição de tomadas mesmo quando o vídeo continua em movimento.
-    Compara amostras a 2 fps e procura quadros quase idênticos separados no tempo.
-    Isso captura 'mesma imagem por 5s' que o motion audit não detecta.
+    """V52: detect repeated shots as SEQUENCES, not isolated similar frames.
+    Two-second sampling + multi-frame sequence comparison catches a reused shot
+    even when the camera/person keeps moving inside that shot.
     """
     tmp=Path(str(path)+'.repeat_audit')
     tmp.mkdir(parents=True,exist_ok=True)
@@ -3057,45 +3091,45 @@ def _visual_repetition_audit(path):
         ff=_ffmpeg_executable()
         run_cmd([ff,'-loglevel','error','-y','-i',str(path),'-vf','fps=2,scale=48:85:flags=bilinear,format=gray',str(tmp/'f_%04d.jpg')],60)
         frames=sorted(tmp.glob('f_*.jpg'))
-        if len(frames)<8:
-            return {'score':75,'repeated_ratio':0.0,'longest_repeat_s':0.0,'pairs':[],'error':'amostras insuficientes'}
+        if len(frames)<12:
+            return {'score':70,'repeated_ratio':0.0,'longest_repeat_s':0.0,'pairs':[],'error':'amostras insuficientes'}
         imgs=[]
         for fp in frames:
-            try:
-                im=Image.open(fp).convert('L').resize((48,85))
-                imgs.append(im)
+            try: imgs.append(Image.open(fp).convert('L').resize((48,85)))
             except Exception: pass
-        repeated=[]
-        # Only compare frames at least 2 seconds apart; adjacent similarity is expected in clips.
-        min_gap=4
-        for i in range(len(imgs)):
-            for j in range(i+min_gap,len(imgs)):
-                stat=ImageStat.Stat(ImageChops.difference(imgs[i],imgs[j]))
-                d=float(stat.mean[0])
-                if d<3.0:
-                    repeated.append((i,j,d))
-        # Collapse into time ranges based on frames that participate in repetitions.
-        repeated_idx=set()
-        for i,j,d in repeated:
-            repeated_idx.add(i); repeated_idx.add(j)
-        ratio=len(repeated_idx)/max(1,len(imgs))
-        longest=0.0; current=0
+        # Compare 3-second windows (6 samples) separated by at least 4 seconds.
+        seq_len=6; min_gap=8; matches=[]
+        for i in range(0,max(1,len(imgs)-seq_len+1)):
+            for j in range(i+min_gap, max(i+min_gap, len(imgs)-seq_len+1)):
+                ds=[]
+                for k in range(seq_len):
+                    stat=ImageStat.Stat(ImageChops.difference(imgs[i+k],imgs[j+k]))
+                    ds.append(float(stat.mean[0]))
+                avg=sum(ds)/len(ds)
+                if avg<8.0:
+                    matches.append((i,j,avg))
+        # Merge matched windows into approximate repeated time coverage.
+        marks=set()
+        for i,j,d in matches:
+            for k in range(seq_len): marks.add(i+k); marks.add(j+k)
+        ratio=len(marks)/max(1,len(imgs))
+        # Longest contiguous marked run, allowing one-sample gap.
+        longest=0; cur=0
         for k in range(len(imgs)):
-            if k in repeated_idx:
-                current+=1; longest=max(longest,current)
-            else: current=0
+            if k in marks: cur+=1; longest=max(longest,cur)
+            else: cur=0
         longest_s=longest/2.0
         score=100
-        if ratio>0.55: score-=45
-        elif ratio>0.40: score-=30
-        elif ratio>0.28: score-=18
-        elif ratio>0.18: score-=8
-        if longest_s>=8: score-=35
-        elif longest_s>=6: score-=25
-        elif longest_s>=4: score-=12
-        return {'score':max(0,min(100,score)),'repeated_ratio':round(ratio,3),'longest_repeat_s':round(longest_s,1),'pairs':[{'a_s':round(i/2,1),'b_s':round(j/2,1),'diff':round(d,2)} for i,j,d in repeated[:12]]}
+        if ratio>=0.45: score-=45
+        elif ratio>=0.30: score-=32
+        elif ratio>=0.20: score-=20
+        elif ratio>=0.12: score-=10
+        if longest_s>=8: score-=40
+        elif longest_s>=6: score-=30
+        elif longest_s>=4: score-=18
+        return {'score':max(0,min(100,score)),'repeated_ratio':round(ratio,3),'longest_repeat_s':round(longest_s,1),'pairs':[{'a_s':round(i/2,1),'b_s':round(j/2,1),'diff':round(d,2)} for i,j,d in matches[:12]],'sequence_window_s':3.0}
     except Exception as e:
-        return {'score':75,'repeated_ratio':0.0,'longest_repeat_s':0.0,'pairs':[],'error':str(e)[:400]}
+        return {'score':65,'repeated_ratio':0.0,'longest_repeat_s':0.0,'pairs':[],'error':str(e)[:400]}
     finally:
         try: shutil.rmtree(tmp,ignore_errors=True)
         except Exception: pass
@@ -3116,7 +3150,10 @@ def audit_short(script, video, duration, beats, selected_videos, image_scenes):
         issues.append(('NO_EVIDENCE','roteiro sem evidência factual'))
         checks['roteiro']=0
     cap=_audit_caption_quality(beats); checks['legendas']=cap['score']
+    alignment=_caption_narration_alignment(beats,narration); checks['alinhamento_legendas']=alignment['score']
     if cap['score']<85: issues.append(('CAPTIONS_BAD_BOUNDARY','legendas com cortes semanticamente ruins'))
+    if alignment.get('foreign_ratio',0)>0.03 or alignment.get('score',100)<85:
+        issues.append(('CAPTIONS_NOT_FROM_NARRATION',f'legendas contêm palavras fora da narração: {alignment.get("foreign_ratio",0)*100:.0f}%'))
     if cap.get('repeated_adjacent',0)>0: issues.append(('CAPTIONS_REPEATED','legenda repetida em blocos consecutivos'))
     media=_probe_media(video); checks['mp4']=100 if media.get('ok') else 0
     if not media.get('ok'): issues.append(('MEDIA_UNREADABLE',media.get('error','MP4 inválido')))
@@ -3142,13 +3179,13 @@ def audit_short(script, video, duration, beats, selected_videos, image_scenes):
         issues.append(('HIGH_FROZEN_RATIO',f'{motion.get("frozen_ratio",0)*100:.0f}% das transições amostradas com pouca mudança visual'))
     if repetition.get('repeated_ratio',0)>=0.28 or repetition.get('longest_repeat_s',0)>=4:
         issues.append(('VISUAL_REPETITION',f'repetição visual detectada: {repetition.get("repeated_ratio",0)*100:.0f}% das amostras / trecho repetido até {repetition.get("longest_repeat_s",0):.1f}s'))
-    final=max(0,round((checks['roteiro']+checks['legendas']+checks['mp4']+checks['visuais']+checks['movimento']+checks['repeticao_visual'])/6))
+    final=max(0,round((checks['roteiro']+checks['legendas']+checks['alinhamento_legendas']+checks['mp4']+checks['visuais']+checks['movimento']+checks['repeticao_visual'])/7))
     return {'score':final,'checks':checks,'issues':[{'code':c,'message':m} for c,m in issues],'media':media,'caption_audit':cap,'motion_audit':motion,'repetition_audit':repetition}
 
 def self_heal(jid, script, video, duration, beats, selected_videos, image_scenes, topic, audio):
     """Run bounded safe repairs. No endless retry and no self-modifying source code."""
     audit=audit_short(script,video,duration,beats,selected_videos,image_scenes)
-    if audit['score']>=90: return audit,beats,False
+    if audit['score']>=92 and not any(x['code'] in {'CAPTIONS_NOT_FROM_NARRATION','VISUAL_REPETITION','VISUAL_STAGNATION','HIGH_FROZEN_RATIO'} for x in audit.get('issues',[])): return audit,beats,False
     repaired=False
     codes={x['code'] for x in audit['issues']}
     if 'VISUAL_STAGNATION' in codes or 'HIGH_FROZEN_RATIO' in codes or 'VISUAL_REPETITION' in codes:
@@ -3184,7 +3221,7 @@ def self_heal(jid, script, video, duration, beats, selected_videos, image_scenes
                     if q.exists(): q.unlink()
                 except Exception: pass
             _learn_event('VISUAL_REPETITION','nenhuma variante melhorou o score', 'bloquear publicação para evitar Short visualmente ruim', False)
-    if 'CAPTIONS_BAD_BOUNDARY' in {x['code'] for x in audit['issues']} or 'CAPTIONS_REPEATED' in {x['code'] for x in audit['issues']}:
+    if any(x['code'] in {'CAPTIONS_BAD_BOUNDARY','CAPTIONS_REPEATED','CAPTIONS_NOT_FROM_NARRATION'} for x in audit['issues']):
         _learn_event('CAPTIONS_BAD_BOUNDARY','auditor detectou cortes semânticos/visuais', 'resegmentar captions e equilibrar quebra de linha', None)
         new_beats=_repair_caption_beats(beats,duration,6)
         if new_beats and new_beats!=beats:
@@ -3301,9 +3338,20 @@ def produce_job(jid):
         audit['v42_independent']=v42_audit
         (jobdir/'audit.json').write_text(json.dumps(audit,ensure_ascii=False,indent=2),encoding='utf-8')
         update_job(jid,stage='AVALIAÇÃO',progress=96,log=f'🧠 AUDITOR IA: {audit.get("score",0)}/100 | reparo automático: {"SIM" if repaired else "NÃO"} | problemas: {len(audit.get("issues",[]))}.')
-        if audit.get('score',0)<82:
+        hard_issues={
+            'CAPTIONS_NOT_FROM_NARRATION','CAPTIONS_BAD_BOUNDARY','CAPTIONS_REPEATED',
+            'VISUAL_REPETITION','VISUAL_STAGNATION','HIGH_FROZEN_RATIO','MEDIA_UNREADABLE',
+            'NO_VIDEO_STREAM','NO_AUDIO_STREAM','WRONG_ASPECT'
+        }
+        blocking=[i for i in audit.get('issues',[]) if i.get('code') in hard_issues]
+        if audit.get('score',0)<90 or blocking:
             for issue in audit.get('issues',[]): _learn_event(issue['code'],issue['message'])
-            raise ValueError('AUDITOR IA: vídeo abaixo do padrão mínimo após correções seguras — produção bloqueada para evitar publicar conteúdo ruim.')
+            names=', '.join(i.get('code','') for i in blocking[:6])
+            raise ValueError('AUDITOR IA: gate estrito reprovou o vídeo após correções seguras' + (f' — problemas: {names}' if names else '') + '.')
+        # V52 strict caption gate: never approve captions that are not derived from the actual narration.
+        cap_alignment=_caption_narration_alignment(beats,script.get('narration',''))
+        if cap_alignment.get('foreign_ratio',0)>0.03 or cap_alignment.get('score',100)<85:
+            raise ValueError('GATE CAPTIONS: legendas contêm texto que não pertence à narração. Produção bloqueada para autocorreção.')
         # V33 hard gate: rendering is not enough; reject editorially contaminated/weak scripts.
         banned_editorial=('radar','editor-chefe','score','confiança','fontes','matérias','produzir agora')
         low=narration_check=str(script.get('narration','')).lower()
@@ -3370,7 +3418,7 @@ def home(): return render_template_string(PAGE)
 @APP.get('/health')
 def health():
     auto=AUTONOMOUS_ENGINE.status() if AUTONOMOUS_ENGINE else {'mode':'DEGRADED'}
-    return jsonify(ok=True,app='GTA Oculto AI',version='V50-FULL-AUTONOMY',processor='cloud',autonomous_mode=AUTONOMOUS_MODE,max_topic_recovery=AUTONOMOUS_MAX_TOPIC_RECOVERY,autonomy=auto)
+    return jsonify(ok=True,app='GTA Oculto AI',version='V52-STRICT-QUALITY-GATE',processor='cloud',autonomous_mode=AUTONOMOUS_MODE,max_topic_recovery=AUTONOMOUS_MAX_TOPIC_RECOVERY,autonomy=auto)
 @APP.get('/api/autonomy')
 def autonomy_status():
     return jsonify(AUTONOMOUS_ENGINE.status() if AUTONOMOUS_ENGINE else {'mode':'DEGRADED'})
