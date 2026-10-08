@@ -3717,44 +3717,74 @@ def produce():
 @APP.get('/api/job/<jid>')
 def one(jid):
     j=load_jobs().get(jid); return (jsonify(j) if j else (jsonify(error='not found'),404))
+LIVE_JOBS_FILE = WORK / 'live_jobs.json'
+LIVE_JOBS_LOCK = threading.RLock()
+
+def _live_jobs():
+    try:
+        return json.loads(LIVE_JOBS_FILE.read_text(encoding='utf-8'))
+    except Exception:
+        return {}
+
+def _save_live_jobs(d):
+    tmp=LIVE_JOBS_FILE.with_suffix('.tmp')
+    tmp.write_text(json.dumps(d,ensure_ascii=False,indent=2),encoding='utf-8')
+    os.replace(tmp,LIVE_JOBS_FILE)
+
+def _live_update(jid, **fields):
+    with LIVE_JOBS_LOCK:
+        d=_live_jobs(); j=d.setdefault(jid,{'id':jid}); j.update(fields); j['updated_at']=now_iso(); _save_live_jobs(d)
+
+def _live_analyze_worker(jid, source, max_clips):
+    try:
+        _live_update(jid,status='RUNNING',stage='ANALISANDO',progress=5,log='Analisando a live em blocos, sem carregar o vídeo inteiro na memória.')
+        result=LiveClipper(WORK).analyze(source,max_clips=max_clips,job_id=jid)
+        _live_update(jid,status='DONE',stage='CORTES_ENCONTRADOS',progress=100,result=result,clips=result.get('clips',[]),log=f'Encontrados {len(result.get("clips",[]))} cortes candidatos.')
+    except Exception as e:
+        _live_update(jid,status='ERROR',stage='ERRO',progress=100,error=str(e)[:2500])
+
+def _live_render_worker(jid, source, clips):
+    try:
+        _live_update(jid,status='RUNNING',stage='RENDERIZANDO',progress=5,log='Renderizando os melhores cortes em vertical 9:16.')
+        jobdir=WORK/'live_clips'/jid; jobdir.mkdir(parents=True,exist_ok=True)
+        engine=LiveClipper(WORK); outputs=[]
+        total=min(20,len(clips))
+        for i,clip in enumerate(clips[:20],1):
+            out=engine.render_clip(source,clip,jobdir,i); outputs.append(str(out.relative_to(WORK)))
+            _live_update(jid,progress=int(5+(i/total)*90),log=f'Corte {i}/{total} renderizado.')
+        _live_update(jid,status='DONE',stage='PRONTO',progress=100,outputs=outputs,log=f'{len(outputs)} cortes prontos.')
+    except Exception as e:
+        _live_update(jid,status='ERROR',stage='ERRO',progress=100,error=str(e)[:2500])
+
 @APP.post('/api/live/analyze')
 def live_analyze():
-    if not LiveClipper:
-        return jsonify(error='Live Clipper indisponível no servidor.'), 503
+    if not LiveClipper: return jsonify(error='Live Clipper indisponível no servidor.'),503
     data=request.get_json(silent=True) or {}
     source=str(data.get('url') or data.get('source') or '').strip()
-    try:
-        max_clips=max(1,min(20,int(data.get('max_clips',10) or 10)))
-    except Exception:
-        max_clips=10
-    if not source:
-        return jsonify(error='Informe a URL pública ou caminho do arquivo da live.'),400
-    try:
-        result=LiveClipper(WORK).analyze(source,max_clips=max_clips)
-        return jsonify(result)
-    except Exception as e:
-        return jsonify(error=str(e)[:2500]),502
+    try: max_clips=max(1,min(20,int(data.get('max_clips',10) or 10)))
+    except Exception: max_clips=10
+    if not source: return jsonify(error='Informe a URL pública ou caminho do arquivo da live.'),400
+    jid='live-'+uuid.uuid4().hex[:10]
+    _live_update(jid,status='QUEUED',stage='FILA',progress=0,source=source,max_clips=max_clips)
+    threading.Thread(target=_live_analyze_worker,args=(jid,source,max_clips),daemon=True).start()
+    return jsonify(ok=True,job_id=jid)
 
 @APP.post('/api/live/render')
 def live_render():
-    if not LiveClipper:
-        return jsonify(error='Live Clipper indisponível no servidor.'), 503
+    if not LiveClipper: return jsonify(error='Live Clipper indisponível no servidor.'),503
     data=request.get_json(silent=True) or {}
     source=str(data.get('url') or data.get('source') or '').strip()
     clips=data.get('clips') or []
-    if not source or not isinstance(clips,list):
-        return jsonify(error='Informe source e clips.'),400
+    if not source or not isinstance(clips,list) or not clips: return jsonify(error='Informe source e clips.'),400
     jid='live-'+uuid.uuid4().hex[:10]
-    jobdir=WORK/'live_clips'/jid
-    try:
-        jobdir.mkdir(parents=True,exist_ok=True)
-        engine=LiveClipper(WORK)
-        outputs=[]
-        for i,clip in enumerate(clips[:20],1):
-            outputs.append(str(engine.render_clip(source,clip,jobdir,i).relative_to(WORK)))
-        return jsonify(ok=True,job_id=jid,clips=outputs)
-    except Exception as e:
-        return jsonify(error=str(e)[:2500]),502
+    _live_update(jid,status='QUEUED',stage='FILA_RENDER',progress=0,source=source,clips=clips[:20])
+    threading.Thread(target=_live_render_worker,args=(jid,source,clips[:20]),daemon=True).start()
+    return jsonify(ok=True,job_id=jid)
+
+@APP.get('/api/live/job/<jid>')
+def live_job(jid):
+    j=_live_jobs().get(jid)
+    return (jsonify(j) if j else (jsonify(error='not found'),404))
 
 @APP.get('/output/<path:p>')
 def output(p):
