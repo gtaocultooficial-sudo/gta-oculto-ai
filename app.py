@@ -52,7 +52,7 @@ UA = 'GTA-Oculto-AI/Cloud-Final/V55-SOURCE-RECOVERY-3'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
-BUILD_VERSION = 'V55.3-CAPTION-REPAIR-20261008'
+BUILD_VERSION = 'V55.4-CAPTION-GATE-FINAL-20261008'
 
 FALLBACK_TOPICS = [
     {'id':'leonida','score':96,'priority':'ALTA','title':'GTA 6: o detalhe de Leonida que pode mudar a história','source':'Rockstar Games','url':ROCKSTAR_VI,
@@ -3071,7 +3071,9 @@ def _audit_caption_quality(beats):
     texts=[re.sub(r'\s+',' ',str(b.get('text','')).strip().lower()) for b in (beats or []) if str(b.get('text','')).strip()]
     repeated_adj=sum(1 for i in range(1,len(texts)) if texts[i] and texts[i]==texts[i-1])
     repeated_total=max(0,len(texts)-len(set(texts))) if texts else 0
-    penalty=min(65,len(bad_end)*5+len(bad_start)*4+len(long)*4+len(short)*5+len(visual_bad)*4+repeated_adj*8+repeated_total*3)
+    # V55.4: boundary quality is a soft signal unless clearly severe.
+    boundary_penalty=min(28, len(bad_end)*2 + len(bad_start)*2)
+    penalty=min(65,boundary_penalty + len(long)*3 + len(short)*2 + len(visual_bad)*3 + repeated_adj*8 + repeated_total*3)
     return {
         'score':max(0,100-penalty),
         'bad_end':bad_end,'bad_start':bad_start,'long':long,'short':short,
@@ -3248,7 +3250,9 @@ def audit_short(script, video, duration, beats, selected_videos, image_scenes):
         checks['roteiro']=0
     cap=_audit_caption_quality(beats); checks['legendas']=cap['score']
     alignment=_caption_narration_alignment(beats,narration); checks['alinhamento_legendas']=alignment['score']
-    if cap['score']<85: issues.append(('CAPTIONS_BAD_BOUNDARY','legendas com cortes semanticamente ruins'))
+    boundary_bad_count=len(cap.get('bad_end',[]))+len(cap.get('bad_start',[]))
+    boundary_severe=(cap.get('score',100)<78 or boundary_bad_count>=max(4,int(len(beats or [])*0.45)))
+    if boundary_severe: issues.append(('CAPTIONS_BAD_BOUNDARY','legendas com cortes semanticamente ruins'))
     if alignment.get('foreign_ratio',0)>0.03 or alignment.get('score',100)<85:
         issues.append(('CAPTIONS_NOT_FROM_NARRATION',f'legendas contêm palavras fora da narração: {alignment.get("foreign_ratio",0)*100:.0f}%'))
     if cap.get('repeated_adjacent',0)>0: issues.append(('CAPTIONS_REPEATED','legenda repetida em blocos consecutivos'))
@@ -3453,6 +3457,14 @@ def produce_job(jid):
             'NO_VIDEO_STREAM','NO_AUDIO_STREAM','WRONG_ASPECT'
         }
         blocking=[i for i in audit.get('issues',[]) if i.get('code') in hard_issues]
+        # V55.4: a mild boundary warning cannot block an otherwise aligned caption track.
+        if any(i.get('code')=='CAPTIONS_BAD_BOUNDARY' for i in blocking):
+            cap_a=audit.get('caption_audit',{}) or {}
+            align_a=_caption_narration_alignment(beats,script.get('narration',''))
+            severe_boundary=(cap_a.get('score',100)<78 or (len(cap_a.get('bad_end',[]))+len(cap_a.get('bad_start',[])))>=max(4,int(len(beats or [])*0.45)))
+            if align_a.get('foreign_ratio',0)<=0.03 and align_a.get('score',100)>=85 and cap_a.get('repeated_adjacent',0)==0 and not severe_boundary:
+                blocking=[i for i in blocking if i.get('code')!='CAPTIONS_BAD_BOUNDARY']
+                audit.setdefault('notes',[]).append('V55.4: boundary leve aceito com alinhamento íntegro à narração.')
         if audit.get('score',0)<90 or blocking:
             for issue in audit.get('issues',[]): _learn_event(issue['code'],issue['message'])
             names=', '.join(i.get('code','') for i in blocking[:6])
