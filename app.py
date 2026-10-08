@@ -977,7 +977,15 @@ KNOWN_SOURCE_RECOVERY = [
         'match': ('detalhes', 'rockstar', 'gta 6'),
         'urls': [
             'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing',
+            'https://leonidainteractive.com/wiki/pt-br/trailers/trailer-3/',
             'https://gamenoticias.com.br/gta-6-50-novidades-incriveis-confirmadas-no-novo-jogo-da-rockstar/'
+        ]
+    },
+    {
+        'match': ('rockstar', 'gta 6'),
+        'urls': [
+            'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing',
+            'https://leonidainteractive.com/wiki/pt-br/trailers/trailer-3/'
         ]
     }
 ]
@@ -1084,7 +1092,12 @@ def _article_url_candidates_from_search(title, source_name=''):
         if not href.startswith(('http://','https://')) or _is_google_news_url(href): return
         host=_resolver_domain(href)
         if host in blocked: return
-        if not any(host==d or host.endswith('.'+d) for d in preferred): return
+        trusted = any(host==d or host.endswith('.'+d) for d in preferred)
+        # V48: adaptive public-source admission. A previously unseen publisher may be
+        # accepted only when the URL looks like an article; the strict body extraction
+        # and story-overlap gates below still decide whether it can become factual source.
+        dynamic_ok = bool(re.search(r'/(?:20\d\d/|noticias?/|news/|article/|blog/|wiki/|games?/|posts?/|gta[-_]|gta6)', path, re.I))
+        if not trusted and not dynamic_ok: return
         if href not in seen:
             seen.add(href)
             found.append((int(priority),href,reason))
@@ -1097,6 +1110,10 @@ def _article_url_candidates_from_search(title, source_name=''):
         add(href,'known-source',120)
     if found:
         note('KNOWN_SOURCE_CANDIDATES:'+str(len(found)))
+    elif known:
+        note('KNOWN_SOURCE_REJECTED_BEFORE_FETCH:'+str(len(known)))
+    else:
+        note('KNOWN_SOURCE_NO_MATCH')
 
     def rss_candidates(query, reason, priority):
         # V42.3: bounded resolver. Never allow Google News decoding to consume the
@@ -1365,7 +1382,9 @@ def _fetch_topic_evidence(topic):
                     'terra.com.br':'Terra','meups.com.br':'MeuPlayStation','criticalhits.com.br':'Critical Hits',
                     'games.gg':'Games.gg','antihype.com.br':'Antihype','portaldopixel.com.br':'Portal do Pixel',
                     'portaldovideogame.com.br':'Portal do Videogame','centralxbox.com.br':'Central Xbox',
-                    'flowgames.gg':'Flow Games','olhardigital.com.br':'Olhar Digital','tecmundo.com.br':'TecMundo'
+                    'flowgames.gg':'Flow Games','olhardigital.com.br':'Olhar Digital','tecmundo.com.br':'TecMundo',
+                    'rockstargames.com':'Rockstar Games','leonidainteractive.com':'Leonida Interactive',
+                    'lockegames.com.br':'Locke Games','gamestart.com.br':'GameStart','egamersworld.com':'EGamersWorld'
                 }.get(host,host)
                 topic['_original_url']=original_url
                 topic['_resolved_url']=final_alt
