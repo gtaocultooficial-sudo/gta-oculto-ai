@@ -26,12 +26,12 @@ APP = Flask(__name__)
 app = APP
 BASE = Path(__file__).resolve().parent
 WORK = BASE / 'workspace'
-WORK.mkdir(exist_ok=True)
+WORK.mkdir(parents=True, exist_ok=True)
 STATE_FILE = WORK / 'jobs.json'
 LOCK = threading.RLock()
 PROCESSING = False
 _last_gnews_diagnostics = []
-UA = 'GTA-Oculto-AI/Cloud-Final/1.7-V40.1'
+UA = 'GTA-Oculto-AI/Cloud-Final/1.8-V40.5'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
@@ -144,8 +144,20 @@ def load_jobs():
     try: return json.loads(STATE_FILE.read_text(encoding='utf-8'))
     except Exception: return {}
 
+def _atomic_write_json(path, data):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f'{path.name}.{uuid.uuid4().hex}.tmp')
+    try:
+        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+        os.replace(tmp, path)
+    finally:
+        try:
+            if tmp.exists(): tmp.unlink()
+        except Exception:
+            pass
+
 def save_jobs(jobs):
-    tmp=STATE_FILE.with_suffix('.tmp'); tmp.write_text(json.dumps(jobs,ensure_ascii=False,indent=2),encoding='utf-8'); tmp.replace(STATE_FILE)
+    _atomic_write_json(STATE_FILE, jobs)
 
 def update_job(jid, **changes):
     with LOCK:
@@ -174,9 +186,7 @@ def _load_radar():
 def _save_radar(opportunities, updated_at=None, status='OK', error=None, sources_ok=0):
     data={'updated_at':updated_at or now_iso(),'opportunities':opportunities[:12], 'status':status, 'error':error, 'sources_ok':sources_ok}
     with RADAR_LOCK:
-        tmp=RADAR_FILE.with_suffix('.tmp')
-        tmp.write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding='utf-8')
-        tmp.replace(RADAR_FILE)
+        _atomic_write_json(RADAR_FILE, data)
     return data
 
 
@@ -1140,7 +1150,7 @@ def make_script(topic):
         'editorial_score':topic.get('editorial_score'),'editorial_decision':topic.get('editorial_decision','PRODUZIR'),
         'editorial_reason':topic.get('editorial_reason',''),'sections':sections,
         'evidence':evidence[:3],'word_count':word_count,'estimated_seconds':estimated_seconds,
-        'script_version':'V40.4-SOURCE-LOCK-SEARCH-FALLBACK','extraction_method':extraction_method
+        'script_version':'V40.5-SOURCE-LOCK-ATOMIC-SAVE-FIX','extraction_method':extraction_method
     }
 
 def build_dynamic_captions(script, topic, count=9):
