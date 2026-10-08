@@ -4,6 +4,10 @@ from memory_store import MemoryStore
 from repair_engine import RepairEngine
 from deploy_manager import DeployManager
 from youtube_publisher import YouTubePublisher
+try:
+    from social_publishers import SocialPublisher
+except Exception:
+    SocialPublisher = None
 from analytics_engine import YouTubeAnalytics
 from safe_code_repair import SafeCodeRepair
 try:
@@ -19,6 +23,7 @@ class AutonomousEngine:
         self.deploy=DeployManager()
         self.publisher=YouTubePublisher()
         self.analytics=YouTubeAnalytics()
+        self.social=SocialPublisher() if SocialPublisher else None
         self.max_recoveries=int(os.getenv('GTA_MAX_AUTONOMOUS_RECOVERIES','4'))
         self.code_repair=SafeCodeRepair(self.root/'app.py')
         self.trend_brain=TrendBrain(self.root/'workspace') if TrendBrain else None
@@ -82,6 +87,17 @@ class AutonomousEngine:
                         try: self.trend_brain.record_publication(job.get('opportunity') or {}, meta, pub.get('video_id'))
                         except Exception: pass
                     app_module.update_job(jid,stage='PUBLICAÇÃO',log=f'▶️ YouTube: vídeo enviado ({pub.get("video_id")}).',youtube=pub)
+        # Optional social adapters use the public Render output URL and stay disabled without credentials.
+        if self.social:
+            try:
+                base=os.getenv('PUBLIC_BASE_URL','https://gta-oculto-ai.onrender.com').rstrip('/')
+                video_url=f"{base}/output/{str(video).replace('/', '%2F')}"
+                social=self.social.publish(video_url,meta)
+                result['social']=social
+                app_module.update_job(jid,log='📡 Redes opcionais: '+json.dumps(social,ensure_ascii=False)[:1200],social=social)
+                self.memory.event('social_publish',f'job {jid}',social,any(x.get('ok') for x in social.values() if isinstance(x,dict)))
+            except Exception as e:
+                self.memory.event('social_publish_error',str(e))
         return result
     def collect_analytics(self):
         r=self.analytics.collect(7)
@@ -93,4 +109,4 @@ class AutonomousEngine:
                 except Exception as e: self.memory.event('trend_brain_error',str(e))
         return r
     def status(self):
-        return {'mode':'AUTONOMOUS','max_recoveries':self.max_recoveries,'deploy':self.deploy.status(),'youtube_publish':self.publisher.enabled,'youtube_analytics':self.analytics.enabled,'trend_brain':self.trend_brain.status() if self.trend_brain else {'enabled':False},'memory':self.memory.summary()}
+        return {'mode':'AUTONOMOUS','max_recoveries':self.max_recoveries,'deploy':self.deploy.status(),'youtube_publish':self.publisher.enabled,'youtube_analytics':self.analytics.enabled,'social_publish':self.social.status() if self.social else {},'trend_brain':self.trend_brain.status() if self.trend_brain else {'enabled':False},'memory':self.memory.summary()}
