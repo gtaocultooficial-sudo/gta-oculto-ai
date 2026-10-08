@@ -1,6 +1,7 @@
-Flask
-requests
 beautifulsoup4
 Pillow
 edge-tts
+gunicorn
 imageio-ffmpeg
+Flask
+requests
