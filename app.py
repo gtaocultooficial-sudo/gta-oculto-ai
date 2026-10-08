@@ -38,6 +38,11 @@ try:
     AUTONOMOUS_ENGINE = AutonomousEngine(BASE)
 except Exception:
     AUTONOMOUS_ENGINE = None
+try:
+    from trend_brain import TrendBrain
+    TREND_BRAIN = TrendBrain(WORK)
+except Exception:
+    TREND_BRAIN = None
 WORK.mkdir(parents=True, exist_ok=True)
 STATE_FILE = WORK / 'jobs.json'
 LOCK = threading.RLock()
@@ -52,7 +57,7 @@ UA = 'GTA-Oculto-AI/Cloud-Final/V55-SOURCE-RECOVERY-3'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
-BUILD_VERSION = 'V56-VISUAL-DIVERSITY-RETENTION-20261008'
+BUILD_VERSION = 'V57-TREND-BRAIN-20261008'
 
 FALLBACK_TOPICS = [
     {'id':'leonida','score':96,'priority':'ALTA','title':'GTA 6: o detalhe de Leonida que pode mudar a história','source':'Rockstar Games','url':ROCKSTAR_VI,
@@ -514,6 +519,13 @@ def radar_scan():
         })
 
     ranked.sort(key=lambda x:(x['score'],x.get('confidence',0),x.get('source_count',0),x.get('mentions',1)),reverse=True)
+    if TREND_BRAIN and ranked:
+        try:
+            ranked=TREND_BRAIN.rank(ranked[:10])
+            for item in ranked:
+                item['score']=max(int(item.get('score',0)), int(item.get('trend_score',0)))
+        except Exception:
+            pass
     if not ranked:
         last=_load_radar()
         if last.get('opportunities'):
