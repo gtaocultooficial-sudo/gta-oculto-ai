@@ -1086,11 +1086,17 @@ def _article_url_candidates_from_search(title, source_name=''):
             note('FALLBACK_SEARCH:'+engine+':'+str(getattr(rr,'status_code','?')))
             if not rr.ok: continue
             soup=BeautifulSoup(rr.text,'html.parser')
-            selectors=('li.b_algo h2 a','a.result__a') if engine!='google' else ('a[href]','')
+            # Search markup changes frequently on cloud/consent pages. Do not rely
+            # on one CSS selector: inspect the first useful anchors as well.
+            selectors=('li.b_algo h2 a','a.result__a') if engine!='google' else ('a[href]',)
             for sel in selectors:
                 if not sel: continue
-                for a in soup.select(sel)[:12]:
+                for a in soup.select(sel)[:80]:
                     add(a.get('href'),'html-'+engine,30)
+            # Last-resort extraction from the raw HTML catches URLs embedded in
+            # scripts/JSON when the search page is rendered differently.
+            for raw in re.findall(r'https?://[^\s\"<>]+', rr.text)[:200]:
+                add(html.unescape(raw),'raw-'+engine,18)
         except Exception as e:
             note('FALLBACK_SEARCH_ERROR:'+engine+':'+type(e).__name__+':'+str(e)[:80])
 
@@ -1114,6 +1120,28 @@ def _article_url_candidates_from_search(title, source_name=''):
                         if len(found)>=8: break
             except Exception as e:
                 note('FALLBACK_SITE_RSS_ERROR:'+domain+':'+type(e).__name__)
+            if len(found)>=8: break
+
+    # Strategy 5.5: publisher-native RSS/search feeds. This bypasses search-engine
+    # result-page markup and can return the article URL directly on WordPress-like
+    # publishers. It is discovery only; the article body is still fetched and checked
+    # later by the strict source-lock gate.
+    if len(found)<4 and time.monotonic() < resolver_deadline:
+        feed_domains=preferred[:10]
+        for domain in feed_domains:
+            if time.monotonic() >= resolver_deadline: break
+            try:
+                feed_url='https://'+domain+'/feed/?s='+quote_plus(query)
+                rr=fetch(feed_url,timeout=4)
+                note('FALLBACK_PUBLISHER_FEED:'+domain+':'+str(getattr(rr,'status_code','?')))
+                if rr.ok and ('xml' in str(rr.headers.get('content-type','')).lower() or rr.text.lstrip().startswith('<?xml')):
+                    root=ET.fromstring(rr.content)
+                    for item in root.findall('.//item')[:8]:
+                        link=(item.findtext('link') or '').strip()
+                        add(link,'publisher-feed:'+domain,48)
+                        if len(found)>=8: break
+            except Exception as e:
+                note('FALLBACK_PUBLISHER_FEED_ERROR:'+domain+':'+type(e).__name__)
             if len(found)>=8: break
 
     # Final ranking: learned successful domains + discovery quality + original reason.
