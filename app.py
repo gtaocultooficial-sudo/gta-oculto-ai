@@ -30,6 +30,7 @@ WORK.mkdir(exist_ok=True)
 STATE_FILE = WORK / 'jobs.json'
 LOCK = threading.RLock()
 PROCESSING = False
+_last_gnews_diagnostics = []
 UA = 'GTA-Oculto-AI/Cloud-Final/1.7-V40.1'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
@@ -701,13 +702,14 @@ def _resolve_article_url(url, title='', source_name=''):
         return url
 
     # 1) Direct Google batchexecute decoder with diagnostics.
+    global _gnewsdecoder, _last_gnews_diagnostics
     diagnostics=[]
     decoded=_decode_google_news_direct(url, diagnostics)
+    _last_gnews_diagnostics = diagnostics[-8:]
     if decoded and not _is_google_news_url(decoded):
         return decoded
 
     # 2) Maintained Python decoder.
-    global _gnewsdecoder
     if _gnewsdecoder is not None:
         for wait in (0.5, 1.0):
             try:
@@ -764,10 +766,8 @@ def _resolve_article_url(url, title='', source_name=''):
     except Exception:
         pass
 
-        # Keep a compact diagnostic trail for the UI/log.
-    if diagnostics:
-        global _last_gnews_diagnostics
-        _last_gnews_diagnostics = diagnostics[-8:]
+    # Keep a compact diagnostic trail for the UI/log.
+    _last_gnews_diagnostics = diagnostics[-8:]
     return url
 
 def _is_google_news_url(url):
