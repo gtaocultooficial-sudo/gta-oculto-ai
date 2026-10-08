@@ -6,6 +6,10 @@ from deploy_manager import DeployManager
 from youtube_publisher import YouTubePublisher
 from analytics_engine import YouTubeAnalytics
 from safe_code_repair import SafeCodeRepair
+try:
+    from trend_brain import TrendBrain
+except Exception:
+    TrendBrain = None
 
 class AutonomousEngine:
     def __init__(self, root=None):
@@ -17,6 +21,7 @@ class AutonomousEngine:
         self.analytics=YouTubeAnalytics()
         self.max_recoveries=int(os.getenv('GTA_MAX_AUTONOMOUS_RECOVERIES','4'))
         self.code_repair=SafeCodeRepair(self.root/'app.py')
+        self.trend_brain=TrendBrain(self.root/'workspace') if TrendBrain else None
     def on_error(self, jid, error, app_module):
         """Return action: RETRY, SWITCH_TOPIC, QUARANTINE or CODE_REPAIR_PENDING."""
         plan=self.repair.plan(error); self.memory.event('production_error',error,plan)
@@ -72,12 +77,20 @@ class AutonomousEngine:
             if path.exists():
                 pub=self.publisher.upload(path,meta); result['published']=bool(pub.get('ok')); result['publish']=pub
                 self.memory.event('publish',f'job {jid}',pub,pub.get('ok'))
-                if pub.get('ok'): app_module.update_job(jid,stage='PUBLICAÇÃO',log=f'▶️ YouTube: vídeo enviado ({pub.get("video_id")}).',youtube=pub)
+                if pub.get('ok'):
+                    if self.trend_brain:
+                        try: self.trend_brain.record_publication(job.get('opportunity') or {}, meta, pub.get('video_id'))
+                        except Exception: pass
+                    app_module.update_job(jid,stage='PUBLICAÇÃO',log=f'▶️ YouTube: vídeo enviado ({pub.get("video_id")}).',youtube=pub)
         return result
     def collect_analytics(self):
         r=self.analytics.collect(7)
         self.memory.event('analytics','weekly_collection',r,r.get('ok'))
-        if r.get('ok'): self.memory.metric('latest_analytics',r)
+        if r.get('ok'):
+            self.memory.metric('latest_analytics',r)
+            if self.trend_brain:
+                try: self.trend_brain.learn(r)
+                except Exception as e: self.memory.event('trend_brain_error',str(e))
         return r
     def status(self):
-        return {'mode':'AUTONOMOUS','max_recoveries':self.max_recoveries,'deploy':self.deploy.status(),'youtube_publish':self.publisher.enabled,'youtube_analytics':self.analytics.enabled,'memory':self.memory.summary()}
+        return {'mode':'AUTONOMOUS','max_recoveries':self.max_recoveries,'deploy':self.deploy.status(),'youtube_publish':self.publisher.enabled,'youtube_analytics':self.analytics.enabled,'trend_brain':self.trend_brain.status() if self.trend_brain else {'enabled':False},'memory':self.memory.summary()}
