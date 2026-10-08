@@ -14,7 +14,7 @@ import requests
 import xml.etree.ElementTree as ET
 from bs4 import BeautifulSoup
 from flask import Flask, request, jsonify, render_template_string, send_from_directory
-from PIL import Image, ImageDraw, ImageFont, ImageEnhance
+from PIL import Image, ImageDraw, ImageFont, ImageEnhance, ImageChops, ImageStat
 
 try:
     import edge_tts
@@ -42,7 +42,7 @@ PROCESSING = False
 AUTONOMOUS_MODE = os.getenv('GTA_AUTONOMOUS_MODE','1').strip().lower() not in ('0','false','off','no')
 AUTONOMOUS_MAX_TOPIC_RECOVERY = max(1, min(6, int(os.getenv('GTA_AUTONOMOUS_MAX_TOPIC_RECOVERY','5'))))
 _last_gnews_diagnostics = []
-UA = 'GTA-Oculto-AI/Cloud-Final/1.14-V44' 
+UA = 'GTA-Oculto-AI/Cloud-Final/1.15-V45' 
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
@@ -2627,7 +2627,7 @@ def _choose_timeline_assets(video_clips, image_paths, beats, topic_title):
         used.add(idx)
     return chosen
 
-def make_multimedia_video(video_clips, image_paths, audio, out, duration, captions, script=None, topic_title='GTA 6', beats=None):
+def make_multimedia_video(video_clips, image_paths, audio, out, duration, captions, script=None, topic_title='GTA 6', beats=None, motion_boost=False):
     # FFmpeg/yuv420p requires even width/height. Keep the Render Free
     # intermediate at an even 320x568 and upscale only at the final render.
     INTER_W, INTER_H = 320, 568
@@ -2654,7 +2654,11 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
         scene=work/f'scene_{i:02d}.mp4'; overlay=work/f'overlay_{i:02d}.png'
         _caption_overlay(overlay,beat['text'],i,len(beats),320,568,beat.get('highlight'))
         if kind=='video':
-            vf='scale=320:568:force_original_aspect_ratio=increase,crop=320:568,setsar=1,fps=15'
+            if motion_boost:
+                # Movimento suave para impedir que clipes estáticos terminem como uma tela congelada.
+                vf="scale=340:604:force_original_aspect_ratio=increase,crop=320:568:x='10+8*sin(n/18)':y='18+6*cos(n/23)',setsar=1,fps=15"
+            else:
+                vf='scale=320:568:force_original_aspect_ratio=increase,crop=320:568,setsar=1,fps=15'
             inp=['-stream_loop','-1','-i',str(src)]
         else:
             vf="scale=320:568:force_original_aspect_ratio=increase,crop=320:568,setsar=1,zoompan=z='min(zoom+0.002,1.04)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=320x568:fps=15"
@@ -2832,6 +2836,59 @@ def _probe_media(path):
     except Exception as e:
         return {'ok':False,'error':str(e)[:500]}
 
+def _visual_motion_audit(path):
+    """Audita o MP4 real em baixa resolução para detectar congelamento/repetição visual.
+    Não usa análise semântica: mede mudança real entre amostras do vídeo.
+    """
+    tmp=Path(str(path)+'.motion_audit')
+    tmp.mkdir(parents=True,exist_ok=True)
+    try:
+        ff=_ffmpeg_executable()
+        # 1 frame/s é suficiente para encontrar congelamentos longos sem pesar no Render.
+        run_cmd([ff,'-loglevel','error','-y','-i',str(path),'-vf','fps=1,scale=80:142:flags=bilinear,format=gray',str(tmp/'frame_%04d.jpg')],45)
+        frames=sorted(tmp.glob('frame_*.jpg'))
+        if len(frames)<5:
+            return {'score':60,'frozen_ratio':0.0,'longest_still_seconds':0.0,'sample_count':len(frames),'stale_runs':[],'error':'amostras insuficientes'}
+        prev=None; diffs=[]
+        for fp in frames:
+            try:
+                im=Image.open(fp).convert('L')
+                if prev is not None:
+                    diff=ImageChops.difference(prev,im)
+                    stat=ImageStat.Stat(diff)
+                    diffs.append(float(stat.mean[0]))
+                prev=im
+            except Exception:
+                continue
+        # Em material H.264, valores abaixo de ~1.6 por vários segundos indicam quadro visualmente parado.
+        threshold=1.6
+        stale_runs=[]; run=0; start=0
+        for i,d in enumerate(diffs):
+            if d<threshold:
+                if run==0: start=i
+                run+=1
+            else:
+                if run>=4: stale_runs.append({'start_s':start+1,'end_s':start+run+1,'duration_s':run})
+                run=0
+        if run>=4: stale_runs.append({'start_s':start+1,'end_s':start+run+1,'duration_s':run})
+        longest=max([r['duration_s'] for r in stale_runs] or [0])
+        frozen=sum(1 for d in diffs if d<threshold)/max(1,len(diffs))
+        score=100
+        if longest>=10: score-=55
+        elif longest>=7: score-=42
+        elif longest>=5: score-=30
+        elif longest>=4: score-=18
+        if frozen>0.55: score-=25
+        elif frozen>0.40: score-=15
+        elif frozen>0.28: score-=8
+        score=max(0,min(100,score))
+        return {'score':score,'frozen_ratio':round(frozen,3),'longest_still_seconds':longest,'sample_count':len(frames),'stale_runs':stale_runs[:8],'threshold':threshold}
+    except Exception as e:
+        return {'score':75,'frozen_ratio':0.0,'longest_still_seconds':0.0,'sample_count':0,'stale_runs':[],'error':str(e)[:400]}
+    finally:
+        try: shutil.rmtree(tmp,ignore_errors=True)
+        except Exception: pass
+
 def audit_short(script, video, duration, beats, selected_videos, image_scenes):
     """Auditor V41: checks editorial, captions and actual MP4 before delivery."""
     issues=[]; checks={}
@@ -2863,8 +2920,14 @@ def audit_short(script, video, duration, beats, selected_videos, image_scenes):
     unique=len({str(x) for x in selected_videos})
     if unique<4: checks['visuais']-=15; issues.append(('LOW_VIDEO_VARIETY',f'apenas {unique} clipes únicos'))
     if len(image_scenes)<4: checks['visuais']-=5; issues.append(('LOW_IMAGE_VARIETY','poucas imagens auxiliares'))
-    final=max(0,round((checks['roteiro']+checks['legendas']+checks['mp4']+checks['visuais'])/4))
-    return {'score':final,'checks':checks,'issues':[{'code':c,'message':m} for c,m in issues],'media':media,'caption_audit':cap}
+    motion=_visual_motion_audit(video) if media.get('ok') else {'score':0,'error':'MP4 inválido'}
+    checks['movimento']=int(motion.get('score',0))
+    if motion.get('longest_still_seconds',0)>=4:
+        issues.append(('VISUAL_STAGNATION',f'visual praticamente parado por {motion.get("longest_still_seconds",0):.0f}s'))
+    if motion.get('frozen_ratio',0)>=0.40:
+        issues.append(('HIGH_FROZEN_RATIO',f'{motion.get("frozen_ratio",0)*100:.0f}% das transições amostradas com pouca mudança visual'))
+    final=max(0,round((checks['roteiro']+checks['legendas']+checks['mp4']+checks['visuais']+checks['movimento'])/5))
+    return {'score':final,'checks':checks,'issues':[{'code':c,'message':m} for c,m in issues],'media':media,'caption_audit':cap,'motion_audit':motion}
 
 def self_heal(jid, script, video, duration, beats, selected_videos, image_scenes, topic, audio):
     """Run bounded safe repairs. No endless retry and no self-modifying source code."""
@@ -2872,7 +2935,22 @@ def self_heal(jid, script, video, duration, beats, selected_videos, image_scenes
     if audit['score']>=90: return audit,beats,False
     repaired=False
     codes={x['code'] for x in audit['issues']}
-    if 'CAPTIONS_BAD_BOUNDARY' in codes:
+    if 'VISUAL_STAGNATION' in codes or 'HIGH_FROZEN_RATIO' in codes:
+        _learn_event('VISUAL_STAGNATION','auditor detectou repetição/congelamento visual', 'rerender com movimento suave e ordem alternativa de ativos', None)
+        update_job(jid,stage='AUTO-CORREÇÃO',progress=94,log='🧠 AUDITOR IA: visual repetitivo/congelado detectado. Reorganizando ativos e renderizando com movimento automático...')
+        alt_videos=list(reversed(selected_videos)) if selected_videos else selected_videos
+        alt_images=list(reversed(image_scenes)) if image_scenes else image_scenes
+        video2=video.with_name('GTA_OCULTO_SHORT_VISUAL_REPAIRED.mp4')
+        make_multimedia_video(alt_videos,alt_images,audio,video2,duration,[b.get('text','') for b in beats],script,topic['title'],beats,motion_boost=True)
+        audit2=audit_short(script,video2,duration,beats,alt_videos,alt_images)
+        if audit2.get('score',0)>=audit.get('score',0):
+            os.replace(video2,video); selected_videos[:]=alt_videos; image_scenes[:]=alt_images; audit=audit2; repaired=True
+            _learn_event('VISUAL_STAGNATION','reparo visual concluído', 'movimento suave + ordem alternativa de ativos', True)
+        else:
+            try: video2.unlink()
+            except Exception: pass
+            _learn_event('VISUAL_STAGNATION','reparo visual não melhorou o score', 'movimento suave + ordem alternativa de ativos', False)
+    if 'CAPTIONS_BAD_BOUNDARY' in {x['code'] for x in audit['issues']}:
         _learn_event('CAPTIONS_BAD_BOUNDARY','auditor detectou cortes semânticos/visuais', 'resegmentar captions e equilibrar quebra de linha', None)
         new_beats=_repair_caption_beats(beats,duration,6)
         if new_beats and new_beats!=beats:
@@ -3044,7 +3122,7 @@ def processor_loop():
 @APP.get('/')
 def home(): return render_template_string(PAGE)
 @APP.get('/health')
-def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V44-AUTONOMOUS-SOURCE-RECOVERY',processor='cloud',autonomous_mode=AUTONOMOUS_MODE,max_topic_recovery=AUTONOMOUS_MAX_TOPIC_RECOVERY)
+def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V45-AUTONOMOUS-VIDEO-AUDITOR',processor='cloud',autonomous_mode=AUTONOMOUS_MODE,max_topic_recovery=AUTONOMOUS_MAX_TOPIC_RECOVERY)
 @APP.get('/api/state')
 def state():
     # IMPORTANT: never wait on the production LOCK here. The producer/render
