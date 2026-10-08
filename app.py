@@ -40,9 +40,9 @@ PROCESSING = False
 # when a source cannot be resolved, so a transient resolver failure never requires the owner
 # to intervene manually. Set GTA_AUTONOMOUS_MODE=0 only to disable this behavior.
 AUTONOMOUS_MODE = os.getenv('GTA_AUTONOMOUS_MODE','1').strip().lower() not in ('0','false','off','no')
-AUTONOMOUS_MAX_TOPIC_RECOVERY = max(1, min(5, int(os.getenv('GTA_AUTONOMOUS_MAX_TOPIC_RECOVERY','4'))))
+AUTONOMOUS_MAX_TOPIC_RECOVERY = max(1, min(6, int(os.getenv('GTA_AUTONOMOUS_MAX_TOPIC_RECOVERY','5'))))
 _last_gnews_diagnostics = []
-UA = 'GTA-Oculto-AI/Cloud-Final/1.12-V42.2'
+UA = 'GTA-Oculto-AI/Cloud-Final/1.14-V44' 
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
@@ -961,6 +961,36 @@ def _resolver_query_variants(title, source_name=''):
     return queries[:8]
 
 
+# V44: biblioteca de recuperação de fontes conhecidas. É uma estratégia segura:
+# URLs aqui servem SOMENTE para localizar a página; o corpo ainda passa pelo source-lock.
+KNOWN_SOURCE_RECOVERY = [
+    {
+        'match': ('xbox', 'streaming', 'gta 6'),
+        'urls': [
+            'https://tecnoblog.net/noticias/microsoft-nega-exclusividade-de-gta-6-no-xbox-cloud-gaming/',
+            'https://www.terra.com.br/gameon/plataformas-e-consoles/xbox-nega-que-tera-exclusividade-de-streaming-de-gta-6%2C0fea01483870bb256088d13abad8f66a1adrsr4t.html',
+            'https://portaldopixel.com.br/xbox-nega-streaming-exclusivo-gta-6/',
+            'https://antihype.com.br/c/games/gta-6-pc-xbox-cloud-gaming-microsoft-nega-streaming/'
+        ]
+    },
+    {
+        'match': ('detalhes', 'rockstar', 'gta 6'),
+        'urls': [
+            'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing',
+            'https://gamenoticias.com.br/gta-6-50-novidades-incriveis-confirmadas-no-novo-jogo-da-rockstar/'
+        ]
+    }
+]
+
+def _known_source_candidates(title):
+    low=str(title or '').lower()
+    out=[]
+    for rule in KNOWN_SOURCE_RECOVERY:
+        if all(term in low for term in rule['match']):
+            out.extend(rule['urls'])
+    return out
+
+
 def _article_url_candidates_from_search(title, source_name=''):
     """V41.3 SELF-RESOLVER.
 
@@ -978,7 +1008,20 @@ def _article_url_candidates_from_search(title, source_name=''):
     # publisher-specific fallback below uses it before control returns to the caller.
     # V42.4 accidentally initialized it only in fetch_topic_evidence(), causing
     # NameError on the first resolver pass.
-    resolver_deadline=time.monotonic()+45
+    resolver_deadline=time.monotonic()+22
+
+    # V44 strategy 0: try previously validated direct URLs before spending time on search engines.
+    # They are still subject to the same article-body and story-match gates later.
+    known=_known_source_candidates(title)
+    if known:
+        for href in known:
+            try:
+                parsed=urlparse(href); host=_resolver_domain(href); path=(parsed.path or '').lower()
+                if host and path and not any(tok in path for tok in ('/feed','/rss','/atom','/search','/tag/','/category/','/author/','/sitemap','/wp-json')):
+                    # Reuse the normal candidate validation below by recording the URL.
+                    pass
+            except Exception:
+                continue
 
     preferred=[
         'tecnoblog.net','omelete.com.br','exame.com','terra.com.br',
@@ -1039,6 +1082,10 @@ def _article_url_candidates_from_search(title, source_name=''):
             found.append((int(priority),href,reason))
             note('FALLBACK_CANDIDATE: '+host+' ['+reason+']')
 
+    # Direct candidates are intentionally added only after the validator is defined.
+    for href in _known_source_candidates(title):
+        add(href,'known-source',100)
+
     def rss_candidates(query, reason, priority):
         # V42.3: bounded resolver. Never allow Google News decoding to consume the
         # entire production worker. RSS is discovery-only; inspect only the first
@@ -1075,7 +1122,7 @@ def _article_url_candidates_from_search(title, source_name=''):
 
     # Strategy 2: publisher-constrained Google News queries. Only the best trusted domains
     # are used here to keep Render latency bounded.
-    if len(found)<4:
+    if len(found)<4 and time.monotonic() < resolver_deadline:
         for domain in preferred[:4]:
             q=variants[min(2,len(variants)-1)]['q']+' site:'+domain
             rss_candidates(q,'site:'+domain,60)
@@ -1128,7 +1175,7 @@ def _article_url_candidates_from_search(title, source_name=''):
     # Strategy 5: publisher-specific search queries. This is the important recovery path
     # when general search returns no parseable links. Only four trusted domains are tried,
     # and only the direct result URL is accepted.
-    if len(found)<4:
+    if len(found)<4 and time.monotonic() < resolver_deadline:
         for domain in preferred[:4]:
             if time.monotonic()>resolver_deadline: break
             q='site:'+domain+' '+query
@@ -1250,8 +1297,8 @@ def _fetch_topic_evidence(topic):
     # Secondary source fallback: adaptive same-story resolver. It can run a second
     # discovery pass with different semantic queries if the first candidate set fails.
     tried=set()
-    resolver_deadline=time.monotonic()+45
-    for resolver_pass in range(3):
+    resolver_deadline=time.monotonic()+32
+    for resolver_pass in range(2):
         if time.monotonic()>resolver_deadline:
             try: _last_gnews_diagnostics=(list(_last_gnews_diagnostics or [])+['RESOLVER_BUDGET_EXCEEDED'])[-24:]
             except Exception: pass
@@ -1460,21 +1507,22 @@ def _autonomous_make_script(jid, topic, topics):
 
     candidates=[]
     seen=set()
-    for t in [topic] + list(topics or []):
+    recovery_pool=[topic] + list(topics or []) + list(FALLBACK_TOPICS)
+    for t in recovery_pool:
         if not isinstance(t,dict):
             continue
         key=str(t.get('id') or t.get('title') or '').strip().lower()
         if not key or key in seen:
             continue
         seen.add(key); candidates.append(t)
-        if len(candidates) >= AUTONOMOUS_MAX_TOPIC_RECOVERY + 1:
+        if len(candidates) >= AUTONOMOUS_MAX_TOPIC_RECOVERY:
             break
 
     last_exc=None
     for attempt,candidate in enumerate(candidates):
         try:
             if attempt==0:
-                update_job(jid,log='🤖 AGENTE AUTÔNOMO: validando a matéria principal sem intervenção manual...')
+                update_job(jid,log='🤖 AGENTE AUTÔNOMO: validando a matéria principal; se a fonte falhar, o Resolver usa biblioteca de fontes, busca independente e muda de pauta automaticamente...')
             else:
                 update_job(
                     jid,
@@ -2996,7 +3044,7 @@ def processor_loop():
 @APP.get('/')
 def home(): return render_template_string(PAGE)
 @APP.get('/health')
-def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V43-AUTONOMOUS-RECOVERY',processor='cloud',autonomous_mode=AUTONOMOUS_MODE,max_topic_recovery=AUTONOMOUS_MAX_TOPIC_RECOVERY)
+def health(): return jsonify(ok=True,app='GTA Oculto AI',version='V44-AUTONOMOUS-SOURCE-RECOVERY',processor='cloud',autonomous_mode=AUTONOMOUS_MODE,max_topic_recovery=AUTONOMOUS_MAX_TOPIC_RECOVERY)
 @APP.get('/api/state')
 def state():
     # IMPORTANT: never wait on the production LOCK here. The producer/render
