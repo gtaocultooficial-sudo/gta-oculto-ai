@@ -1,0 +1,33 @@
+name: Cloud Production Trigger
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  produce:
+    if: contains(github.event.head_commit.message, '[produce]')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for Render deployment
+        shell: bash
+        run: |
+          set -e
+          for i in {1..30}; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" https://gta-oculto-ai.onrender.com/health || true)
+            echo "health=$code attempt=$i"
+            if [ "$code" = "200" ]; then exit 0; fi
+            sleep 10
+          done
+          exit 1
+
+      - name: Start autonomous production
+        shell: bash
+        run: |
+          set -e
+          response=$(curl -sS -X POST             -H 'Content-Type: application/json'             -d '{}'             https://gta-oculto-ai.onrender.com/api/produce)
+          echo "$response"
+          echo "$response" | grep -q '"ok":true'
