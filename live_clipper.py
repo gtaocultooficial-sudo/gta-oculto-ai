@@ -88,6 +88,27 @@ class LiveClipper:
                 uniq[key]=(center,a,b,kind)
         return list(uniq.values())[:max_candidates]
 
+    def _transcript_score(self, source, start, duration):
+        try:
+            from faster_whisper import WhisperModel
+        except Exception:
+            return 0, ""
+        try:
+            model=WhisperModel(os.getenv("WHISPER_MODEL","tiny"), device="cpu", compute_type="int8")
+            wav=self.live_root/"_semantic_probe.wav"
+            self._run([self._ffmpeg(),"-hide_banner","-y","-ss",str(start),"-t",str(duration),"-i",str(source),"-vn","-ac","1","-ar","16000","-c:a","pcm_s16le",str(wav)],90)
+            segments,_=model.transcribe(str(wav),language="pt",beam_size=1,vad_filter=True)
+            text=" ".join((s.text or "").strip() for s in segments).strip()
+            low=text.lower()
+            hooks=("mano","caralho","olha","corre","polícia","policia","viatura","prisão","preso","tiro","foge","fugiu","perseguição","perseguicao","kkkk","hahaha","não acredito","nao acredito","meu deus","agora")
+            hits=sum(1 for h in hooks if h in low)
+            exclam=text.count("!")+text.count("?")
+            score=min(30,hits*4+min(10,exclam*2))
+            try: wav.unlink()
+            except Exception: pass
+            return score,text[:500]
+        except Exception:
+            return 0, ""
     def _score_window(self, source, a, b, kind):
         # Detect speech/activity level without decoding the full source.
         # astats gives mean volume; silences give contextual boundaries.
@@ -109,7 +130,8 @@ class LiveClipper:
         boundary_bonus=12 if kind=="boundary" else 0
         duration_bonus=8 if 24<=length<=48 else 0
         reaction_bonus=10 if pk > -8 and mean > -24 else (5 if pk > -12 and mean > -28 else 0)
-        score=max(0,min(100,round(activity+peak_score+boundary_bonus+duration_bonus+reaction_bonus)))
+        semantic_score, _ = self._transcript_score(source,start,length)
+        score=max(0,min(100,round(activity+peak_score+boundary_bonus+duration_bonus+reaction_bonus+semantic_score)))
         return score
 
     def analyze(self, source, max_clips=10, job_id=None):
@@ -139,7 +161,7 @@ class LiveClipper:
         selected=sorted(selected,key=lambda x:x["start"])
         return {"ok":True,"duration":duration,"size":info["size"],
                 "candidate_count":len(scored),"clips":selected,
-                "engine":"V1-LIVE-BLOCKS+REACTION-SCORE","transcript":"optional"}
+                "engine":"V1-LIVE-BLOCKS+REACTION-SCORE+SEMANTIC-OPTIONAL","transcript":"optional"}
 
     def render_clip(self, source, clip, outdir, index=1):
         outdir=Path(outdir); outdir.mkdir(parents=True,exist_ok=True)
