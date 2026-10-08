@@ -40,8 +40,19 @@ class LiveClipper:
         out = self._run([self._ffprobe(), "-v", "error", "-show_entries",
                          "format=duration,size", "-of", "json", str(source)], 60)
         data = json.loads(out).get("format", {})
+        streams=data.get("streams") or []
+        video=next((s for s in streams if s.get("codec_type")=="video"), {})
+        fps=video.get("r_frame_rate") or "30/1"
+        try:
+            num,den=[float(x) for x in str(fps).split("/",1)]
+            fps_value=max(1,min(60,num/den if den else 30))
+        except Exception:
+            fps_value=30.0
         return {"duration": float(data.get("duration", 0) or 0),
-                "size": int(data.get("size", 0) or 0)}
+                "size": int(data.get("size", 0) or 0),
+                "width": int(video.get("width",0) or 0),
+                "height": int(video.get("height",0) or 0),
+                "fps": fps_value}
 
     def _silence_map(self, source, duration):
         # Low-cost signal scan. Audio is downmixed to mono and sampled at 8 kHz.
@@ -133,14 +144,30 @@ class LiveClipper:
         outdir=Path(outdir); outdir.mkdir(parents=True,exist_ok=True)
         target=outdir/f"LIVE_CORTE_{index:02d}.mp4"
         start=float(clip["start"]); duration=float(clip["duration"])
-        # Vertical crop, subtitles are added later by the main caption pipeline.
-        vf=("scale=1080:1920:force_original_aspect_ratio=increase,"
-            "crop=1080:1920,setsar=1,fps=30")
+        # Quality Engine V59:
+        # preserve source FPS, avoid destructive center crops on landscape GTA,
+        # keep the full gameplay frame over a blurred vertical background,
+        # and encode a cleaner master with CRF 18.
+        info=self.probe(source)
+        src_fps=max(24.0,min(60.0,float(info.get("fps",30) or 30)))
+        fps_arg=f"{src_fps:.3f}".rstrip("0").rstrip(".")
+        w=int(info.get("width",0) or 0); h=int(info.get("height",0) or 0)
+        if h and w and h>w:
+            vf=("scale=1080:1920:force_original_aspect_ratio=decrease,"
+                "pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black,setsar=1")
+        else:
+            vf=("split=2[fg][bg];"
+                "[bg]scale=1080:1920:force_original_aspect_ratio=increase,"
+                "crop=1080:1920,gblur=sigma=28,"
+                "eq=brightness=-0.10:saturation=0.85[bg2];"
+                "[fg]scale=1080:1920:force_original_aspect_ratio=decrease,"
+                "pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black@0[fg2];"
+                "[bg2][fg2]overlay=(W-w)/2:(H-h)/2,setsar=1")
         self._run([self._ffmpeg(),"-hide_banner","-y","-ss",str(start),"-i",
-                   str(source),"-t",str(duration),"-vf",vf,
-                   "-c:v","libx264","-preset","veryfast","-crf","23",
-                   "-c:a","aac","-b:a","128k","-movflags","+faststart",
-                   str(target)],timeout=240)
+                   str(source),"-t",str(duration),"-vf",vf,"-r",fps_arg,
+                   "-c:v","libx264","-preset","medium","-crf","18",
+                   "-pix_fmt","yuv420p","-c:a","aac","-b:a","160k",
+                   "-movflags","+faststart",str(target)],timeout=420)
         return target
 
     def status(self):
