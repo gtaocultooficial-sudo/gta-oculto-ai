@@ -52,7 +52,7 @@ UA = 'GTA-Oculto-AI/Cloud-Final/V55-SOURCE-RECOVERY-3'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
-BUILD_VERSION = 'V55.5-CAPTION-GATE-STRUCTURAL-FIX-20261008'
+BUILD_VERSION = 'V55.6-AUDITOR-DIAGNOSTIC-20261008'
 
 FALLBACK_TOPICS = [
     {'id':'leonida','score':96,'priority':'ALTA','title':'GTA 6: o detalhe de Leonida que pode mudar a história','source':'Rockstar Games','url':ROCKSTAR_VI,
@@ -3470,8 +3470,28 @@ def produce_job(jid):
                 audit.setdefault('notes',[]).append('V55.4: boundary leve aceito com alinhamento íntegro à narração.')
         if audit.get('score',0)<90 or blocking:
             for issue in audit.get('issues',[]): _learn_event(issue['code'],issue['message'])
+            # V55.6: nunca ocultar o motivo quando o score reprova sem hard-block.
+            all_codes=[]
+            for issue in (audit.get('issues',[]) or []):
+                code=str(issue.get('code','')).strip()
+                if code and code not in all_codes:
+                    all_codes.append(code)
             names=', '.join(i.get('code','') for i in blocking[:6])
-            raise ValueError('AUDITOR IA: gate estrito reprovou o vídeo após correções seguras' + (f' — problemas: {names}' if names else '') + '.')
+            if not names:
+                names=', '.join(all_codes[:10])
+            details=[]
+            for issue in (audit.get('issues',[]) or [])[:6]:
+                code=str(issue.get('code','')).strip()
+                msg=str(issue.get('message','')).strip()
+                if code:
+                    details.append(f'{code}: {msg[:180]}')
+            detail_text=' | '.join(details)
+            raise ValueError(
+                'AUDITOR IA: gate estrito reprovou o vídeo após correções seguras'
+                + (f' — score={audit.get("score",0)}; problemas: {names}' if names else f' — score={audit.get("score",0)}; nenhum código de problema registrado')
+                + (f' — detalhes: {detail_text}' if detail_text else '')
+                + '.'
+            )
         # V52 strict caption gate: never approve captions that are not derived from the actual narration.
         cap_alignment=_caption_narration_alignment(beats,script.get('narration',''))
         if cap_alignment.get('foreign_ratio',0)>0.03 or cap_alignment.get('score',100)<85:
