@@ -777,93 +777,165 @@ def _is_google_news_url(url):
         return False
 
 
-def _fetch_topic_evidence(topic):
-    """V40 FINAL: extrai exclusivamente o corpo da matéria original.
+def _extract_article_body_from_html(html):
+    """Extract a real article body without accepting meta descriptions or generic <main>."""
+    soup=BeautifulSoup(html or '', 'html.parser')
 
-    Regras duras:
-    1) resolve a URL do Google News;
-    2) se continuar em Google News, BLOQUEIA;
-    3) aceita articleBody estruturado somente se existir;
-    4) sem articleBody, aceita apenas contêineres inequívocos <article> / [itemprop=articleBody];
-    5) NUNCA usa description/meta/RSS como evidência factual;
-    6) NUNCA usa <main> ou [role=main] genérico;
-    7) retorna método de extração para auditoria.
+    # 1) JSON-LD articleBody.
+    structured=[]
+    for tag in soup.find_all('script',type='application/ld+json')[:40]:
+        try:
+            raw=tag.string or tag.get_text() or '{}'
+            obj=json.loads(raw)
+            stack=obj if isinstance(obj,list) else [obj]
+            seen=set()
+            while stack:
+                item=stack.pop(0)
+                if not isinstance(item,dict): continue
+                oid=id(item)
+                if oid in seen: continue
+                seen.add(oid)
+                graph=item.get('@graph')
+                if isinstance(graph,list): stack.extend(graph)
+                body=item.get('articleBody')
+                typ=str(item.get('@type') or '').lower()
+                if isinstance(body,str) and len(body.strip())>=180 and ('article' in typ or 'newsarticle' in typ or not typ):
+                    structured.append(body)
+        except Exception:
+            continue
+    if structured:
+        body=max(structured,key=len)
+        lines=_clean_article_text(body)
+        if len(lines)>=2:
+            return lines[:24], 'JSONLD_ARTICLE_BODY'
+
+    # 2) Explicit article-body containers only.
+    containers=[]
+    selectors=(
+        'article', '[itemprop="articleBody"]', '[data-testid="article-body"]',
+        '[data-testid="articleBody"]', '.article-body', '.article__body',
+        '.article-content', '.article-content-body', '.post-content', '.entry-content',
+        '.story-body', '.story-content', '.articleBody', '.articleBodyText'
+    )
+    for sel in selectors:
+        for node in soup.select(sel)[:5]:
+            paras=[]
+            for ptag in node.find_all('p'):
+                txt=ptag.get_text(' ',strip=True)
+                if len(txt)<45: continue
+                low=txt.lower()
+                if any(b in low for b in ('leia também','publicidade','assine','newsletter','cookies','siga-nos','compartilhe')):
+                    continue
+                paras.append(txt)
+            if len(paras)>=2:
+                containers.append(paras)
+    if containers:
+        paras=max(containers,key=len)
+        lines=_clean_article_text(' '.join(paras))
+        if len(lines)>=2:
+            return lines[:24], 'ARTICLE_CONTAINER'
+    return [], 'BLOCKED_NO_ARTICLE_BODY'
+
+
+def _article_url_candidates_from_search(title, source_name=''):
+    """Find same-story publisher pages when the primary publisher blocks server-side fetches."""
+    query=' '.join(x for x in (str(title or '').strip(), str(source_name or '').strip()) if x)
+    if not query: return []
+    try:
+        qurl='https://html.duckduckgo.com/html/?q=' + quote_plus(query)
+        rr=fetch(qurl, timeout=18)
+        if not rr.ok: return []
+        soup=BeautifulSoup(rr.text,'html.parser')
+        preferred=(
+            'tecnoblog.net','omelete.com.br','exame.com','terra.com.br',
+            'meups.com.br','criticalhits.com.br','games.gg','antihype.com.br',
+            'portaldopixel.com.br','portaldovideogame.com.br','centralxbox.com.br'
+        )
+        found=[]; seen=set()
+        for a in soup.select('a.result__a, a[href]'):
+            href=str(a.get('href') or '').strip()
+            try:
+                qs=parse_qs(urlparse(href).query)
+                if qs.get('uddg'): href=qs['uddg'][0]
+            except Exception: pass
+            if not href.startswith(('http://','https://')) or _is_google_news_url(href): continue
+            host=urlparse(href).netloc.lower().replace('www.','')
+            if host in {'br.ign.com','ign.com'}: continue
+            if not any(host==d or host.endswith('.'+d) for d in preferred): continue
+            if href not in seen:
+                seen.add(href); found.append(href)
+        return found[:8]
+    except Exception:
+        return []
+
+
+def _topic_title_overlap(title, lines):
+    """Require meaningful lexical overlap so a secondary article cannot hijack the topic."""
+    norm=lambda x: re.sub(r'[^a-z0-9à-ÿ ]',' ',str(x or '').lower())
+    words={w for w in norm(title).split() if len(w)>=4}
+    text=norm(' '.join(lines[:8]))
+    if not words or not text: return 0.0
+    return sum(1 for w in words if w in text)/len(words)
+
+
+def _fetch_topic_evidence(topic):
+    """V40.3: source-locked first, then same-story trusted-source fallback.
+
+    The original publisher remains the preferred source. If it resolves correctly but
+    blocks the server-side body (common with anti-bot/robots pages), the producer may
+    use a second reputable publisher covering the exact same story. The fallback URL
+    is stored as the factual source; the original URL is retained in the topic metadata.
+    No RSS description, meta description, search snippet, or generic <main> is used.
     """
     original_url=str(topic.get('url') or '').strip()
-    url=_resolve_article_url(original_url, topic.get('title',''), topic.get('source',''))
+    title=str(topic.get('title') or '').strip()
+    source_name=str(topic.get('source') or '').strip()
+    url=_resolve_article_url(original_url, title, source_name)
     if not url or _is_google_news_url(url):
         return [], original_url, 'BLOCKED_URL'
+
+    # Primary publisher: preserve strict source lock when its real article body is reachable.
     try:
         r=fetch(url,timeout=22); r.raise_for_status()
         final_url=str(getattr(r,'url','') or url).strip()
-        if _is_google_news_url(final_url):
-            return [], final_url, 'BLOCKED_GOOGLE_NEWS'
-        soup=BeautifulSoup(r.text,'html.parser')
-
-        # 1) JSON-LD articleBody: melhor fonte quando o publisher fornece o corpo.
-        structured=[]
-        for tag in soup.find_all('script',type='application/ld+json')[:30]:
-            try:
-                raw=tag.string or tag.get_text() or '{}'
-                obj=json.loads(raw)
-                stack=obj if isinstance(obj,list) else [obj]
-                seen_obj=set()
-                while stack:
-                    item=stack.pop(0)
-                    if not isinstance(item,dict):
-                        continue
-                    oid=id(item)
-                    if oid in seen_obj: continue
-                    seen_obj.add(oid)
-                    graph=item.get('@graph')
-                    if isinstance(graph,list): stack.extend(graph)
-                    body=item.get('articleBody')
-                    typ=str(item.get('@type') or '').lower()
-                    if isinstance(body,str) and len(body.strip())>=180 and ('article' in typ or 'newsarticle' in typ or not typ):
-                        structured.append(body)
-            except Exception:
-                continue
-        if structured:
-            body=max(structured,key=len)
-            lines=_clean_article_text(body)
-            # Exige material suficiente para sustentar uma narrativa curta.
-            if len(lines)>=2:
-                return lines[:20], final_url, 'JSONLD_ARTICLE_BODY'
-
-        # 2) Contêineres inequívocos do artigo. Não usar <main> genérico.
-        containers=[]
-        selectors=(
-            'article',
-            '[itemprop="articleBody"]',
-            '[data-testid="article-body"]',
-            '[data-testid="articleBody"]',
-            '.article-body', '.article__body', '.article-content', '.article-content-body',
-            '.post-content', '.entry-content', '.story-body', '.story-content',
-            '.articleBody', '.articleBodyText'
-        )
-        for sel in selectors:
-            for node in soup.select(sel)[:4]:
-                paras=[]
-                for ptag in node.find_all('p'):
-                    txt=ptag.get_text(' ',strip=True)
-                    if len(txt)>=45:
-                        # Ignora parágrafos claramente editoriais/navegação.
-                        low=txt.lower()
-                        if any(b in low for b in ('leia também','publicidade','assine','newsletter','cookies','siga-nos','compartilhe')):
-                            continue
-                        paras.append(txt)
-                if len(paras)>=2:
-                    containers.append(paras)
-        if containers:
-            paras=max(containers,key=len)
-            lines=_clean_article_text(' '.join(paras))
-            if len(lines)>=2:
-                return lines[:20], final_url, 'ARTICLE_CONTAINER'
-
-        # V34: sem corpo inequívoco = não produz.
-        return [], final_url, 'BLOCKED_NO_ARTICLE_BODY'
+        if not _is_google_news_url(final_url):
+            lines,method=_extract_article_body_from_html(r.text)
+            if lines:
+                topic['_original_url']=original_url
+                topic['_resolved_url']=final_url
+                topic['_source_original']=source_name
+                topic['_source_used']=source_name
+                return lines, final_url, method
     except Exception:
-        return [], url, 'BLOCKED_FETCH_ERROR'
+        pass
+
+    # Secondary source fallback: same headline/story, trusted publishers only.
+    for alt_url in _article_url_candidates_from_search(title, source_name):
+        try:
+            ar=fetch(alt_url,timeout=22); ar.raise_for_status()
+            final_alt=str(getattr(ar,'url','') or alt_url).strip()
+            if _is_google_news_url(final_alt): continue
+            lines,method=_extract_article_body_from_html(ar.text)
+            if not lines: continue
+            overlap=_topic_title_overlap(title,lines)
+            if overlap < 0.28: continue
+            host=urlparse(final_alt).netloc.lower().replace('www.','')
+            alt_name={
+                'tecnoblog.net':'Tecnoblog','omelete.com.br':'Omelete','exame.com':'Exame',
+                'terra.com.br':'Terra','meups.com.br':'MeuPlayStation','criticalhits.com.br':'Critical Hits',
+                'games.gg':'Games.gg','antihype.com.br':'Antihype','portaldopixel.com.br':'Portal do Pixel',
+                'portaldovideogame.com.br':'Portal do Videogame','centralxbox.com.br':'Central Xbox'
+            }.get(host,host)
+            topic['_original_url']=original_url
+            topic['_resolved_url']=final_alt
+            topic['_source_original']=source_name
+            topic['_source_used']=alt_name
+            topic['_source_fallback']=True
+            return lines, final_alt, f'SECONDARY_{method}'
+        except Exception:
+            continue
+
+    return [], url, 'BLOCKED_NO_ARTICLE_BODY'
 
 def _evidence_sentences(desc, article_lines=None, title='', extraction_method=''):
     """V34: evidência SOMENTE do corpo da matéria. desc é deliberadamente ignorado."""
