@@ -63,7 +63,7 @@ UA = 'GTA-Oculto-AI/Cloud-Final/V55-SOURCE-RECOVERY-3'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
-BUILD_VERSION = 'V64.9-BOUNDED-RADAR-AND-SOURCE-RECOVERY-20261009'
+BUILD_VERSION = 'V64.10-DIVERSE-CLIPS-AND-CAPTION-BOUNDARY-20261009'
 
 FALLBACK_TOPICS = [
     {'id':'leonida','score':96,'priority':'ALTA','title':'GTA 6: o detalhe de Leonida que pode mudar a história','source':'Rockstar Games','url':ROCKSTAR_VI,
@@ -3772,7 +3772,8 @@ def produce_job(jid):
                 beats=_complete_beats
             _pre_cap=_audit_caption_quality(beats)
             _pre_align=_caption_narration_alignment(beats,script.get('narration',''))
-        if _pre_cap.get('score',100)<92 and beats:
+        if beats and (_pre_cap.get('score',100)<92 or _pre_cap.get('bad_start') or _pre_cap.get('bad_end') or _pre_cap.get('long') or _pre_cap.get('repeated_adjacent',0)):
+            # Corrige também falhas pontuais de fronteira; nota alta não deve deixar uma legenda começar por 'de', 'para', 'e' etc.
             _fixed_beats=_repair_caption_beats(beats,duration,7)
             if _fixed_beats:
                 beats=_fixed_beats
