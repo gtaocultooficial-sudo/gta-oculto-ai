@@ -2905,7 +2905,7 @@ def _build_timed_caption_beats(word_cues, duration, count=10):
         if need and nextc:
             # Respect a semantic boundary when possible, but never let a caption
             # grow indefinitely because a sentence lacks punctuation.
-            forced_split=len(cur)>=max_words+2
+            forced_split=len(cur)>=max_words
             if not forced_split and (_cue_bad_end(word) or _cue_bad_start(nextc['word'])): need=False
             if not forced_split and _protected_pair(word,nextc['word']): need=False
         if need:
@@ -2982,7 +2982,7 @@ def build_short_timeline(script, topic, duration, count=10, word_cues=None):
     all_chunks=[]
     for sent in sentences: all_chunks.extend(_semantic_caption_chunks(sent,3,7))
     if not all_chunks: all_chunks=[_caption_words(narration)]
-    all_chunks=_merge_caption_chunks(all_chunks,target_count=max(1,count),max_words=9)
+    all_chunks=_merge_caption_chunks(all_chunks,target_count=max(1,count),max_words=7)
     phrases=[]
     for ch in all_chunks:
         phrase=_clean_caption_phrase(' '.join(ch))
@@ -3277,7 +3277,7 @@ def _repair_caption_beats(beats, duration, max_words=7):
     i=0
     while i < len(chunks)-1:
         last=_caption_clean_word(chunks[i][-1]); first=_caption_clean_word(chunks[i+1][0])
-        if (last in bad_end or first in bad_start) and len(chunks[i])+len(chunks[i+1])<=max_words+2:
+        if (last in bad_end or first in bad_start) and len(chunks[i])+len(chunks[i+1])<=max_words:
             chunks[i:i+2]=[chunks[i]+chunks[i+1]]
             i=max(0,i-1)
         else:
