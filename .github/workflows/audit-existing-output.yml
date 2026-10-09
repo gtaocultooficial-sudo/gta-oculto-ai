@@ -1,0 +1,88 @@
+name: Audit Existing GTA Oculto Output
+
+on:
+  push:
+    branches: [qa-audit-0a13673e59]
+    paths:
+      - ".github/workflows/audit-existing-output.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Install FFmpeg and Python dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          python -m pip install --upgrade pip requests pillow
+
+      - name: Download and inspect the actual rendered MP4
+        run: |
+          python - <<'PY'
+          import json, subprocess, requests
+          from pathlib import Path
+          from PIL import Image, ImageChops, ImageStat, ImageDraw
+          base='https://gta-oculto-ai.onrender.com'
+          job_id='0a13673e59'
+          r=requests.get(f'{base}/api/job/{job_id}',timeout=45)
+          r.raise_for_status()
+          job=r.json()
+          print('JOB_METADATA',json.dumps({'id':job.get('id'),'status':job.get('status'),'title':job.get('title'),'score':job.get('score'),'metadata':job.get('metadata',{})},ensure_ascii=False)[:9000])
+          if job.get('status')!='DONE':
+              raise RuntimeError('Expected job is not DONE: '+str(job.get('status')))
+          video=Path('GTA_OCULTO_SHORT.mp4')
+          r=requests.get(f'{base}/output/{job_id}/GTA_OCULTO_SHORT.mp4',timeout=(30,180))
+          r.raise_for_status()
+          video.write_bytes(r.content)
+          probe=subprocess.run(['ffprobe','-v','error','-show_entries','format=duration,size:stream=codec_name,codec_type,width,height,r_frame_rate','-of','json',str(video)],capture_output=True,text=True,check=True)
+          media=json.loads(probe.stdout)
+          print('MEDIA',json.dumps(media,ensure_ascii=False))
+          duration=float(media.get('format',{}).get('duration',0))
+          if video.stat().st_size<500000 or not 24<=duration<=38:
+              raise RuntimeError('Media file did not pass integrity/duration check')
+          frames_dir=Path('qa_frames'); frames_dir.mkdir(exist_ok=True)
+          timestamps=[1,3.5,6,8.5,11,13.5,16,18.5,21,23.5,26,28]
+          samples=[]
+          for idx,t in enumerate(timestamps):
+              if t>=duration: continue
+              fp=frames_dir/f'frame_{idx:02d}.jpg'
+              rr=subprocess.run(['ffmpeg','-loglevel','error','-y','-ss',str(t),'-i',str(video),'-frames:v','1','-vf','scale=48:85:flags=bilinear,format=gray',str(fp)],capture_output=True)
+              if rr.returncode==0 and fp.exists():
+                  samples.append((t,Image.open(fp).convert('L')))
+          pairs=[]
+          for i,(ta,ia) in enumerate(samples):
+              for tb,ib in samples[i+1:]:
+                  diff=ImageStat.Stat(ImageChops.difference(ia,ib)).mean[0]
+                  if abs(tb-ta)>=6 and diff<7.0:
+                      pairs.append({'t1':ta,'t2':tb,'mean_pixel_difference':round(diff,2)})
+          print('VISUAL_REPEAT_CANDIDATES',json.dumps(pairs,ensure_ascii=False))
+          thumbs=[]
+          for t,im in samples:
+              full=im.convert('RGB').resize((144,255))
+              thumbs.append((t,full))
+          sheet=Image.new('RGB',(576,280*((len(thumbs)+3)//4)),(18,18,18))
+          d=ImageDraw.Draw(sheet)
+          for i,(t,im) in enumerate(thumbs):
+              x=(i%4)*144; y=(i//4)*280
+              sheet.paste(im,(x,y)); d.text((x+4,y+257),f'{t:.1f}s',fill='white')
+          sheet.save('contact_sheet.jpg',quality=90)
+          Path('qa_result.json').write_text(json.dumps({'job_id':job_id,'title':job.get('title'),'duration_s':duration,'size_bytes':video.stat().st_size,'visual_repeat_candidates':pairs,'audit':job.get('metadata',{}).get('audit',{})},ensure_ascii=False,indent=2))
+          print('QA_COMPLETE')
+          PY
+
+      - name: Upload actual MP4 and contact sheet
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gta-oculto-actual-mp4-qa
+          path: |
+            GTA_OCULTO_SHORT.mp4
+            contact_sheet.jpg
+            qa_result.json
+            qa_frames/
+          if-no-files-found: warn
+          retention-days: 7
