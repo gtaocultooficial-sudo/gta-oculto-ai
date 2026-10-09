@@ -63,7 +63,7 @@ UA = 'GTA-Oculto-AI/Cloud-Final/V55-SOURCE-RECOVERY-3'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
-BUILD_VERSION = 'V64.8-BOUNDED-SOURCE-RECOVERY-20261009'
+BUILD_VERSION = 'V64.9-BOUNDED-RADAR-AND-SOURCE-RECOVERY-20261009'
 
 FALLBACK_TOPICS = [
     {'id':'leonida','score':96,'priority':'ALTA','title':'GTA 6: o detalhe de Leonida que pode mudar a história','source':'Rockstar Games','url':ROCKSTAR_VI,
@@ -275,10 +275,10 @@ def _source_name_from_link(link, fallback='Fonte'):
         return fallback
 
 
-def _parse_rss(url, feed_name):
+def _parse_rss(url, feed_name, timeout=18):
     items=[]
     try:
-        r=fetch(url,timeout=18); r.raise_for_status()
+        r=fetch(url,timeout=timeout); r.raise_for_status()
         root=ET.fromstring(r.content)
         for item in root.findall('.//item')[:12]:
             title=(item.findtext('title') or '').strip()
@@ -462,11 +462,18 @@ def _canonical_source_name(name, url=''):
 
 
 def radar_scan():
-    """Radar V26.3: coleta, agrupa e só substitui o último radar quando a coleta realmente teve sucesso."""
+    """Radar V64.9: coleta limitada por tempo, com diagnóstico por fonte."""
+    started=time.monotonic()
     raw=[]; successful_sources=0; errors=[]
-    for name,url in RADAR_FEEDS:
+    # Duas consultas agregadas dão descoberta suficiente. Evitamos quatro feeds
+    # idênticos bloqueando a fase de pesquisa por vários timeouts sequenciais.
+    feeds=RADAR_FEEDS[:2]
+    for name,url in feeds:
+        if time.monotonic()-started > 14:
+            errors.append('orçamento de radar esgotado antes de '+name)
+            break
         try:
-            batch=_parse_rss(url,name)
+            batch=_parse_rss(url,name,timeout=6)
             if batch:
                 successful_sources += 1
                 raw.extend(batch)
@@ -474,18 +481,20 @@ def radar_scan():
                 errors.append(name+' sem resultados')
         except Exception as e:
             errors.append(name+': '+str(e)[:120])
-    rockstar_ok=False
-    try:
-        r=fetch('https://www.rockstargames.com/br/newswire',timeout=20); r.raise_for_status()
-        rockstar_ok=True; successful_sources += 1
-        soup=BeautifulSoup(r.text,'html.parser')
-        for a in soup.find_all('a',href=True):
-            t=' '.join(a.stripped_strings).strip()
-            href=urljoin('https://www.rockstargames.com/br/newswire',a['href'])
-            if t and any(k in t.lower() for k in ('grand theft auto vi','gta vi','gta 6')):
-                raw.append({'title':t,'url':href,'published':'','source':'Rockstar Games','feed':'Rockstar Newswire','description':''})
-    except Exception as e:
-        errors.append('Rockstar Newswire: '+str(e)[:160])
+    # Newswire oficial é uma fonte complementar, não deve bloquear descoberta.
+    if time.monotonic()-started < 15:
+        try:
+            r=fetch('https://www.rockstargames.com/br/newswire',timeout=5); r.raise_for_status()
+            successful_sources += 1
+            soup=BeautifulSoup(r.text,'html.parser')
+            for a in soup.find_all('a',href=True):
+                t=' '.join(a.stripped_strings).strip()
+                href=urljoin('https://www.rockstargames.com/br/newswire',a['href'])
+                if t and any(k in t.lower() for k in ('grand theft auto vi','gta vi','gta 6')):
+                    raw.append({'title':t,'url':href,'published':'','source':'Rockstar Games','feed':'Rockstar Newswire','description':''})
+        except Exception as e:
+            errors.append('Rockstar Newswire: '+str(e)[:160])
+    update_note='V64.9 radar: fontes_ok={} erros={}'.format(successful_sources,' | '.join(errors[:4]) or 'nenhum')
 
     # Se nenhuma fonte respondeu, preserva o último radar válido. Nunca sobrescreva com fallback.
     if successful_sources == 0 or not raw:
@@ -580,7 +589,9 @@ def radar_scan():
 
     # Não misturamos fallback com o radar real. Se o radar encontrou 4, mostramos 4.
     # Isso evita que assuntos antigos pareçam notícias atuais.
-    return _save_radar(ranked[:10], status='OK', sources_ok=successful_sources)
+    result=_save_radar(ranked[:10], status='OK', sources_ok=successful_sources)
+    result['diagnostic']=update_note
+    return result
 
 def current_opportunities():
     d=_load_radar(); ops=d.get('opportunities') or []
@@ -3697,8 +3708,10 @@ def evaluate(script,duration,scene_count,visual_quality,beats=None,video_count=0
 def produce_job(jid):
     global PROCESSING
     try:
-        update_job(jid,status='RUNNING',stage='PESQUISA',progress=5,log='Radar validando o assunto e coletando fontes oficiais...')
+        update_job(jid,status='RUNNING',stage='PESQUISA',progress=5,log='V64.9: pesquisa limitada a 2 feeds RSS (6s cada) + Newswire opcional (5s).')
         topics,urls,_=research_official(); topics=topics or FALLBACK_TOPICS
+        radar_status=_load_radar()
+        update_job(jid,progress=12,log='V64.9: pesquisa encerrada; fontes_ok={} status={} erro={}'.format(radar_status.get('sources_ok',0),radar_status.get('status','?'),radar_status.get('error') or radar_status.get('diagnostic','sem detalhe')))
         job=load_jobs()[jid]; topic=editor_chief_select([job['opportunity']]) or job['opportunity']; job['opportunity']=topic; jobs=load_jobs(); jobs[jid]['opportunity']=topic; save_jobs(jobs)
         update_job(jid,stage='ANÁLISE',progress=16,log=f'EDITOR-CHEFE: {topic.get("editorial_decision","PRODUZIR")} — {topic["title"]} | ângulo: {topic.get("editorial_angle","")}')
         update_job(jid,stage='ROTEIRO',progress=28,log='EDITOR-CHEFE → AGENTE AUTÔNOMO: validando corpo original, tentando estratégias e recuperando a pauta se necessário...')
