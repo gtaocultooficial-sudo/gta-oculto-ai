@@ -497,8 +497,7 @@ def radar_scan():
     """Radar V26.3: coleta, agrupa e só substitui o último radar quando a coleta realmente teve sucesso."""
     raw=[]; successful_sources=0; errors=[]
     for name,url in RADAR_FEEDS:
-        try:
-            batch=_parse_rss(url,name)
+        try:            batch=_parse_rss(url,name)
             if batch:
                 successful_sources += 1
                 raw.extend(batch)
@@ -997,8 +996,7 @@ def _resolver_memory_save(d):
         _atomic_write_json(RESOLVER_MEMORY_FILE,d)
 
 
-def _resolver_learn(domain='', strategy='', success=False):
-    try:
+def _resolver_learn(domain='', strategy='', success=False):    try:
         d=_resolver_memory_load()
         if domain:
             x=d['domains'].setdefault(domain,{'tries':0,'success':0,'last_success':'','last_strategy':''})
@@ -1013,7 +1011,8 @@ def _resolver_learn(domain='', strategy='', success=False):
             if success:
                 x['success']=int(x.get('success',0))+1
                 x['last_success']=now_iso()
-        _resolver_memory_save(d)    except Exception:
+        _resolver_memory_save(d)
+    except Exception:
         pass
 
 
@@ -1497,7 +1496,6 @@ def _fetch_topic_evidence(topic):
                 _last_gnews_diagnostics=(list(_last_gnews_diagnostics or [])+[f'PRIMARY_FETCH_ERROR:{type(e).__name__}:{str(e)[:100]}'])[-24:]
             except Exception:
                 pass
-
     # V42.2: autonomous secondary-source recovery. A Google News decoder failure
     # (especially HTTP 429) is treated as a discovery problem, never as a content
     # failure. We immediately switch to independent trusted publishers/search engines.
@@ -1997,8 +1995,7 @@ def research_official():
         r=fetch('https://www.rockstargames.com/VI/downloads/videos'); r.raise_for_status()
         soup=BeautifulSoup(r.text,'html.parser')
         for tag in soup.find_all(['meta','img']):
-            u=tag.get('content') if tag.name=='meta' else tag.get('src')
-            if u and (tag.get('property')=='og:image' or tag.name=='img'):
+            u=tag.get('content') if tag.name=='meta' else tag.get('src')            if u and (tag.get('property')=='og:image' or tag.name=='img'):
                 images.append(urljoin('https://www.rockstargames.com/VI/downloads/videos',u))
     except Exception:
         pass
@@ -2498,15 +2495,3 @@ def _caption_overlay(path,caption,idx,total,W=320,H=568,highlight=None):
 
     yy=y+8
     hi=str(highlight or '').strip().upper()
-    for line in lines[:2]:
-        # Render the complete line at once for stable visual rhythm.
-        d.text((W/2,yy),line,font=f,anchor='ma',fill='white',
-               stroke_width=1,stroke_fill=(0,0,0,220))
-        yy += line_h
-    im.save(path)
-
-def _clean_caption_phrase(text):
-    text=re.sub(r"\s+", " ", str(text)).strip(" .!?,:;-")
-    text=re.sub(r"^(?:gta\s*6\s*[:\-]\s*)", "", text, flags=re.I)
-    return text.upper()
-
