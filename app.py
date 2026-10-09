@@ -997,7 +997,8 @@ def _resolver_memory_save(d):
         _atomic_write_json(RESOLVER_MEMORY_FILE,d)
 
 
-def _resolver_learn(domain='', strategy='', success=False):    try:
+def _resolver_learn(domain='', strategy='', success=False):
+    try:
         d=_resolver_memory_load()
         if domain:
             x=d['domains'].setdefault(domain,{'tries':0,'success':0,'last_success':'','last_strategy':''})
