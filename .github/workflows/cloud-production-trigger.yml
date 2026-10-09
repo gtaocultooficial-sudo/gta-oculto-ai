@@ -3,7 +3,7 @@ name: Cloud Production Trigger
 
 on:
   push:
-    branches: [main]
+    branches: [main, qa-production-v10]
 
 permissions:
   contents: read
