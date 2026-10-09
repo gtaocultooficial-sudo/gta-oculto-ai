@@ -1732,6 +1732,20 @@ def _autonomous_make_script(jid, topic, topics):
     raise ValueError('V55: nenhuma oportunidade disponível para recuperação de fonte.')
 
 
+def _headline_from_specific_evidence(title, evidence):
+    """Replace broad listicle titles when this Short actually covers one specific fact."""
+    original=_clean_narrative_text(str(title or '')).strip()
+    text=' '.join(str(x or '') for x in (evidence or [])).lower()
+    broad=bool(re.search(r'\b\d+\s+(?:novidades|detalhes|segredos|curiosidades|fatos|mistérios|misterios)\b',original,re.I))
+    pair=bool(re.search(r'\bjason\b',text) and re.search(r'\blucia\b',text))
+    work_money=any(re.search(p,text,re.I) for p in (
+        r'\btrabalh\w*\b',r'\bempreg\w*\b',r'\bdinheiro\b',r'\bganhar\b',r'\brenda\b'
+    ))
+    if broad and pair and work_money:
+        return 'GTA 6: Jason e Lucia estão trabalhando para ganhar dinheiro?'
+    return original
+
+
 def make_script(topic):
     """V33 — Main Article Locked.
     Uma matéria principal. Um corpo principal. Um roteiro.
@@ -1762,11 +1776,16 @@ def make_script(topic):
         raise ValueError('MATÉRIA SEM CORPO PRINCIPAL EXTRAÍDO — produção bloqueada para evitar mistura de manchetes.')
 
     angle,_=_editorial_angle(topic)
-    headline=_clean_narrative_text(title.rstrip('.!?'))
+    # A listicle headline must not be reused for a Short that only covers one
+    # narrow fact from that article. Match the title to the exact evidence used.
+    headline=_headline_from_specific_evidence(title,evidence)
+    headline=_clean_narrative_text(headline.rstrip('.!?'))
     # Remove prefixos redundantes e publisher no título.
     headline=re.sub(r'^\s*(?:gta\s*6|gta\s*vi)\s*[:\-–—]\s*', 'GTA 6 — ', headline, flags=re.I)
     headline=_strip_publisher_suffix(headline)
     headline=re.sub(r'\s+',' ',headline).strip(' -–—')
+    # Keep the metadata, cover, and narration title synchronized with the chosen facts.
+    topic['title']=headline
     clean_topic=re.sub(r'^\s*GTA\s*6\s*[—:-]\s*','',headline,flags=re.I).strip()
     if not clean_topic:
         clean_topic='uma nova informação sobre GTA 6'
@@ -2431,6 +2450,25 @@ def select_video_clips(videos,title,count=5):
     ranked=sorted(videos,key=lambda p:_video_relevance(p,title),reverse=True)
     return ranked[:count]
 
+
+def _augment_scenes_with_real_video_frames(video_clips, image_scenes, jobdir, target=4):
+    """Fill visual slots only with real frames from already selected official video clips."""
+    out=list(image_scenes or [])
+    if len(out)>=target: return out
+    ff=_ffmpeg_executable()
+    for idx,clip in enumerate(video_clips or []):
+        if len(out)>=target: break
+        dst=Path(jobdir)/f'official_frame_{idx:02d}.jpg'
+        try:
+            timestamp=0.6 + (idx % 5)*0.7
+            run_cmd([ff,'-loglevel','error','-y','-ss',f'{timestamp:.2f}','-i',str(clip),
+                     '-frames:v','1','-vf','scale=540:960:force_original_aspect_ratio=increase,crop=540:960',
+                     '-q:v','3',str(dst)],20)
+            if dst.exists() and dst.stat().st_size>4000:
+                out.append(dst)
+        except Exception:
+            continue
+    return out
 
 
 def _caption_overlay(path,caption,idx,total,W=320,H=568,highlight=None):
@@ -3186,13 +3224,17 @@ def _repair_caption_beats(beats, duration, max_words=7):
         out[-1]['duration']=max(0.3,out[-1]['end']-out[-1]['start'])
     return out
 
-def _caption_visual_split_quality(text, W=320):
-    """Score 2-line visual balance using the exact caption font."""
+def _caption_visual_split_quality(text, W=540):
+    """Score line balance at the actual 540x960 export width."""
     d=ImageDraw.Draw(Image.new('RGBA',(W,120),(0,0,0,0)))
     f=font(24,True)
     words=str(text or '').split()
-    if len(words)<=4: return {'score':100,'lines':[' '.join(words)]}
+    if not words: return {'score':100,'lines':[]}
+    single=' '.join(words)
     max_width=W-42
+    if d.textbbox((0,0),single,font=f,stroke_width=1)[2] <= max_width:
+        return {'score':100,'lines':[single.upper()]}
+    if len(words)<=4: return {'score':65,'lines':[single.upper()]}
     candidates=[]
     for cut in range(2,len(words)-1):
         a=' '.join(words[:cut]); b=' '.join(words[cut:])
@@ -3444,7 +3486,7 @@ def audit_short(script, video, duration, beats, selected_videos, image_scenes):
         checks['roteiro']=0
     cap=_audit_caption_quality(beats); checks['legendas']=cap['score']
     alignment=_caption_narration_alignment(beats,narration); checks['alinhamento_legendas']=alignment['score']
-    if cap.get('score',100)<75:
+    if cap.get('score',100)<85:
         issues.append(('CAPTIONS_LOW_QUALITY',f'qualidade visual/segmentação das legendas abaixo do mínimo: {cap.get("score",0)}/100'))
     if alignment.get('narration_coverage',1.0)<0.85:
         issues.append(('CAPTIONS_INCOMPLETE',f'legendas representam apenas {alignment.get("narration_coverage",0)*100:.0f}% da narração'))
@@ -3611,8 +3653,8 @@ def produce_job(jid):
                 beats=_fixed_beats
         _pre_cap=_audit_caption_quality(beats)
         _pre_align=_caption_narration_alignment(beats,script.get('narration',''))
-        if _pre_cap.get('score',100)<75:
-            raise ValueError(f'GATE CAPTIONS: qualidade das legendas insuficiente após autocorreção ({_pre_cap.get("score",0)}/100).')
+        if _pre_cap.get('score',100)<85:
+            raise ValueError(f'GATE CAPTIONS: qualidade das legendas abaixo de 85/100 após autocorreção ({_pre_cap.get("score",0)}/100).')
         if _pre_align.get('foreign_ratio',0)>0.03 or _pre_align.get('narration_coverage',1.0)<0.85:
             raise ValueError('GATE CAPTIONS: as legendas não representam corretamente a narração após autocorreção.')
         caps=[b['text'] for b in beats]
@@ -3621,7 +3663,9 @@ def produce_job(jid):
         update_job(jid,stage='EDIÇÃO',progress=74,log=f'Obtendo vídeos oficiais da Rockstar e montando timeline com movimento real / {duration:.1f}s...')
         official_videos=download_official_video_clips(jobdir/'official_videos', jid)
         selected_videos=select_video_clips(official_videos,topic['title'],6)
-        update_job(jid,log=f'{len(selected_videos)} vídeos oficiais disponíveis. Editando cortes reais em 9:16 / {duration:.1f}s...')
+        if len(image_scenes)<4:
+            image_scenes=_augment_scenes_with_real_video_frames(selected_videos,image_scenes,jobdir,target=4)
+        update_job(jid,log=f'{len(selected_videos)} vídeos oficiais e {len(image_scenes)} imagens/cenas reais disponíveis. Editando em 9:16 / {duration:.1f}s...')
         video=jobdir/'GTA_OCULTO_SHORT.mp4'; make_multimedia_video(selected_videos,image_scenes,audio,video,duration,caps,script,topic['title'],beats)
         # Nunca deixe a capa derrubar uma produção já renderizada.
         if not image_scenes:
