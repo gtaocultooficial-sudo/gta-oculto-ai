@@ -3160,7 +3160,9 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
     imgs=list(image_paths)[:6]
     assets=_choose_timeline_assets(video_clips,imgs,beats,topic_title,variant=asset_variant)
     scene_files=[]
+    print(f'[RENDER] start title={topic_title[:100]} scenes={len(beats)} videos={len(videos) if (videos:=list(video_clips)) else 0} images={len(imgs)} duration={duration:.1f}s', flush=True)
     for i,(beat,(kind,src)) in enumerate(zip(beats,assets)):
+        print(f'[RENDER] scene {i+1}/{len(beats)} start kind={kind} duration={float(beat.get("duration",0)):.2f}s source={Path(src).name}', flush=True)
         scene=work/f'scene_{i:02d}.mp4'; overlay=work/f'overlay_{i:02d}.png'
         _caption_overlay(overlay,beat['text'],i,len(beats),540,960,beat.get('highlight'))
         if kind=='video':
@@ -3179,16 +3181,19 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
              '-x264-params','threads=1:lookahead-threads=1:rc-lookahead=0:sync-lookahead=0','-pix_fmt','yuv420p','-movflags','+faststart',str(scene)]
         run_cmd(cmd,75)
         scene_files.append(scene)
+        print(f'[RENDER] scene {i+1}/{len(beats)} done bytes={scene.stat().st_size if scene.exists() else 0}', flush=True)
         try: overlay.unlink()
         except Exception: pass
     listfile=work/'timeline.txt'
     with listfile.open('w',encoding='utf-8') as f:
         for sf in scene_files: f.write(f"file '{sf.as_posix()}'\n")
+    print(f'[RENDER] concat start scenes={len(scene_files)} audio_bytes={Path(audio).stat().st_size if Path(audio).exists() else 0}', flush=True)
     run_cmd([ff,'-loglevel','error','-y','-f','concat','-safe','0','-i',str(listfile),'-i',str(audio),
              '-t',f'{duration:.2f}','-vf','format=yuv420p','-r','30',
              '-c:v','libx264','-preset','ultrafast','-crf','20','-threads','1','-filter_threads','1','-filter_complex_threads','1',
              '-x264-params','threads=1:lookahead-threads=1:rc-lookahead=0:sync-lookahead=0','-force_key_frames','expr:gte(t,n_forced*2)','-c:a','aac','-b:a','160k',
              '-movflags','+faststart','-shortest',str(out)],300)
+    print(f'[RENDER] concat done exists={out.exists()} bytes={out.stat().st_size if out.exists() else 0}', flush=True)
     for p in scene_files:
         try: p.unlink()
         except Exception: pass
@@ -3425,6 +3430,9 @@ def _audit_caption_quality(beats):
     }
 
 
+MEDIA_VALIDATION_CACHE={}
+MEDIA_VALIDATION_LOCK=threading.RLock()
+
 def _probe_media(path):
     ff=shutil.which('ffprobe') or 'ffprobe'
     try:
@@ -3435,6 +3443,37 @@ def _probe_media(path):
         return {'ok':True,'duration':float(fmt.get('duration') or 0),'size':int(fmt.get('size') or 0),'video':video,'audio':audio}
     except Exception as e:
         return {'ok':False,'error':str(e)[:500]}
+
+def _job_output_is_valid(job):
+    """Count a job as produced only when its final MP4 exists and probes as real A/V media."""
+    rel=str((job or {}).get('video') or '').strip()
+    if not rel:
+        return False
+    try:
+        path=(WORK/rel).resolve()
+        path.relative_to(WORK.resolve())
+        st=path.stat()
+        if not path.is_file() or st.st_size < 50000:
+            return False
+        key=(str(path),st.st_mtime_ns,st.st_size)
+        with MEDIA_VALIDATION_LOCK:
+            cached=MEDIA_VALIDATION_CACHE.get(key)
+        if cached is not None:
+            return cached
+        probe=_probe_media(path)
+        videos=probe.get('video') or []
+        audios=probe.get('audio') or []
+        valid=bool(probe.get('ok') and probe.get('size',0)>=50000 and videos and audios and
+                   10 <= float(probe.get('duration') or 0) <= 65 and
+                   int(videos[0].get('height') or 0) > int(videos[0].get('width') or 0))
+        with MEDIA_VALIDATION_LOCK:
+            if len(MEDIA_VALIDATION_CACHE)>500:
+                MEDIA_VALIDATION_CACHE.clear()
+            MEDIA_VALIDATION_CACHE[key]=valid
+        return valid
+    except Exception:
+        return False
+
 
 def _visual_motion_audit(path):
     """Audita o MP4 real em baixa resolução para detectar congelamento/repetição visual.
@@ -3917,7 +3956,17 @@ def produce_job(jid):
             raise ValueError('GATE SOURCE-LOCK: extração da matéria original não confiável.')
         meta={'title':topic['title'].upper()+' 👀','description':script['narration']+'\n\n🔎 GTA Oculto — onde os segredos vêm à tona.','hashtags':['#GTA6','#GTAVI','#GTAOculto','#RockstarGames','#GTA'],'tags':['GTA 6','GTA VI','GTA 6 Brasil','GTA 6 teorias','GTA 6 segredos','Rockstar Games','GTA Oculto'],'score':score,'audit_score':audit.get('score',0),'audit':audit,'script_version':script.get('script_version','V33.0-MAIN-ARTICLE-LOCKED')}
         (jobdir/'metadata.json').write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding='utf-8')
-        update_job(jid,status='DONE',stage='PRONTO',progress=100,log=f'PRONTO — Short gerado e avaliado em {score}/100.',video=f'{jid}/GTA_OCULTO_SHORT.mp4',cover=f'{jid}/CAPA.jpg',score=score,metadata=meta)
+        final_video=jobdir/'GTA_OCULTO_SHORT.mp4'
+        final_probe=_probe_media(final_video)
+        final_videos=final_probe.get('video') or []
+        final_audios=final_probe.get('audio') or []
+        if not (final_probe.get('ok') and final_probe.get('size',0)>=50000 and final_videos and final_audios and
+                10 <= float(final_probe.get('duration') or 0) <= 65 and
+                int(final_videos[0].get('height') or 0) > int(final_videos[0].get('width') or 0)):
+            raise RuntimeError('VALIDAÇÃO FINAL: MP4 não passou no ffprobe (arquivo, vídeo vertical, áudio ou duração). Detalhe: '+json.dumps(final_probe,ensure_ascii=False)[:1200])
+        meta['media_validation']={'ok':True,'size':final_probe['size'],'duration':final_probe['duration'],'video_codec':final_videos[0].get('codec_name'),'audio_codec':final_audios[0].get('codec_name'),'width':final_videos[0].get('width'),'height':final_videos[0].get('height')}
+        (jobdir/'metadata.json').write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding='utf-8')
+        update_job(jid,status='DONE',stage='PRONTO',progress=100,log=f'PRONTO — MP4 validado (vídeo + áudio + duração + vertical), nota {score}/100.',video=f'{jid}/GTA_OCULTO_SHORT.mp4',cover=f'{jid}/CAPA.jpg',score=score,metadata=meta,media_validation=meta['media_validation'])
         if AUTONOMOUS_ENGINE:
             try: AUTONOMOUS_ENGINE.on_done(jid,sys.modules[__name__])
             except Exception as _pub_e: update_job(jid,log=f'PRONTO — publicação automática aguardando configuração: {str(_pub_e)[:300]}')
@@ -4045,7 +4094,8 @@ def state():
             }
         }
 
-    return jsonify(opportunities=topics,jobs=js,produced=sum(x.get('status')=='DONE' for x in js),queue=sum(x.get('status') in ('QUEUED','RUNNING') for x in js),radar_updated=updated,radar_status=radar_status,radar_error=radar_error,radar_sources_ok=sources_ok,editor_pick=editor_pick)
+    produced=sum(1 for x in js if x.get('status')=='DONE' and _job_output_is_valid(x))
+    return jsonify(opportunities=topics,jobs=js,produced=produced,queue=sum(x.get('status') in ('QUEUED','RUNNING') for x in js),radar_updated=updated,radar_status=radar_status,radar_error=radar_error,radar_sources_ok=sources_ok,editor_pick=editor_pick)
 @APP.post('/api/research')
 def research():
     try:
