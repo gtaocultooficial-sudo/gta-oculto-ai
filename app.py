@@ -1893,9 +1893,10 @@ def make_script(topic):
     fact='. '.join(fact_parts)+'.'
 
     if focused_story:
-        context='A matéria destaca a rotina dos protagonistas em Vice City.'
-        payoff='O texto não esclarece todas as motivações da dupla, então vale separar o que foi mostrado das interpretações.'
-        cta='Você acha que esse será um dos focos da história?'
+        hook='JASON E LUCIA JÁ ESTÃO TRABALHANDO PARA VÁRIAS PESSOAS EM VICE CITY?'
+        context='A matéria mostra os dois envolvidos em diferentes trabalhos enquanto tentam conseguir dinheiro.'
+        payoff='Isso pode ajudar a explicar a situação da dupla, mas não confirma qual será o papel deles na história.'
+        cta='Você acha que esses trabalhos vão revelar mais sobre a história?'
     elif kind=='NOTÍCIA':
         context=f'Uma nova informação envolvendo GTA 6 ganhou destaque: {clean_topic}.'
         payoff='O ponto principal é separar o que a matéria realmente informa daquilo que ainda seria apenas especulação.'
