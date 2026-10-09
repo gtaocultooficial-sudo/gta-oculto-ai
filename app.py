@@ -63,7 +63,7 @@ UA = 'GTA-Oculto-AI/Cloud-Final/V55-SOURCE-RECOVERY-3'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
-BUILD_VERSION = 'V64.2-ISOLATED-PENDING-QUEUE-20261009'
+BUILD_VERSION = 'V64.6-SEMANTIC-EDITORIAL-GATE-20261009'
 
 FALLBACK_TOPICS = [
     {'id':'leonida','score':96,'priority':'ALTA','title':'GTA 6: o detalhe de Leonida que pode mudar a história','source':'Rockstar Games','url':ROCKSTAR_VI,
@@ -1746,6 +1746,61 @@ def _headline_from_specific_evidence(title, evidence):
     return original
 
 
+
+def _editorial_topic_alignment(title, narration, evidence, source_title=''):
+    """V64.6: conservative, deterministic gate against listicle/headline drift."""
+    title_text=_clean_narrative_text(str(title or '')).lower()
+    narration_text=_clean_narrative_text(str(narration or '')).lower()
+    evidence_text=' '.join(str(x or '') for x in (evidence or [])).lower()
+    article_title=str(source_title or '').lower()
+    all_body=' '.join((narration_text,evidence_text))
+
+    def tokens(value):
+        words=re.findall(r"[a-zà-ÿ0-9']+", value.lower())
+        stop={'gta','6','gta6','the','a','o','e','de','do','da','em','no','na','os','as',
+              'um','uma','que','para','com','por','mais','mas','como','esse','essa','isso','sobre',
+              'novo','nova','novos','novas','jogo','jogos','rockstar','confirmado','confirmada',
+              'confirmados','confirmadas','detalhe','detalhes','novidade','novidades'}
+        return {w for w in words if len(w)>2 and w not in stop and not w.isdigit()}
+
+    title_terms=tokens(title_text)
+    body_terms=tokens(all_body)
+    source_terms=tokens(article_title)
+    overlap=len(title_terms & body_terms)/max(1,len(title_terms))
+    source_overlap=len(title_terms & source_terms)/max(1,len(title_terms)) if source_terms else 0.0
+    issues=[]
+
+    # A headline count/listicle claim is a factual promise. It must not be
+    # published by a Short that only gives one fact or never supports the count.
+    listicle=re.search(r"\b(\d{1,3})\s+(novidades|detalhes|segredos|curiosidades|fatos|mistérios|misterios)\b", title_text, re.I)
+    if listicle:
+        count=int(listicle.group(1))
+        list_words=re.findall(r"\b(?:novidades|detalhes|segredos|curiosidades|fatos|mistérios|misterios)\b", narration_text, re.I)
+        enumerators=re.findall(r"\b(?:primeir[ao]|segund[ao]|terceir[ao]|quarta|quarto|quinta|quinto|sexta|sexto|sétima|sétimo|oitava|oitavo|nona|nono|décima|décimo|também|outro|outra|além disso|por fim)\b", narration_text, re.I)
+        # Count-based titles ("50 novidades") are not accepted unless the
+        # narration itself carries a genuine listicle structure.
+        if count >= 10 or len(list_words) < 2 or len(enumerators) < 2:
+            issues.append('headline_listicle_promise_not_delivered')
+
+    # Named entities in the headline must be supported by actual script/evidence.
+    for name in ('jason','lucia','leonida','vice city','rockstar','microsoft','xbox','playstation'):
+        if re.search(r"\b"+re.escape(name)+r"\b", title_text) and not re.search(r"\b"+re.escape(name)+r"\b", all_body):
+            issues.append('headline_entity_missing:'+name)
+
+    if title_terms and overlap < 0.25:
+        issues.append('headline_body_low_overlap')
+    if title_terms and source_terms and source_overlap < 0.10 and overlap < 0.45:
+        issues.append('headline_source_body_mismatch')
+    return {
+        'ok': not issues,
+        'score': max(0, round(100 - 45*len(issues))),
+        'issues': sorted(set(issues)),
+        'title_body_overlap': round(overlap, 3),
+        'title_source_overlap': round(source_overlap, 3),
+        'title_terms': sorted(title_terms),
+        'body_terms': sorted(body_terms),
+    }
+
 def make_script(topic):
     """V33 — Main Article Locked.
     Uma matéria principal. Um corpo principal. Um roteiro.
@@ -1753,6 +1808,7 @@ def make_script(topic):
     em vez de preencher o vídeo com manchetes ou fatos de outras páginas.
     """
     title,desc,source,url=_source_evidence(topic)
+    source_headline=str(title or topic.get('title') or '')
     title=title or 'GTA 6'
     kind=str(topic.get('content_type') or 'CURIOSIDADE').upper()
     if kind not in ('RUMOR','MISTÉRIO','NOTÍCIA','CURIOSIDADE'):
@@ -1863,7 +1919,7 @@ def make_script(topic):
         'editorial_angle':angle,'editorial_hook':hook,
         'editorial_score':topic.get('editorial_score'),'editorial_decision':topic.get('editorial_decision','PRODUZIR'),
         'editorial_reason':topic.get('editorial_reason',''),'sections':sections,
-        'evidence':evidence[:3],'word_count':word_count,'estimated_seconds':estimated_seconds,
+        'evidence':evidence[:3],'source_headline':source_headline,'word_count':word_count,'estimated_seconds':estimated_seconds,
         'script_version':'V51-SEMANTIC-CAPTION-VISUAL-REPETITION-GATE','extraction_method':extraction_method
     }
 
@@ -3495,6 +3551,14 @@ def audit_short(script, video, duration, beats, selected_videos, image_scenes):
         checks['roteiro']=max(0,checks['roteiro']-20)
         issues.append(('HEADLINE_CONTAMINATION','narração contém padrão de manchete ou metadado'))
     evidence=script.get('evidence') or []
+    editorial_alignment=_editorial_topic_alignment(
+        script.get('title') or '', narration, evidence,
+        script.get('source_headline') or ''
+    )
+    checks['alinhamento_pauta']=editorial_alignment['score']
+    if not editorial_alignment['ok']:
+        issues.append(('HEADLINE_SCRIPT_MISMATCH',
+            'título, pauta e narração não estão alinhados: '+', '.join(editorial_alignment['issues'])))
     if not evidence:
         issues.append(('NO_EVIDENCE','roteiro sem evidência factual'))
         checks['roteiro']=0
@@ -3559,7 +3623,7 @@ def audit_short(script, video, duration, beats, selected_videos, image_scenes):
         issues.append(('HIGH_FROZEN_RATIO',f'{motion.get("frozen_ratio",0)*100:.0f}% das transições amostradas com pouca mudança visual'))
     if repetition.get('repeated_ratio',0)>=0.28 or repetition.get('longest_repeat_s',0)>=4:
         issues.append(('VISUAL_REPETITION',f'repetição visual detectada: {repetition.get("repeated_ratio",0)*100:.0f}% das amostras / trecho repetido até {repetition.get("longest_repeat_s",0):.1f}s'))
-    final=max(0,round((checks['roteiro']+checks['legendas']+checks['alinhamento_legendas']+checks['mp4']+checks['visuais']+checks['movimento']+checks['repeticao_visual'])/7))
+    final=max(0,round((checks['roteiro']+checks['alinhamento_pauta']+checks['legendas']+checks['alinhamento_legendas']+checks['mp4']+checks['visuais']+checks['movimento']+checks['repeticao_visual'])/8))
     return {'score':final,'checks':checks,'issues':[{'code':c,'message':m} for c,m in issues],'media':media,'caption_audit':cap,'motion_audit':motion,'repetition_audit':repetition}
 
 def self_heal(jid, script, video, duration, beats, selected_videos, image_scenes, topic, audio):
@@ -3713,9 +3777,9 @@ def produce_job(jid):
             score=min(score,int(v42_audit['score']))
         audit['v42_independent']=v42_audit
         (jobdir/'audit.json').write_text(json.dumps(audit,ensure_ascii=False,indent=2),encoding='utf-8')
-        update_job(jid,stage='AVALIAÇÃO',progress=96,log=f'🧠 AUDITOR IA: {audit.get("score",0)}/100 | reparo automático: {"SIM" if repaired else "NÃO"} | problemas: {len(audit.get("issues",[]))}.')
+        update_job(jid,stage='AVALIAÇÃO',progress=96,log='🧠 AUDITOR IA: {}/100 | alinhamento pauta/roteiro: {}/100 | reparo automático: {} | problemas: {}.'.format(audit.get('score',0), audit.get('checks',{}).get('alinhamento_pauta',0), 'SIM' if repaired else 'NÃO', len(audit.get('issues',[]))))
         hard_issues={
-            'CAPTIONS_NOT_FROM_NARRATION','CAPTIONS_BAD_BOUNDARY','CAPTIONS_REPEATED',
+            'HEADLINE_SCRIPT_MISMATCH','CAPTIONS_NOT_FROM_NARRATION','CAPTIONS_BAD_BOUNDARY','CAPTIONS_REPEATED',
             'CAPTIONS_LOW_QUALITY','CAPTIONS_INCOMPLETE',
             'VISUAL_REPETITION','VISUAL_STAGNATION','HIGH_FROZEN_RATIO','MEDIA_UNREADABLE',
             'NO_VIDEO_STREAM','NO_AUDIO_STREAM','WRONG_ASPECT'
