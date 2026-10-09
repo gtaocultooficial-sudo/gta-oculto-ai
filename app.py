@@ -3269,7 +3269,7 @@ def _repair_caption_beats(beats, duration, max_words=7):
             fixed[-1].extend(ch)
         else:
             fixed.append(ch)
-    chunks=_merge_caption_chunks(fixed,target_count=max(1,min(16,len(fixed))),max_words=max_words+2)
+    chunks=_merge_caption_chunks(fixed,target_count=max(1,min(16,len(fixed))),max_words=max_words)
 
     # Repair semantic boundaries without creating very long captions.
     bad_end={'e','de','do','da','em','no','na','que','um','uma','o','a','os','as','para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa','sobre','entre','até','sem'}
