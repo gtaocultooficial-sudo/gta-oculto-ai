@@ -3196,9 +3196,9 @@ def _visual_motion_audit(path):
     try:
         ff=_ffmpeg_executable()
         # 1 frame/s é suficiente para encontrar congelamentos longos sem pesar no Render.
-        run_cmd([ff,'-loglevel','error','-y','-i',str(path),'-vf','fps=1,scale=80:142:flags=bilinear,format=gray',str(tmp/'frame_%04d.jpg')],45)
+        run_cmd([ff,'-loglevel','error','-y','-i',str(path),'-vf','fps=0.5,scale=64:114:flags=bilinear,format=gray',str(tmp/'frame_%04d.jpg')],20)
         frames=sorted(tmp.glob('frame_*.jpg'))
-        if len(frames)<5:
+        if len(frames)<4:
             return {'score':60,'frozen_ratio':0.0,'longest_still_seconds':0.0,'sample_count':len(frames),'stale_runs':[],'error':'amostras insuficientes'}
         prev=None; diffs=[]
         for fp in frames:
@@ -3219,9 +3219,9 @@ def _visual_motion_audit(path):
                 if run==0: start=i
                 run+=1
             else:
-                if run>=4: stale_runs.append({'start_s':start+1,'end_s':start+run+1,'duration_s':run})
+                if run>=3: stale_runs.append({'start_s':round((start+1)*2,1),'end_s':round((start+run+1)*2,1),'duration_s':round(run*2,1)})
                 run=0
-        if run>=4: stale_runs.append({'start_s':start+1,'end_s':start+run+1,'duration_s':run})
+        if run>=3: stale_runs.append({'start_s':round((start+1)*2,1),'end_s':round((start+run+1)*2,1),'duration_s':round(run*2,1)})
         longest=max([r['duration_s'] for r in stale_runs] or [0])
         frozen=sum(1 for d in diffs if d<threshold)/max(1,len(diffs))
         score=100
@@ -3317,18 +3317,18 @@ def _visual_repetition_audit(path):
     tmp.mkdir(parents=True,exist_ok=True)
     try:
         ff=_ffmpeg_executable()
-        run_cmd([ff,'-loglevel','error','-y','-i',str(path),'-vf','fps=2,scale=48:85:flags=bilinear,format=gray',str(tmp/'f_%04d.jpg')],60)
+        run_cmd([ff,'-loglevel','error','-y','-i',str(path),'-vf','fps=1,scale=40:71:flags=bilinear,format=gray',str(tmp/'f_%04d.jpg')],25)
         frames=sorted(tmp.glob('f_*.jpg'))
-        if len(frames)<12:
+        if len(frames)<8:
             return {'score':70,'repeated_ratio':0.0,'longest_repeat_s':0.0,'pairs':[],'error':'amostras insuficientes'}
         imgs=[]
         for fp in frames:
             try: imgs.append(Image.open(fp).convert('L').resize((48,85)))
             except Exception: pass
         # Compare 3-second windows (6 samples) separated by at least 4 seconds.
-        seq_len=6; min_gap=8; matches=[]
-        for i in range(0,max(1,len(imgs)-seq_len+1)):
-            for j in range(i+min_gap, max(i+min_gap, len(imgs)-seq_len+1)):
+        seq_len=4; min_gap=6; matches=[]
+        for i in range(0,min(24,max(1,len(imgs)-seq_len+1))):
+            for j in range(i+min_gap, min(len(imgs)-seq_len+1, i+32)):
                 ds=[]
                 for k in range(seq_len):
                     stat=ImageStat.Stat(ImageChops.difference(imgs[i+k],imgs[j+k]))
@@ -3355,7 +3355,7 @@ def _visual_repetition_audit(path):
         if longest_s>=8: score-=40
         elif longest_s>=6: score-=30
         elif longest_s>=4: score-=18
-        return {'score':max(0,min(100,score)),'repeated_ratio':round(ratio,3),'longest_repeat_s':round(longest_s,1),'pairs':[{'a_s':round(i/2,1),'b_s':round(j/2,1),'diff':round(d,2)} for i,j,d in matches[:12]],'sequence_window_s':3.0}
+        return {'score':max(0,min(100,score)),'repeated_ratio':round(ratio,3),'longest_repeat_s':round(longest_s,1),'pairs':[{'a_s':round(i/2,1),'b_s':round(j/2,1),'diff':round(d,2)} for i,j,d in matches[:12]],'sequence_window_s':4.0}
     except Exception as e:
         return {'score':65,'repeated_ratio':0.0,'longest_repeat_s':0.0,'pairs':[],'error':str(e)[:400]}
     finally:
