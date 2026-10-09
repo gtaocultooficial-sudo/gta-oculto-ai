@@ -3,14 +3,14 @@ name: Cloud Production Trigger
 
 on:
   push:
-    branches: [main, fix/v64.6-editorial-gate]
+    branches: [main]
 
 permissions:
   contents: read
 
 jobs:
   produce:
-    if: contains(github.event.head_commit.message, '[produce]') || github.ref == 'refs/heads/fix/v64.6-editorial-gate'
+    if: contains(github.event.head_commit.message, '[produce]')
     runs-on: ubuntu-latest
     steps:
       - name: Wait for Render deployment
