@@ -2988,7 +2988,7 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
     run_cmd([ff,'-loglevel','error','-y','-f','concat','-safe','0','-i',str(listfile),'-i',str(audio),
              '-t',f'{duration:.2f}','-vf','scale=1080:1920:flags=lanczos,format=yuv420p','-r','30',
              '-c:v','libx264','-preset','ultrafast','-crf','20','-threads','1','-filter_threads','1','-filter_complex_threads','1',
-             '-x264-params','threads=1:lookahead-threads=1:rc-lookahead=0:sync-lookahead=0','-c:a','aac','-b:a','160k',
+             '-x264-params','threads=1:lookahead-threads=1:rc-lookahead=0:sync-lookahead=0','-force_key_frames','expr:gte(t,n_forced*2)','-c:a','aac','-b:a','160k',
              '-movflags','+faststart','-shortest',str(out)],300)
     for p in scene_files:
         try: p.unlink()
@@ -3196,7 +3196,7 @@ def _visual_motion_audit(path):
     try:
         ff=_ffmpeg_executable()
         # 1 frame/s é suficiente para encontrar congelamentos longos sem pesar no Render.
-        run_cmd([ff,'-loglevel','error','-y','-i',str(path),'-vf','fps=0.25,scale=48:85:flags=bilinear,format=gray',str(tmp/'frame_%04d.jpg')],12)
+        run_cmd([ff,'-loglevel','error','-y','-skip_frame','nokey','-i',str(path),'-vf','fps=0.5,scale=48:85:flags=bilinear,format=gray',str(tmp/'frame_%04d.jpg')],10)
         frames=sorted(tmp.glob('frame_*.jpg'))
         if len(frames)<4:
             return {'score':60,'frozen_ratio':0.0,'longest_still_seconds':0.0,'sample_count':len(frames),'stale_runs':[],'error':'amostras insuficientes'}
@@ -3317,7 +3317,7 @@ def _visual_repetition_audit(path):
     tmp.mkdir(parents=True,exist_ok=True)
     try:
         ff=_ffmpeg_executable()
-        run_cmd([ff,'-loglevel','error','-y','-i',str(path),'-vf','fps=1,scale=40:71:flags=bilinear,format=gray',str(tmp/'f_%04d.jpg')],25)
+        run_cmd([ff,'-loglevel','error','-y','-skip_frame','nokey','-i',str(path),'-vf','fps=0.5,scale=40:71:flags=bilinear,format=gray',str(tmp/'f_%04d.jpg')],10)
         frames=sorted(tmp.glob('f_*.jpg'))
         if len(frames)<8:
             return {'score':70,'repeated_ratio':0.0,'longest_repeat_s':0.0,'pairs':[],'error':'amostras insuficientes'}
@@ -3346,7 +3346,7 @@ def _visual_repetition_audit(path):
         for k in range(len(imgs)):
             if k in marks: cur+=1; longest=max(longest,cur)
             else: cur=0
-        longest_s=longest/2.0
+        longest_s=longest*2.0
         score=100
         if ratio>=0.45: score-=45
         elif ratio>=0.30: score-=32
@@ -3355,7 +3355,7 @@ def _visual_repetition_audit(path):
         if longest_s>=8: score-=40
         elif longest_s>=6: score-=30
         elif longest_s>=4: score-=18
-        return {'score':max(0,min(100,score)),'repeated_ratio':round(ratio,3),'longest_repeat_s':round(longest_s,1),'pairs':[{'a_s':round(i/2,1),'b_s':round(j/2,1),'diff':round(d,2)} for i,j,d in matches[:12]],'sequence_window_s':4.0}
+        return {'score':max(0,min(100,score)),'repeated_ratio':round(ratio,3),'longest_repeat_s':round(longest_s,1),'pairs':[{'a_s':round(i*2.0,1),'b_s':round(j*2.0,1),'diff':round(d,2)} for i,j,d in matches[:12]],'sequence_window_s':4.0}
     except Exception as e:
         return {'score':65,'repeated_ratio':0.0,'longest_repeat_s':0.0,'pairs':[],'error':str(e)[:400]}
     finally:
