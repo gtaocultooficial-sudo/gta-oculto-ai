@@ -27,7 +27,7 @@ jobs:
           from pathlib import Path
           from PIL import Image, ImageChops, ImageStat, ImageDraw
           base='https://gta-oculto-ai.onrender.com'
-          job_id='0a13673e59'
+          job_id='c539fe7d39'
           r=requests.get(f'{base}/api/job/{job_id}',timeout=45)
           r.raise_for_status()
           job=r.json()
