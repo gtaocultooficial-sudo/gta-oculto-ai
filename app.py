@@ -61,7 +61,7 @@ UA = 'GTA-Oculto-AI/Cloud-Final/V55-SOURCE-RECOVERY-3'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
-BUILD_VERSION = 'V59-QUALITY-ENGINE-20261008'
+BUILD_VERSION = 'V60-STABLE-ENCODER-20261009'
 
 FALLBACK_TOPICS = [
     {'id':'leonida','score':96,'priority':'ALTA','title':'GTA 6: o detalhe de Leonida que pode mudar a história','source':'Rockstar Games','url':ROCKSTAR_VI,
@@ -2222,8 +2222,14 @@ def run_cmd(cmd,timeout=240):
 
 def duration_of_audio(path):
     try:
-        out=run_cmd(['ffprobe','-v','error','-show_entries','format=duration','-of','default=nw=1:nk=1',str(path)],30); return max(20,min(42,float(out.strip())))
-    except Exception: return 30.0
+        ff=shutil.which('ffprobe') or 'ffprobe'
+        out=subprocess.check_output(
+            [ff,'-v','error','-show_entries','format=duration','-of','default=nw=1:nk=1',str(path)],
+            stderr=subprocess.DEVNULL,text=True,timeout=30
+        )
+        return max(20,min(42,float(out.strip())))
+    except Exception:
+        return 30.0
 
 async def make_tts(text,path):
     """V32.0: gera áudio PT-BR e tenta capturar WordBoundary; se a versão do
@@ -3004,8 +3010,8 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
         for sf in scene_files: f.write(f"file '{sf.as_posix()}'\n")
     run_cmd([ff,'-loglevel','error','-y','-f','concat','-safe','0','-i',str(listfile),'-i',str(audio),
              '-t',f'{duration:.2f}','-vf','scale=1080:1920:flags=lanczos,format=yuv420p','-r','30',
-             '-c:v','libx264','-preset','veryfast','-crf','20','-threads','1','-filter_threads','1','-filter_complex_threads','1',
-             '-x264-params','threads=1:lookahead-threads=1','-c:a','aac','-b:a','160k',
+             '-c:v','libx264','-preset','superfast','-crf','20','-threads','1','-filter_threads','1','-filter_complex_threads','1',
+             '-x264-params','threads=1:lookahead-threads=1:rc-lookahead=0:sync-lookahead=0','-c:a','aac','-b:a','160k',
              '-movflags','+faststart','-shortest',str(out)],180)
     for p in scene_files:
         try: p.unlink()
