@@ -2987,9 +2987,9 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
         for sf in scene_files: f.write(f"file '{sf.as_posix()}'\n")
     run_cmd([ff,'-loglevel','error','-y','-f','concat','-safe','0','-i',str(listfile),'-i',str(audio),
              '-t',f'{duration:.2f}','-vf','scale=1080:1920:flags=lanczos,format=yuv420p','-r','30',
-             '-c:v','libx264','-preset','superfast','-crf','20','-threads','1','-filter_threads','1','-filter_complex_threads','1',
+             '-c:v','libx264','-preset','ultrafast','-crf','20','-threads','1','-filter_threads','1','-filter_complex_threads','1',
              '-x264-params','threads=1:lookahead-threads=1:rc-lookahead=0:sync-lookahead=0','-c:a','aac','-b:a','160k',
-             '-movflags','+faststart','-shortest',str(out)],420)
+             '-movflags','+faststart','-shortest',str(out)],300)
     for p in scene_files:
         try: p.unlink()
         except Exception: pass
