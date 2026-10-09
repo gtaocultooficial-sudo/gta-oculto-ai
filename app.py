@@ -61,7 +61,7 @@ UA = 'GTA-Oculto-AI/Cloud-Final/V55-SOURCE-RECOVERY-3'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
-BUILD_VERSION = 'V63.4-HD720-STABLE-20261009'
+BUILD_VERSION = 'V63.5-NATIVE540-STABLE-20261009'
 
 FALLBACK_TOPICS = [
     {'id':'leonida','score':96,'priority':'ALTA','title':'GTA 6: o detalhe de Leonida que pode mudar a história','source':'Rockstar Games','url':ROCKSTAR_VI,
@@ -2939,7 +2939,7 @@ def _normalize_visual_beats(beats, duration, max_scene=3.2):
 
 def make_multimedia_video(video_clips, image_paths, audio, out, duration, captions, script=None, topic_title='GTA 6', beats=None, motion_boost=False, asset_variant=0):
     # FFmpeg/yuv420p requires even width/height. Keep the Render Free
-    # intermediate at an even 540x960 and render the final master at 720x1280 to stay within Render Free memory.
+    # intermediate at an even 540x960 and render the final master at native 540x960 to avoid an upscale and stay within Render Free memory.
     INTER_W, INTER_H = 540, 960
     if INTER_W % 2 or INTER_H % 2:
         raise RuntimeError(f'Dimensões intermediárias inválidas: {INTER_W}x{INTER_H}.')
@@ -2986,7 +2986,7 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
     with listfile.open('w',encoding='utf-8') as f:
         for sf in scene_files: f.write(f"file '{sf.as_posix()}'\n")
     run_cmd([ff,'-loglevel','error','-y','-f','concat','-safe','0','-i',str(listfile),'-i',str(audio),
-             '-t',f'{duration:.2f}','-vf','scale=720:1280:flags=bicubic,format=yuv420p','-r','30',
+             '-t',f'{duration:.2f}','-vf','format=yuv420p','-r','30',
              '-c:v','libx264','-preset','ultrafast','-crf','20','-threads','1','-filter_threads','1','-filter_complex_threads','1',
              '-x264-params','threads=1:lookahead-threads=1:rc-lookahead=0:sync-lookahead=0','-force_key_frames','expr:gte(t,n_forced*2)','-c:a','aac','-b:a','160k',
              '-movflags','+faststart','-shortest',str(out)],300)
@@ -3013,13 +3013,13 @@ def make_video(scenes,audio,out,duration):
 
 def make_cover(scene,title,out):
     im=Image.open(scene).convert('RGB')
-    im=im.resize((1080,1920),Image.Resampling.LANCZOS)
+    im=im.resize((540,960),Image.Resampling.BILINEAR)
     d=ImageDraw.Draw(im,'RGBA')
-    d.rectangle((45,500,1035,1330),fill=(0,0,0,175),outline=(225,25,45),width=5)
-    f=font(72,True); y=610
-    for line in wrap_text(d,title,f,880)[:6]:
-        d.text((100,y),line,font=f,fill='white',stroke_width=2,stroke_fill='black'); y+=88
-    d.text((100,120),'GTA OCULTO',font=font(30,True),fill=(255,255,255,180))
+    d.rectangle((22,250,518,665),fill=(0,0,0,175),outline=(225,25,45),width=3)
+    f=font(36,True); y=305
+    for line in wrap_text(d,title,f,440)[:6]:
+        d.text((50,y),line,font=f,fill='white',stroke_width=1,stroke_fill='black'); y+=44
+    d.text((50,60),'GTA OCULTO',font=font(18,True),fill=(255,255,255,180))
     im.save(out,quality=92)
 
 def _load_learning():
