@@ -1564,20 +1564,35 @@ def _evidence_sentences(desc, article_lines=None, title='', extraction_method=''
     if not raw:
         return []
     title_norm=re.sub(r'[^a-z0-9à-ÿ ]',' ',title.lower())
-    title_words=set(w for w in title_norm.split() if len(w)>3)
+    generic_title_words={
+        'gta','grand','theft','auto','game','gaming','jogo','jogos','novo','nova','novos','novas',
+        'confirmado','confirmada','confirmados','confirmadas','novidade','novidades','detalhe','detalhes',
+        'segredo','segredos','noticia','noticias','revela','revelou','rockstar','informacao','informacoes'
+    }
+    title_words=set(w for w in title_norm.split() if len(w)>3 and w not in generic_title_words)
+    title_lower=str(title or '').lower()
+    unrelated_entities=(
+        (r'\bnetflix\b','netflix'),(r'\bprime video\b','prime video'),
+        (r'\bdisney\s*\+?\b','disney+'),(r'\bparamount\s*\+?\b','paramount+'),
+        (r'\bapple tv\s*\+?\b','apple tv+'),(r'\bcrunchyroll\b','crunchyroll'),
+        (r'\bfortnite\b','fortnite'),(r'\bminecraft\b','minecraft'),
+        (r'\broblox\b','roblox'),(r'\bcall of duty\b','call of duty')
+    )
     seen=set(); clean=[]
     for x in raw:
         x=re.sub(r'\s+',' ',x).strip(' -–—')
         if len(x)<35: continue
         low=x.lower()
         if any(bad in low for bad in ('leia também','publicidade','clique aqui','assine','cookies','newsletter')): continue
-        # Bloqueia aparência de manchete/listagem.
+        # Reject unrelated franchise/service references unless the selected topic explicitly covers them.
+        if any(re.search(pattern,low,re.I) and not re.search(pattern,title_lower,re.I) for pattern,_name in unrelated_entities): continue
+        # Block headline/list fragments and require stronger topical evidence than one generic word.
         if len(re.findall(r'[:|–—-]',x))>=3 and len(x.split())<20: continue
-        # Rejeita linhas excessivamente curtas ou fragmentadas.
         if len(x.split())<8: continue
-        overlap=len(title_words.intersection(set(re.sub(r'[^a-z0-9à-ÿ ]',' ',low).split())))
-        gta_relevance=any(k in low for k in ('gta 6','gta vi','grand theft auto vi','rockstar','vice city','jason','lucia','xbox cloud','cloud gaming'))
-        if gta_relevance or overlap>=1:
+        sentence_words=set(re.sub(r'[^a-z0-9à-ÿ ]',' ',low).split())
+        overlap=len(title_words.intersection(sentence_words))
+        gta_relevance=any(k in low for k in ('gta 6','gta vi','grand theft auto vi','grand theft auto 6','rockstar','vice city','leonida','jason','lucia'))
+        if gta_relevance or overlap>=2:
             key=re.sub(r'\W+',' ',low).strip()
             if key not in seen:
                 seen.add(key); clean.append(x)
@@ -1838,11 +1853,14 @@ def wrap_text(draw,text,f,max_width):
     return lines
 
 def make_fallback(path,idx,title):
+    """Create a branded cover fallback only; never use synthetic cards as footage."""
     im=Image.new('RGB',(1080,1920),(8,10,15)); d=ImageDraw.Draw(im)
     for y in range(1920): d.line((0,y,1080,y),fill=(10+int(18*y/1920),8,15+int(20*y/1920)))
-    d.rectangle((65,90,1015,1830),outline=(170,25,40),width=3); d.text((80,120),f'ARQUIVO {idx+1:02d}',font=font(34,True),fill=(230,40,55)); d.text((80,1760),'GTA OCULTO',font=font(42,True),fill='white')
-    y=720
+    d.rectangle((65,90,1015,1830),outline=(170,25,40),width=3)
+    d.text((80,120),'GTA OCULTO',font=font(42,True),fill=(230,40,55))
+    y=690
     for line in wrap_text(d,title,font(70,True),880)[:5]: d.text((80,y),line,font=font(70,True),fill='white'); y+=88
+    d.text((80,1760),'GTA 6 • DETALHES E CURIOSIDADES',font=font(30,True),fill='white')
     im.save(path,quality=88)
 
 def _image_quality(path):
@@ -1927,7 +1945,9 @@ def _scene_keywords(topic_title):
 
 def select_visuals(paths, topic_title, count=10):
     if not paths: return []
-    plans=_scene_keywords(topic_title)
+    count=max(0,min(int(count),len(paths)))
+    if count==0: return []
+    plans=_scene_keywords(topic_title)[:count]
     chosen=[]; used=set()
     for kws in plans:
         ranked=[]
@@ -1946,11 +1966,7 @@ def select_visuals(paths, topic_title, count=10):
             if idx not in used:
                 chosen.append(idx); used.add(idx)
                 if len(chosen)>=count: break
-    while len(chosen)<count:
-        for idx in range(len(paths)):
-            if not chosen or idx!=chosen[-1]:
-                chosen.append(idx)
-                if len(chosen)>=count: break
+    # Do not repeat a still image to meet a requested count.
     return [paths[i]['path'] if isinstance(paths[i],dict) else paths[i] for i in chosen[:count]]
 
 
@@ -2078,11 +2094,14 @@ def wrap_text(draw,text,f,max_width):
 
 
 def make_fallback(path,idx,title):
+    """Create a branded cover fallback only; never use synthetic cards as footage."""
     im=Image.new('RGB',(1080,1920),(8,10,15)); d=ImageDraw.Draw(im)
     for y in range(1920): d.line((0,y,1080,y),fill=(10+int(18*y/1920),8,15+int(20*y/1920)))
-    d.rectangle((65,90,1015,1830),outline=(170,25,40),width=3); d.text((80,120),f'ARQUIVO {idx+1:02d}',font=font(34,True),fill=(230,40,55)); d.text((80,1760),'GTA OCULTO',font=font(42,True),fill='white')
-    y=720
+    d.rectangle((65,90,1015,1830),outline=(170,25,40),width=3)
+    d.text((80,120),'GTA OCULTO',font=font(42,True),fill=(230,40,55))
+    y=690
     for line in wrap_text(d,title,font(70,True),880)[:5]: d.text((80,y),line,font=font(70,True),fill='white'); y+=88
+    d.text((80,1760),'GTA 6 • DETALHES E CURIOSIDADES',font=font(30,True),fill='white')
     im.save(path,quality=90)
 
 
@@ -2129,11 +2148,9 @@ def download_visuals(urls,outdir,title):
                 try: raw.unlink(missing_ok=True)
                 except Exception: pass
     candidates.sort(key=lambda x:x['score'],reverse=True)
-    paths=candidates[:12]
-    if len(paths)<3:
-        while len(paths)<3:
-            p=outdir/f'fallback_{len(paths)}.jpg'; make_fallback(p,len(paths),title); paths.append({'score':60,'path':p,'label':title,'url':''})
-    return paths
+    # Never add synthetic fallback graphics to the footage pool. Missing real images
+    # should reduce visual variety or fail QA, not become placeholder scenes.
+    return candidates[:12]
 
 
 def _smart_crop(im,W,H,variant=0):
@@ -2712,8 +2729,8 @@ def _merge_caption_chunks(chunks, target_count=10, max_words=12):
             if best_score is None or score<best_score:
                 best_score=score; best_idx=i
         if best_idx is None:
-            # Último recurso: funde o par mais próximo mesmo que fique um pouco maior.
-            best_idx=min(range(len(chunks)-1), key=lambda i: abs(len(chunks[i])+len(chunks[i+1])-9))
+            # Preserve short readable captions rather than violating the word limit.
+            break
         chunks[best_idx:best_idx+2]=[chunks[best_idx]+chunks[best_idx+1]]
     return chunks
 
@@ -2759,8 +2776,11 @@ def _build_timed_caption_beats(word_cues, duration, count=10):
         if nextc and pause>=0.42 and len(cur)>=min_words: need=True
         # Não corta expressões importantes nem deixa preposição/conjunção isolada.
         if need and nextc:
-            if _cue_bad_end(word) or _cue_bad_start(nextc['word']): need=False
-            if _protected_pair(word,nextc['word']): need=False
+            # Respect a semantic boundary when possible, but never let a caption
+            # grow indefinitely because a sentence lacks punctuation.
+            forced_split=len(cur)>=max_words+2
+            if not forced_split and (_cue_bad_end(word) or _cue_bad_start(nextc['word'])): need=False
+            if not forced_split and _protected_pair(word,nextc['word']): need=False
         if need:
             beats.append(cur); cur=[]
     if cur: beats.append(cur)
@@ -3122,16 +3142,19 @@ def _repair_caption_beats(beats, duration, max_words=7):
             fixed[-1].extend(ch)
         else:
             fixed.append(ch)
-    chunks=_merge_caption_chunks(fixed,target_count=max(1,min(10,len(fixed))),max_words=max_words+2)
+    chunks=_merge_caption_chunks(fixed,target_count=max(1,min(16,len(fixed))),max_words=max_words+2)
 
-    # Se uma fusão criou um limite ruim, tenta uma nova segmentação global.
+    # Repair semantic boundaries without creating very long captions.
     bad_end={'e','de','do','da','em','no','na','que','um','uma','o','a','os','as','para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa','sobre','entre','até','sem'}
     bad_start={'e','mas','porque','porém','porem','então','entao','quando','enquanto','para','com','de','do','da','em','no','na','que'}
-    for i in range(len(chunks)-1):
+    i=0
+    while i < len(chunks)-1:
         last=_caption_clean_word(chunks[i][-1]); first=_caption_clean_word(chunks[i+1][0])
         if (last in bad_end or first in bad_start) and len(chunks[i])+len(chunks[i+1])<=max_words+2:
             chunks[i:i+2]=[chunks[i]+chunks[i+1]]
-            break
+            i=max(0,i-1)
+        else:
+            i+=1
 
     # Intervalo temporal coberto pelos beats originais.
     start_time=float(beats[0].get('start',0.0))
@@ -3327,9 +3350,13 @@ def _caption_narration_alignment(beats, narration):
         if local_bad:
             bad.append({'text':text,'words':local_bad})
 
-    coverage=matched/max(1,total)
+    coverage=matched/max(1,total)  # share of displayed caption words found in narration
+    narration_coverage=matched/max(1,len(n))  # share of spoken words represented in captions
     foreign_ratio=foreign/max(1,total)
     score=100
+    if narration_coverage<0.55: score-=45
+    elif narration_coverage<0.72: score-=28
+    elif narration_coverage<0.85: score-=14
     if foreign_ratio>0.15: score-=50
     elif foreign_ratio>0.08: score-=35
     elif foreign_ratio>0.03: score-=20
@@ -3340,6 +3367,7 @@ def _caption_narration_alignment(beats, narration):
         'score':max(0,min(100,score)),
         'bad':bad[:12],
         'coverage':round(coverage,3),
+        'narration_coverage':round(narration_coverage,3),
         'foreign_ratio':round(foreign_ratio,3),
         'caption_count':len([b for b in beats or [] if str(b.get('text','')).strip()])
     }
@@ -3416,6 +3444,10 @@ def audit_short(script, video, duration, beats, selected_videos, image_scenes):
         checks['roteiro']=0
     cap=_audit_caption_quality(beats); checks['legendas']=cap['score']
     alignment=_caption_narration_alignment(beats,narration); checks['alinhamento_legendas']=alignment['score']
+    if cap.get('score',100)<75:
+        issues.append(('CAPTIONS_LOW_QUALITY',f'qualidade visual/segmentação das legendas abaixo do mínimo: {cap.get("score",0)}/100'))
+    if alignment.get('narration_coverage',1.0)<0.85:
+        issues.append(('CAPTIONS_INCOMPLETE',f'legendas representam apenas {alignment.get("narration_coverage",0)*100:.0f}% da narração'))
     boundary_bad_count=len(cap.get('bad_end',[]))+len(cap.get('bad_start',[]))
     # V55.5: only actual semantic boundary violations can trigger this issue.
     # Visual wrapping, caption length and line balance are quality signals, not semantic-boundary failures.
@@ -3495,7 +3527,7 @@ def self_heal(jid, script, video, duration, beats, selected_videos, image_scenes
             progress=95,
             log='🧠 AUDITOR IA: QA visual concluído. Sem re-render automático no Render Free.'
         )
-    if any(x['code'] in {'CAPTIONS_BAD_BOUNDARY','CAPTIONS_REPEATED','CAPTIONS_NOT_FROM_NARRATION'} for x in audit['issues']):
+    if any(x['code'] in {'CAPTIONS_BAD_BOUNDARY','CAPTIONS_REPEATED','CAPTIONS_NOT_FROM_NARRATION','CAPTIONS_LOW_QUALITY','CAPTIONS_INCOMPLETE'} for x in audit['issues']):
         _learn_event(
             'CAPTIONS_BAD_BOUNDARY',
             'auditor detectou legenda que exige correção',
@@ -3565,10 +3597,16 @@ def produce_job(jid):
         # completas posteriores no Render Free sem abrir mão do gate de legendas.
         _pre_cap=_audit_caption_quality(beats)
         _pre_align=_caption_narration_alignment(beats,script.get('narration',''))
-        if (_pre_cap.get('score',100)<92 or _pre_align.get('foreign_ratio',0)>0.0) and beats:
-            _fixed_beats=_repair_caption_beats(beats,duration,6)
+        if (_pre_cap.get('score',100)<92 or _pre_align.get('foreign_ratio',0)>0.0 or _pre_align.get('narration_coverage',1.0)<0.98) and beats:
+            _fixed_beats=_repair_caption_beats(beats,duration,5)
             if _fixed_beats:
                 beats=_fixed_beats
+        _pre_cap=_audit_caption_quality(beats)
+        _pre_align=_caption_narration_alignment(beats,script.get('narration',''))
+        if _pre_cap.get('score',100)<75:
+            raise ValueError(f'GATE CAPTIONS: qualidade das legendas insuficiente após autocorreção ({_pre_cap.get("score",0)}/100).')
+        if _pre_align.get('foreign_ratio',0)>0.03 or _pre_align.get('narration_coverage',1.0)<0.85:
+            raise ValueError('GATE CAPTIONS: as legendas não representam corretamente a narração após autocorreção.')
         caps=[b['text'] for b in beats]
         sync_mode='timestamps reais do Edge-TTS' if word_cues else 'fallback editorial pela duração real do áudio'
         update_job(jid,progress=66,log=f'Narração pronta: {script.get("word_count",0)} palavras / {duration:.1f}s. Legendas em {len(beats)} blocos — {sync_mode}.')
@@ -3612,6 +3650,7 @@ def produce_job(jid):
         update_job(jid,stage='AVALIAÇÃO',progress=96,log=f'🧠 AUDITOR IA: {audit.get("score",0)}/100 | reparo automático: {"SIM" if repaired else "NÃO"} | problemas: {len(audit.get("issues",[]))}.')
         hard_issues={
             'CAPTIONS_NOT_FROM_NARRATION','CAPTIONS_BAD_BOUNDARY','CAPTIONS_REPEATED',
+            'CAPTIONS_LOW_QUALITY','CAPTIONS_INCOMPLETE',
             'VISUAL_REPETITION','VISUAL_STAGNATION','HIGH_FROZEN_RATIO','MEDIA_UNREADABLE',
             'NO_VIDEO_STREAM','NO_AUDIO_STREAM','WRONG_ASPECT'
         }
