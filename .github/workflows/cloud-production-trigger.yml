@@ -17,9 +17,10 @@ jobs:
         shell: bash
         run: |
           set -e
-          sleep 120
-          for i in {1..30}; do
-            code=$(curl -s -o /dev/null -w "%{http_code}" https://gta-oculto-ai.onrender.com/health || true)
+          sleep 45
+          for i in {1..18}; do
+            code=$(curl -s -o /tmp/health.json -w "%{http_code}" https://gta-oculto-ai.onrender.com/health || true)
+            echo "health_body=$(cat /tmp/health.json 2>/dev/null || true)"
             echo "health=$code attempt=$i"
             if [ "$code" = "200" ]; then exit 0; fi
             sleep 10
@@ -41,7 +42,7 @@ jobs:
         run: |
           set -e
           echo "Aguardando conclusão do job $JOB_ID..."
-          for i in {1..40}; do
+          for i in {1..24}; do
             body=$(curl -sS --max-time 30 "https://gta-oculto-ai.onrender.com/api/job/$JOB_ID" || true)
             echo "$body" > /tmp/job.json
             status=$(echo "$body" | python -c "import json,sys; print(json.load(sys.stdin).get('status','UNKNOWN'))" 2>/dev/null || echo UNKNOWN)
@@ -69,7 +70,7 @@ jobs:
               cat /tmp/job.json
               exit 1
             fi
-            sleep 15
+            sleep 10
           done
           echo "===== TIMEOUT DE PRODUÇÃO ====="
           cat /tmp/job.json
