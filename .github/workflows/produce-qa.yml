@@ -1,0 +1,138 @@
+name: Produce and QA GTA Oculto Short
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/produce-qa.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  produce-and-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Install FFmpeg and Python dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          python -m pip install --upgrade pip requests pillow
+
+      - name: Produce a Short and validate the actual MP4
+        env:
+          APP_URL: https://gta-oculto-ai.onrender.com
+        run: |
+          python - <<'PY'
+          import json, os, time, subprocess, requests, sys
+          from pathlib import Path
+          from PIL import Image, ImageChops, ImageStat, ImageDraw
+
+          base=os.environ['APP_URL'].rstrip('/')
+          s=requests.Session()
+          s.headers.update({'User-Agent':'GTA-Oculto-QA/1.0'})
+          print('Checking production service...')
+          h=s.get(base+'/health',timeout=45)
+          h.raise_for_status()
+          print('Health:', h.text[:1200])
+
+          r=s.post(base+'/api/produce',json={},timeout=45)
+          r.raise_for_status()
+          job_id=r.json().get('job_id')
+          if not job_id:
+              raise RuntimeError('Production endpoint did not return a job_id: '+r.text[:1000])
+          print('Production job:',job_id,flush=True)
+
+          deadline=time.time()+27*60
+          last=None
+          while time.time()<deadline:
+              q=s.get(f'{base}/api/job/{job_id}',timeout=45)
+              if q.status_code==404:
+                  time.sleep(10); continue
+              q.raise_for_status()
+              job=q.json()
+              state=(job.get('status'),job.get('stage'),job.get('progress'),job.get('log'))
+              if state!=last:
+                  print(json.dumps({'status':state[0],'stage':state[1],'progress':state[2],'log':str(state[3])[-500:]},ensure_ascii=False),flush=True)
+                  last=state
+              if job.get('status')=='DONE':
+                  break
+              if job.get('status')=='ERROR':
+                  raise RuntimeError('Production failed: '+str(job.get('log',''))[-4000:])
+              time.sleep(12)
+          else:
+              raise TimeoutError('Production did not finish within 27 minutes. Last state: '+str(last))
+
+          video_url=base+'/output/'+job_id+'/GTA_OCULTO_SHORT.mp4'
+          out=Path('GTA_OCULTO_SHORT.mp4')
+          with s.get(video_url,stream=True,timeout=(30,180)) as resp:
+              resp.raise_for_status()
+              with out.open('wb') as f:
+                  for chunk in resp.iter_content(1024*1024):
+                      if chunk: f.write(chunk)
+          if out.stat().st_size<500000:
+              raise RuntimeError(f'MP4 is unexpectedly small: {out.stat().st_size} bytes')
+
+          probe=subprocess.run(['ffprobe','-v','error','-show_entries','format=duration,size:stream=codec_name,codec_type,width,height,r_frame_rate','-of','json',str(out)],capture_output=True,text=True,check=True)
+          media=json.loads(probe.stdout)
+          streams=media.get('streams',[])
+          v=next((x for x in streams if x.get('codec_type')=='video'),{})
+          a=next((x for x in streams if x.get('codec_type')=='audio'),{})
+          duration=float(media.get('format',{}).get('duration',0))
+          if not v or not a or v.get('width')!=540 or v.get('height')!=960 or not 24<=duration<=38:
+              raise RuntimeError('Media validation failed: '+json.dumps(media))
+          print('MEDIA_VALIDATION',json.dumps({'job_id':job_id,'duration_s':duration,'size_bytes':out.stat().st_size,'video':v,'audio':a},ensure_ascii=False),flush=True)
+
+          # Sample the actual rendered MP4 and detect repeated shots by comparing
+          # small grayscale frames captured at separated timestamps.
+          frames_dir=Path('qa_frames'); frames_dir.mkdir(exist_ok=True)
+          timestamps=[1,3.5,6,8.5,11,13.5,16,18.5,21,23.5,26,28]
+          samples=[]
+          for idx,t in enumerate(timestamps):
+              if t>=duration: continue
+              fp=frames_dir/f'frame_{idx:02d}.jpg'
+              rr=subprocess.run(['ffmpeg','-loglevel','error','-y','-ss',str(t),'-i',str(out),'-frames:v','1','-vf','scale=48:85:flags=bilinear,format=gray',str(fp)],capture_output=True)
+              if rr.returncode==0 and fp.exists():
+                  im=Image.open(fp).convert('L')
+                  samples.append((t,im))
+          pairs=[]
+          for i,(ta,ia) in enumerate(samples):
+              for tb,ib in samples[i+1:]:
+                  diff=ImageStat.Stat(ImageChops.difference(ia,ib)).mean[0]
+                  if abs(tb-ta)>=6 and diff<7.0:
+                      pairs.append({'t1':ta,'t2':tb,'mean_pixel_difference':round(diff,2)})
+          print('VISUAL_REPEAT_CANDIDATES',json.dumps(pairs[:30]),flush=True)
+
+          # Contact sheet is uploaded for inspection with the workflow artifact.
+          thumbs=[]
+          for t,im in samples:
+              full=Image.open(frames_dir/f'frame_{timestamps.index(t):02d}.jpg').convert('RGB').resize((144,255))
+              thumbs.append((t,full))
+          sheet=Image.new('RGB',(144*4,280*((len(thumbs)+3)//4)),(18,18,18))
+          d=ImageDraw.Draw(sheet)
+          for i,(t,im) in enumerate(thumbs):
+              x=(i%4)*144; y=(i//4)*280
+              sheet.paste(im,(x,y)); d.text((x+4,y+257),f'{t:.1f}s',fill='white')
+          sheet.save('contact_sheet.jpg',quality=90)
+
+          meta=job.get('metadata',{})
+          audit=meta.get('audit',{}) if isinstance(meta,dict) else {}
+          print('EDITORIAL_AUDIT',json.dumps({'job_id':job_id,'score':job.get('score'),'audit_score':job.get('audit_score') or meta.get('audit_score'),'issues':audit.get('issues',[]),'caption_audit':audit.get('caption_audit',{})},ensure_ascii=False)[:6000],flush=True)
+          Path('qa_result.json').write_text(json.dumps({'job_id':job_id,'status':job.get('status'),'title':job.get('title'),'duration_s':duration,'size_bytes':out.stat().st_size,'visual_repeat_candidates':pairs,'audit':audit},ensure_ascii=False,indent=2))
+          print('QA_COMPLETE job_id='+job_id,flush=True)
+          PY
+
+      - name: Upload MP4 and QA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gta-oculto-production-qa
+          path: |
+            GTA_OCULTO_SHORT.mp4
+            contact_sheet.jpg
+            qa_result.json
+            qa_frames/
+          if-no-files-found: warn
+          retention-days: 7
