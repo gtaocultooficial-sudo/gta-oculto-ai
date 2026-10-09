@@ -43,4 +43,5 @@ python -m py_compile app.py audit_engine.py autonomous_engine.py memory_store.py
 O sistema tem auto-recuperação real para falhas conhecidas e uma política de quarentena para falhas desconhecidas. Ele não recebe permissão para inventar um patch de código sem validação. A camada de deploy só atua quando explicitamente habilitada por variáveis de ambiente.
 
 
-<!-- production verification trigger 2026-10-09 -->
+
+<!-- production verification trigger 2026-10-09b -->
