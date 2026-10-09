@@ -1512,7 +1512,8 @@ def _fetch_topic_evidence(topic):
     # Secondary source fallback: adaptive same-story resolver. It can run a second
     # discovery pass with different semantic queries if the first candidate set fails.
     tried=set()
-    resolver_deadline=time.monotonic()+32    for resolver_pass in range(2):
+    resolver_deadline=time.monotonic()+32
+    for resolver_pass in range(2):
         if time.monotonic()>resolver_deadline:
             try: _last_gnews_diagnostics=(list(_last_gnews_diagnostics or [])+['RESOLVER_BUDGET_EXCEEDED'])[-24:]
             except Exception: pass
@@ -1997,7 +1998,8 @@ def research_official():
         r=fetch('https://www.rockstargames.com/VI/downloads/videos'); r.raise_for_status()
         soup=BeautifulSoup(r.text,'html.parser')
         for tag in soup.find_all(['meta','img']):
-            u=tag.get('content') if tag.name=='meta' else tag.get('src')            if u and (tag.get('property')=='og:image' or tag.name=='img'):
+            u=tag.get('content') if tag.name=='meta' else tag.get('src')
+            if u and (tag.get('property')=='og:image' or tag.name=='img'):
                 images.append(urljoin('https://www.rockstargames.com/VI/downloads/videos',u))
     except Exception:
         pass
