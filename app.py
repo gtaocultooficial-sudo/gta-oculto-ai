@@ -61,7 +61,7 @@ UA = 'GTA-Oculto-AI/Cloud-Final/V55-SOURCE-RECOVERY-3'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
-BUILD_VERSION = 'V63.5-NATIVE540-STABLE-20261009'
+BUILD_VERSION = 'V63.6-LOW-RAM-DECODER-20261009'
 
 FALLBACK_TOPICS = [
     {'id':'leonida','score':96,'priority':'ALTA','title':'GTA 6: o detalhe de Leonida que pode mudar a história','source':'Rockstar Games','url':ROCKSTAR_VI,
@@ -2968,16 +2968,16 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
             # Movimento leve em todas as cenas. Em reparos, aumenta a amplitude.
             amp=28 if motion_boost else 10
             vf=f"scale=574:1020:force_original_aspect_ratio=increase,crop=540:960:x='10+{amp}*sin(n/18)':y='18+{max(4,amp//2)}*cos(n/23)',setsar=1,fps=30"
-            inp=['-stream_loop','-1','-i',str(src)]
+            inp=['-stream_loop','-1','-threads:v','1','-probesize','1M','-analyzeduration','1M','-i',str(src)]
         else:
             zoom='0.008' if motion_boost else '0.003'
             vf=f"scale=540:960:force_original_aspect_ratio=increase,crop=540:960,setsar=1,zoompan=z='min(zoom+{zoom},1.06)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=540x960:fps=30"
-            inp=['-loop','1','-i',str(src)]
-        cmd=[ff,'-loglevel','error','-y']+inp+['-loop','1','-i',str(overlay),'-t',f'{beat["duration"]:.3f}',
+            inp=['-loop','1','-threads:v','1','-i',str(src)]
+        cmd=[ff,'-loglevel','error','-y']+inp+['-threads:v','1','-loop','1','-i',str(overlay),'-t',f'{beat["duration"]:.3f}',
              '-filter_complex',f'[0:v]{vf}[v];[1:v]format=rgba[o];[v][o]overlay=0:0:shortest=1[outv]',
-             '-map','[outv]','-an','-c:v','libx264','-preset','veryfast','-crf','21',
+             '-map','[outv]','-an','-c:v','libx264','-preset','ultrafast','-crf','21',
              '-threads','1','-filter_threads','1','-filter_complex_threads','1',
-             '-x264-params','threads=1:lookahead-threads=1','-pix_fmt','yuv420p','-movflags','+faststart',str(scene)]
+             '-x264-params','threads=1:lookahead-threads=1:rc-lookahead=0:sync-lookahead=0','-pix_fmt','yuv420p','-movflags','+faststart',str(scene)]
         run_cmd(cmd,75)
         scene_files.append(scene)
         try: overlay.unlink()
