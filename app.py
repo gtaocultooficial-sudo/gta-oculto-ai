@@ -3196,7 +3196,7 @@ def _visual_motion_audit(path):
     try:
         ff=_ffmpeg_executable()
         # 1 frame/s é suficiente para encontrar congelamentos longos sem pesar no Render.
-        run_cmd([ff,'-loglevel','error','-y','-i',str(path),'-vf','fps=0.5,scale=64:114:flags=bilinear,format=gray',str(tmp/'frame_%04d.jpg')],20)
+        run_cmd([ff,'-loglevel','error','-y','-i',str(path),'-vf','fps=0.25,scale=48:85:flags=bilinear,format=gray',str(tmp/'frame_%04d.jpg')],12)
         frames=sorted(tmp.glob('frame_*.jpg'))
         if len(frames)<4:
             return {'score':60,'frozen_ratio':0.0,'longest_still_seconds':0.0,'sample_count':len(frames),'stale_runs':[],'error':'amostras insuficientes'}
@@ -3425,10 +3425,10 @@ def self_heal(jid, script, video, duration, beats, selected_videos, image_scenes
         update_job(jid,stage='AUTO-CORREÇÃO',progress=94,log='🧠 AUDITOR IA: visual repetitivo/congelado detectado. Testando variações de timeline automaticamente...')
         base_score=audit.get('score',0)
         best=None
+        # Render Free: uma única tentativa de reparo visual por produção.
+        # Mantemos o QA real, mas evitamos 3 renderizações completas em sequência.
         variants=[]
-        if selected_videos: variants.append((list(reversed(selected_videos)), list(reversed(image_scenes)), 1))
         if selected_videos: variants.append((selected_videos[1:]+selected_videos[:1], image_scenes[1:]+image_scenes[:1], 2))
-        if selected_videos: variants.append((selected_videos[::2]+selected_videos[1::2], image_scenes[::2]+image_scenes[1::2], 3))
         for attempt,(alt_videos,alt_images,variant) in enumerate(variants,1):
             video2=video.with_name(f'GTA_OCULTO_SHORT_VISUAL_REPAIR_{attempt}.mp4')
             try:
