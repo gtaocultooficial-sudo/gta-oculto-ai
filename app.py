@@ -3936,6 +3936,27 @@ def produce_job(jid):
             update_job(jid,log=f'🤖 AUTO-RECUPERAÇÃO: {recovered.get("action")}. O agente continuará sem intervenção manual.')
     finally: PROCESSING=False
 
+
+# V64.13: disparo de produção de teste controlado pelo servidor.
+# Útil para validar uma versão recém-publicada sem depender de POST externo.
+BOOT_PRODUCE_ONCE = os.getenv('GTA_BOOT_PRODUCE_ONCE','0').strip().lower() in ('1','true','yes','on')
+BOOT_PRODUCE_MARKER = WORK / '.boot_produce_once_done'
+
+def boot_produce_once():
+    if not BOOT_PRODUCE_ONCE or BOOT_PRODUCE_MARKER.exists():
+        return
+    time.sleep(12)
+    try:
+        with APP.test_request_context('/api/produce', method='POST', json={}):
+            response = produce()
+        if getattr(response, 'status_code', 500) < 300:
+            BOOT_PRODUCE_MARKER.write_text(now_iso(), encoding='utf-8')
+            print('[BOOT_PRODUCE] Test production queued successfully.', flush=True)
+        else:
+            print(f'[BOOT_PRODUCE] Queue returned status {getattr(response, "status_code", "?")}; will retry on next server restart.', flush=True)
+    except Exception as e:
+        print(f'[BOOT_PRODUCE] Failed: {type(e).__name__}: {e}', flush=True)
+
 def processor_loop():
     global PROCESSING
     while True:
@@ -4159,6 +4180,7 @@ def autonomy_loop():
         time.sleep(6*60*60)
 
 threading.Thread(target=processor_loop,daemon=True).start()
+threading.Thread(target=boot_produce_once,daemon=True).start()
 threading.Thread(target=radar_loop,daemon=True).start()
 threading.Thread(target=autonomy_loop,daemon=True).start()
 if __name__=='__main__': APP.run(host='0.0.0.0',port=int(os.environ.get('PORT',5000)))
