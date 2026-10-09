@@ -61,7 +61,7 @@ UA = 'GTA-Oculto-AI/Cloud-Final/V55-SOURCE-RECOVERY-3'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
-BUILD_VERSION = 'V63.3-NO-DUPLICATE-QA-20261009'
+BUILD_VERSION = 'V63.4-HD720-STABLE-20261009'
 
 FALLBACK_TOPICS = [
     {'id':'leonida','score':96,'priority':'ALTA','title':'GTA 6: o detalhe de Leonida que pode mudar a história','source':'Rockstar Games','url':ROCKSTAR_VI,
@@ -2939,7 +2939,7 @@ def _normalize_visual_beats(beats, duration, max_scene=3.2):
 
 def make_multimedia_video(video_clips, image_paths, audio, out, duration, captions, script=None, topic_title='GTA 6', beats=None, motion_boost=False, asset_variant=0):
     # FFmpeg/yuv420p requires even width/height. Keep the Render Free
-    # intermediate at an even 540x960 and render the final master at 1080x1920.
+    # intermediate at an even 540x960 and render the final master at 720x1280 to stay within Render Free memory.
     INTER_W, INTER_H = 540, 960
     if INTER_W % 2 or INTER_H % 2:
         raise RuntimeError(f'Dimensões intermediárias inválidas: {INTER_W}x{INTER_H}.')
@@ -2986,7 +2986,7 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
     with listfile.open('w',encoding='utf-8') as f:
         for sf in scene_files: f.write(f"file '{sf.as_posix()}'\n")
     run_cmd([ff,'-loglevel','error','-y','-f','concat','-safe','0','-i',str(listfile),'-i',str(audio),
-             '-t',f'{duration:.2f}','-vf','scale=1080:1920:flags=lanczos,format=yuv420p','-r','30',
+             '-t',f'{duration:.2f}','-vf','scale=720:1280:flags=bicubic,format=yuv420p','-r','30',
              '-c:v','libx264','-preset','ultrafast','-crf','20','-threads','1','-filter_threads','1','-filter_complex_threads','1',
              '-x264-params','threads=1:lookahead-threads=1:rc-lookahead=0:sync-lookahead=0','-force_key_frames','expr:gte(t,n_forced*2)','-c:a','aac','-b:a','160k',
              '-movflags','+faststart','-shortest',str(out)],300)
@@ -3393,8 +3393,10 @@ def audit_short(script, video, duration, beats, selected_videos, image_scenes):
         dur=media['duration']; v=media['video']; a=media['audio']
         if not v: checks['mp4']-=50; issues.append(('NO_VIDEO_STREAM','MP4 sem vídeo'))
         if not a: checks['mp4']-=50; issues.append(('NO_AUDIO_STREAM','MP4 sem áudio'))
-        if v and (int(v[0].get('width',0))!=540 or int(v[0].get('height',0))!=960):
-            checks['mp4']-=15; issues.append(('WRONG_ASPECT','vídeo final não está em 540x960'))
+        actual_dims=(int(v[0].get('width',0)),int(v[0].get('height',0))) if v else (0,0)
+        allowed_dims={(540,960),(720,1280),(1080,1920)}
+        if v and actual_dims not in allowed_dims:
+            checks['mp4']-=15; issues.append(('WRONG_ASPECT',f'dimensão do vídeo fora dos perfis verticais suportados: {actual_dims[0]}x{actual_dims[1]}'))
         if abs(dur-float(duration))>1.5: checks['mp4']-=10; issues.append(('DURATION_DRIFT',f'duração final {dur:.2f}s vs áudio {duration:.2f}s'))
         if media['size']<150000: checks['mp4']-=15; issues.append(('TINY_OUTPUT','MP4 suspeito: arquivo muito pequeno'))
     checks['visuais']=100
