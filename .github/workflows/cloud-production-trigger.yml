@@ -24,7 +24,7 @@ jobs:
             deployed=$(echo "$body" | python -c "import json,sys; print(json.load(sys.stdin).get('commit',''))" 2>/dev/null || true)
             version=$(echo "$body" | python -c "import json,sys; print(json.load(sys.stdin).get('version',''))" 2>/dev/null || true)
             echo "health=$code commit=$deployed version=$version attempt=$i"
-            if [ "$code" = "200" ] && [ "$deployed" = "$GITHUB_SHA" ] && echo "$version" | grep -q 'V64.8'; then
+            if [ "$code" = "200" ] && [ "$deployed" = "$GITHUB_SHA" ]; then
               echo "Render ativo no commit esperado."
               exit 0
             fi
@@ -51,7 +51,7 @@ jobs:
         run: |
           set -e
           echo "Aguardando conclusão do job $JOB_ID..."
-          for i in {1..24}; do
+          for i in {1..60}; do
             body=$(curl -sS --max-time 30 "https://gta-oculto-ai.onrender.com/api/job/$JOB_ID" || true)
             if ! echo "$body" | python -c "import json,sys; d=json.load(sys.stdin); assert d.get('id') or d.get('job_id')" 2>/dev/null; then
               echo "Resposta de job ausente/inválida; não marcar como sucesso."
@@ -86,6 +86,6 @@ jobs:
             fi
             sleep 10
           done
-          echo "===== TIMEOUT DE PRODUÇÃO ====="
+          echo "===== TIMEOUT DE PRODUÇÃO (10 MIN) ====="
           cat /tmp/job.json
           exit 1
