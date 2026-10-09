@@ -3283,6 +3283,32 @@ def _repair_caption_beats(beats, duration, max_words=7):
         else:
             i+=1
 
+    # Gate final de início de legenda: nenhum bloco pode começar com conector/preposição.
+    # Se não houver espaço no bloco anterior, desloca uma palavra do fim anterior para
+    # preservar a sequência falada e evitar cortes como "DE EMPREGOS..." isolados.
+    bad_start_final={'e','mas','porque','porém','porem','então','entao','quando','enquanto','para','com','de','do','da','em','no','na','que'}
+    changed=True
+    guard=0
+    while changed and guard < 32:
+        changed=False
+        guard+=1
+        for idx in range(1,len(chunks)):
+            if not chunks[idx]:
+                continue
+            first=_caption_clean_word(chunks[idx][0])
+            if first not in bad_start_final:
+                continue
+            prev=chunks[idx-1]
+            if len(prev)+1 <= max_words:
+                prev.append(chunks[idx].pop(0))
+                changed=True
+            elif len(prev)>3 and len(chunks[idx])>3:
+                chunks[idx].insert(0,prev.pop())
+                changed=True
+            if not chunks[idx]:
+                chunks.pop(idx)
+                break
+
     # Intervalo temporal coberto pelos beats originais.
     start_time=float(beats[0].get('start',0.0))
     end_time=min(float(duration), max(float(b.get('end',0.0)) for b in beats))
