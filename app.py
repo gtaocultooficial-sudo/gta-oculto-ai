@@ -61,7 +61,7 @@ UA = 'GTA-Oculto-AI/Cloud-Final/V55-SOURCE-RECOVERY-3'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
-BUILD_VERSION = 'V64-BOUNDED-VISUAL-FETCH-20261009'
+BUILD_VERSION = 'V64.1-FAST-QUEUE-DISPATCH-20261009'
 
 FALLBACK_TOPICS = [
     {'id':'leonida','score':96,'priority':'ALTA','title':'GTA 6: o detalhe de Leonida que pode mudar a história','source':'Rockstar Games','url':ROCKSTAR_VI,
@@ -3765,13 +3765,43 @@ def research():
     except Exception as e: return jsonify(error=str(e)),502
 @APP.route('/api/produce', methods=['GET','POST'])
 def produce():
+    # Fast enqueue only: the request must not synchronously wait for trend-brain
+    # ranking, source research, or a potentially stale processing lock.
+    print('[PRODUCE_API] begin',flush=True)
     data=request.get_json(silent=True) or {}
-    topics,_,_,_,_=current_opportunities()
-    topic=choose_topic(data,topics)
+    try:
+        radar=_load_radar()
+        topics=radar.get('opportunities') or FALLBACK_TOPICS
+    except Exception as e:
+        print(f'[PRODUCE_API] radar-cache fallback: {type(e).__name__}',flush=True)
+        topics=FALLBACK_TOPICS
+    topic=None
+    requested_id=str(data.get('id') or '').strip()
+    if requested_id:
+        topic=next((dict(x) for x in topics if str(x.get('id',''))==requested_id),None)
+    custom=str(data.get('topic') or '').strip()
+    if topic is None and custom:
+        topic={'id':'custom','score':88,'priority':'ALTA','title':custom,'source':'Pesquisa editorial','url':ROCKSTAR_VI,'radar':False}
+    if topic is None:
+        topic=max((dict(x) for x in topics),key=lambda x:(float(x.get('trend_score',0) or 0),float(x.get('score',0) or 0)))
     jid=uuid.uuid4().hex[:10]
     job={'id':jid,'title':topic['title'],'opportunity':topic,'status':'QUEUED','stage':'FILA','progress':0,'log':'Tarefa recebida. A produção cloud começará automaticamente.','video':None,'cover':None,'created_at':now_iso()}
-    with LOCK: jobs=load_jobs(); jobs[jid]=job; save_jobs(jobs)
+    acquired=LOCK.acquire(timeout=2.0)
+    if not acquired:
+        print('[PRODUCE_API] enqueue lock busy; returned 503',flush=True)
+        return jsonify(ok=False,error='A fila está ocupada gravando o estado. Tente novamente em alguns segundos.'),503
+    try:
+        jobs=load_jobs()
+        jobs[jid]=job
+        save_jobs(jobs)
+    except Exception as e:
+        print(f'[PRODUCE_API] enqueue failed: {type(e).__name__}: {e}',flush=True)
+        return jsonify(ok=False,error='Não foi possível salvar o job na fila: '+str(e)[:300]),500
+    finally:
+        LOCK.release()
+    print(f'[PRODUCE_API] queued job={jid}',flush=True)
     return jsonify(ok=True,job_id=jid,title=topic['title'])
+
 @APP.get('/api/job/<jid>')
 def one(jid):
     j=load_jobs().get(jid); return (jsonify(j) if j else (jsonify(error='not found'),404))
