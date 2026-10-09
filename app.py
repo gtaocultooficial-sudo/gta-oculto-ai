@@ -115,6 +115,23 @@ body{margin:0;background:radial-gradient(circle at 50% -10%,#11152a 0,#07090d 42
 .job{background:#10161f;border:1px solid #253143;border-radius:10px;padding:12px;margin-top:8px}.jobhead{display:flex;justify-content:space-between;gap:12px}.bar{height:6px;background:#202a37;border-radius:10px;overflow:hidden;margin-top:9px}.bar i{display:block;height:100%;background:linear-gradient(90deg,#8b4dff,#34c8ff)}.log{font-family:monospace;color:#aab5c4;font-size:10px;margin-top:8px;white-space:pre-wrap}.result{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}.result a{color:#a976ff;text-decoration:none;font-weight:900}.meta{font-size:9px;color:#778496;margin-top:6px}
 @media(max-width:1100px){.editor-grid-main{grid-template-columns:1fr}.editor-cover{min-height:110px}.editor-decision{min-height:110px}.table-head{display:none}.row{grid-template-columns:30px 52px 1fr 70px 80px}.row>*:nth-child(4),.row>*:nth-child(5),.row>*:nth-child(6){display:none}}
 @media(max-width:800px){.hero{display:block}.buttons{margin-top:12px;flex-wrap:wrap}.stats{grid-template-columns:repeat(2,1fr)}.steps{grid-template-columns:repeat(4,1fr)}.editor-copy{grid-template-columns:1fr}.editor-metrics{grid-template-columns:repeat(2,1fr)}.row{grid-template-columns:28px 48px 1fr 72px}.row .relevance{display:none}.top{align-items:flex-start;gap:10px;flex-direction:column}}
+</style><style id="mobile-access-v60">
+@media(max-width:700px){
+  body{overflow-x:hidden}
+  .container,.main,.content,.dashboard{width:100%!important;max-width:100%!important;box-sizing:border-box}
+  button,.btn,input,select,textarea{min-height:44px;font-size:14px!important}
+  .table-head{display:none!important}
+  .row{display:grid!important;grid-template-columns:42px 1fr!important;gap:8px!important}
+  .row>*{min-width:0}
+  .row .scorebox,.row .rank{grid-column:1}
+  .row .title,.row .source,.row .tags,.row .type,.row .conf,.row .relevance,.row .decision{grid-column:2;justify-self:stretch}
+  .editor-produce{width:100%!important;min-width:0!important}
+  .filters{overflow-x:auto;flex-wrap:nowrap;padding-bottom:4px}
+  .filter{flex:0 0 auto}
+  .script-flow{grid-template-columns:1fr!important}
+  .editor-metrics{grid-template-columns:1fr 1fr!important}
+  video{max-width:100%;height:auto}
+}
 </style></head><body><div class="wrap"><div class="top"><div class="brand">GTA <span>OCULTO</span> AI</div><div class="status">● PRODUÇÃO CLOUD ONLINE</div></div>
 <div class="hero"><div><div class="eyebrow">PRODUTOR AUTÔNOMO</div><h1>A IA encontra o assunto. Você decide se quer produzir.</h1><div class="muted">Radar → score → Editor-Chefe → hook → roteiro → visuais → voz → edição → avaliação → Short.</div></div><div class="buttons"><button class="btn red" onclick="createShort()">⚡ CRIAR SHORT</button><button class="btn" onclick="research()">🔥 ATUALIZAR RADAR</button></div></div>
 <div class="control"><input id="topic" placeholder="Digite um assunto ou deixe a IA decidir"><button class="btn red" onclick="createShort()">PRODUZIR</button></div>
