@@ -61,7 +61,7 @@ UA = 'GTA-Oculto-AI/Cloud-Final/V55-SOURCE-RECOVERY-3'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
-BUILD_VERSION = 'V63.7-LOW-RAM-SOURCE-PROXY-20261009'
+BUILD_VERSION = 'V63.8-STREAMED-ZIP-EXTRACTION-20261009'
 
 FALLBACK_TOPICS = [
     {'id':'leonida','score':96,'priority':'ALTA','title':'GTA 6: o detalhe de Leonida que pode mudar a história','source':'Rockstar Games','url':ROCKSTAR_VI,
@@ -2304,24 +2304,51 @@ def _remote_zip_entries(url):
 
 
 def _remote_zip_extract(url,entry,target):
-    """Download one selected ZIP member by byte ranges and decompress locally."""
+    """Extract one selected ZIP member with bounded RAM (2 MiB network chunks)."""
     local=_http_range(url,entry['local'],entry['local']+29)
-    if local[:4] != b'PK\x03\x04': raise RuntimeError(f'Cabeçalho local inválido: {entry["name"]}')
+    if local[:4] != b'PK\\x03\\x04':
+        raise RuntimeError(f'Cabeçalho local inválido: {entry["name"]}')
     _,ver,flags,method,mtime,mdate,crc,csize,usize,fn,extra=struct.unpack('<4s5H3L2H',local)
     data_start=entry['local']+30+fn+extra
     data_end=data_start+entry['compressed']-1
-    comp=_http_range(url,data_start,data_end)
-    if method==0:
-        raw=comp
-    elif method==8:
-        try: raw=zlib.decompress(comp,-15)
-        except Exception as e: raise RuntimeError(f'Falha ao descompactar {entry["name"]}: {e}')
-    else:
+    chunk_size=2*1024*1024
+    written=0
+    dec=zlib.decompressobj(-15) if method==8 else None
+    if method not in (0,8):
         raise RuntimeError(f'Compressão ZIP não suportada em {entry["name"]}: {method}')
-    if entry['size'] and len(raw)!=entry['size']:
-        raise RuntimeError(f'Tamanho inesperado em {entry["name"]}: {len(raw)} de {entry["size"]} bytes.')
-    target.write_bytes(raw)
-
+    try:
+        with target.open('wb') as out:
+            cursor=data_start
+            while cursor<=data_end:
+                last=min(cursor+chunk_size-1,data_end)
+                comp=_http_range(url,cursor,last)
+                if not comp:
+                    raise RuntimeError(f'Bloco ZIP vazio em {entry["name"]}')
+                cursor=last+1
+                if method==0:
+                    out.write(comp)
+                    written+=len(comp)
+                    continue
+                pending=comp
+                while pending:
+                    block=dec.decompress(pending,chunk_size)
+                    pending=dec.unconsumed_tail
+                    if block:
+                        out.write(block)
+                        written+=len(block)
+                    if not block and pending:
+                        raise RuntimeError(f'Descompressão ZIP sem progresso em {entry["name"]}')
+            if dec is not None:
+                tail=dec.flush()
+                if tail:
+                    out.write(tail)
+                    written+=len(tail)
+        if entry.get('size') and written!=entry['size']:
+            raise RuntimeError(f'Tamanho inesperado em {entry["name"]}: {written} de {entry["size"]} bytes.')
+    except Exception:
+        try: target.unlink(missing_ok=True)
+        except Exception: pass
+        raise
 
 def download_official_video_clips(outdir, jid=None):
     """Baixa apenas os 6 clipes oficiais necessários, sem baixar o ZIP inteiro.
