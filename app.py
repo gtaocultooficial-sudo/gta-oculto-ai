@@ -497,7 +497,8 @@ def radar_scan():
     """Radar V26.3: coleta, agrupa e só substitui o último radar quando a coleta realmente teve sucesso."""
     raw=[]; successful_sources=0; errors=[]
     for name,url in RADAR_FEEDS:
-        try:            batch=_parse_rss(url,name)
+        try:
+            batch=_parse_rss(url,name)
             if batch:
                 successful_sources += 1
                 raw.extend(batch)
