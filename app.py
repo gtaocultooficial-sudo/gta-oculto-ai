@@ -1865,55 +1865,68 @@ def make_script(topic):
     clean_topic=re.sub(r'^\s*GTA\s*6\s*[—:-]\s*','',headline,flags=re.I).strip()
     if not clean_topic:
         clean_topic='uma nova informação sobre GTA 6'
-    # The focused Jason/Lucia work-money story must not keep a broad listicle script.
+    # V64.12: detecta pautas específicas pelo CORPO factual, não só pela manchete.
+    # Isso evita que um título amplo transforme uma matéria específica em roteiro genérico.
+    evidence_text=' '.join(evidence)
+    focused_work_story=(
+        bool(re.search(r'\bjason\b',evidence_text,re.I))
+        and bool(re.search(r'\blucia\b',evidence_text,re.I))
+        and bool(re.search(r'\b(?:trabalh\w*|empreg\w*|dinheiro|ganh\w*|renda)\b',evidence_text,re.I))
+    )
     focused_story=(
         bool(re.search(r'\bjason\b',headline,re.I))
         and bool(re.search(r'\blucia\b',headline,re.I))
         and bool(re.search(r'\btrabalh\w*\b',headline,re.I))
         and bool(re.search(r'\b(?:dinheiro|ganh\w*)\b',headline,re.I))
-    )
+    ) or focused_work_story
 
-    hook_map={
-        'NOTÍCIA':'A ROCKSTAR REVELOU UMA NOVA INFORMAÇÃO SOBRE GTA 6',
-        'RUMOR':'ISSO SOBRE GTA 6 AINDA NÃO FOI CONFIRMADO',
-        'MISTÉRIO':'ESSE DETALHE DE GTA 6 CHAMOU ATENÇÃO',
-        'CURIOSIDADE':'VOCÊ JÁ TINHA PERCEBIDO ESSE DETALHE NO GTA 6?',
-    }
-    hook=hook_map[kind]
+    # V64.12: hooks específicos vencem os hooks genéricos quando a evidência permite.
+    if focused_work_story:
+        hook='JASON E LUCIA PODEM ESTAR TRABALHANDO PARA VÁRIAS PESSOAS EM VICE CITY?'
+    elif kind=='NOTÍCIA':
+        hook='A ROCKSTAR REVELOU UMA NOVA INFORMAÇÃO SOBRE GTA 6'
+    elif kind=='RUMOR':
+        hook='ISSO SOBRE GTA 6 AINDA NÃO FOI CONFIRMADO'
+    elif kind=='MISTÉRIO':
+        hook='ESSE DETALHE DE GTA 6 PODE TER MAIS IMPORTÂNCIA DO QUE PARECE'
+    else:
+        hook='TEM UM DETALHE NESSA HISTÓRIA DE GTA 6 QUE VALE A PENA VER'
 
-    # Use only one factual sentence for a narrowly focused story, preventing the
-    # same work/money point from being stated in context, evidence and payoff.
-    fact_parts=[]
+    # Use only the factual material needed for the story. The narration should
+    # not restate the same idea in the hook, context, proof and payoff.
     selected_evidence=evidence[:1] if focused_story else evidence[:2]
+    fact_parts=[]
     for item in selected_evidence:
         item=_clean_narrative_text(item).rstrip('.!?')
-        if focused_story:
+        if focused_work_story:
             item=re.sub(r'^do pouco que foi mostrado,\s*','Até agora, ',item,flags=re.I)
         if item and item not in fact_parts:
             fact_parts.append(item)
     fact='. '.join(fact_parts)+'.'
 
-    if focused_story:
-        hook='JASON E LUCIA JÁ ESTÃO TRABALHANDO PARA VÁRIAS PESSOAS EM VICE CITY?'
-        context='A matéria mostra os dois envolvidos em diferentes trabalhos enquanto tentam conseguir dinheiro.'
-        payoff='Isso pode ajudar a explicar a situação da dupla, mas não confirma qual será o papel deles na história.'
-        cta='Você acha que esses trabalhos vão revelar mais sobre a história?'
+    if focused_work_story:
+        # O corpo da matéria é a âncora. Não inventar nomes de empregadores nem
+        # transformar a interpretação em confirmação.
+        context='Jason e Lucia aparecem envolvidos em trabalhos diferentes enquanto tentam conseguir dinheiro em Vice City.'
+        payoff='Isso ajuda a mostrar a situação da dupla, mas a matéria não confirma que esses trabalhos definam o papel deles na história.'
+        cta='Você acha que isso vai ter impacto na história?'
     elif kind=='NOTÍCIA':
-        context=f'Uma nova informação envolvendo GTA 6 ganhou destaque: {clean_topic}.'
-        payoff='O ponto principal é separar o que a matéria realmente informa daquilo que ainda seria apenas especulação.'
-        cta='Você quer ver mais detalhes sobre isso no GTA 6?'
+        context='A informação mais importante é esta: '+fact
+        payoff='O ponto é entender o que foi realmente informado antes de transformar a novidade em teoria.'
+        cta='Você acha que isso muda alguma coisa no GTA 6?'
     elif kind=='RUMOR':
-        context=f'Está circulando uma informação envolvendo GTA 6: {clean_topic}.'
-        payoff='Até existir confirmação oficial, essa informação deve ser tratada como possibilidade, não como fato.'
+        context='A informação que está circulando é esta: '+fact
+        payoff='Por enquanto, isso deve ser tratado como possibilidade, não como confirmação oficial.'
         cta='Você acha que esse rumor pode se confirmar?'
     elif kind=='MISTÉRIO':
-        context=f'Um detalhe envolvendo GTA 6 chamou atenção: {clean_topic}.'
-        payoff='O interessante é analisar a pista sem transformar uma interpretação em confirmação.'
-        cta='Você acha que esse detalhe significa alguma coisa?'
+        context='O que chamou atenção foi isto: '+fact
+        payoff='A pista é interessante, mas a interpretação ainda não pode ser tratada como confirmação.'
+        cta='O que você acha que isso significa?'
     else:
-        context=f'Tem um detalhe de GTA 6 que merece atenção: {clean_topic}.'
-        payoff='O mais importante é entender o que a própria matéria mostra antes de tirar conclusões.'
-        cta='Você já tinha percebido esse detalhe?'
+        context='O ponto mais interessante da matéria é este: '+fact
+        payoff='Esse é o fato que dá peso à história; o restante ainda depende de confirmação ou contexto.'
+        cta='Você já tinha percebido isso?'
+
 
     sections={
         'hook':hook,
