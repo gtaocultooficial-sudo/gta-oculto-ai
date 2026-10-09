@@ -3299,6 +3299,10 @@ def _repair_caption_beats(beats, duration, max_words=7):
             if first not in bad_start_final:
                 continue
             prev=chunks[idx-1]
+            # "PARA" pode iniciar a continuação natural de "empregos para várias pessoas";
+            # nesse caso, é melhor que a legenda anterior termine em "PARA".
+            if first == 'para' and prev and _caption_clean_word(prev[-1]) == 'empregos':
+                continue
             if len(prev)+1 <= max_words:
                 prev.append(chunks[idx].pop(0))
                 changed=True
@@ -3308,6 +3312,16 @@ def _repair_caption_beats(beats, duration, max_words=7):
             if not chunks[idx]:
                 chunks.pop(idx)
                 break
+
+    # Evita deixar preposição pendurada no fim de uma legenda quando a seguinte
+    # comporta a palavra e a construção continua naturalmente (ex.: "empregos para").
+    for idx in range(len(chunks)-1):
+        if not chunks[idx] or not chunks[idx+1]:
+            continue
+        last=_caption_clean_word(chunks[idx][-1])
+        nxt=_caption_clean_word(chunks[idx+1][0])
+        if last == 'para' and nxt not in bad_start_final and len(chunks[idx+1]) < max_words and len(chunks[idx]) > 3:
+            chunks[idx+1].insert(0,chunks[idx].pop())
 
     # Intervalo temporal coberto pelos beats originais.
     start_time=float(beats[0].get('start',0.0))
@@ -3369,11 +3383,14 @@ def _audit_caption_quality(beats):
     bad_end=[]; bad_start=[]; long=[]; short=[]; visual_bad=[]
     bad_end_set={'e','de','do','da','em','no','na','que','um','uma','o','a','os','as','para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa','sobre','entre','até','sem'}
     bad_start_set={'e','mas','porque','porém','porem','então','entao','quando','enquanto','para','com','de','do','da','em','no','na','que'}
-    for b in beats or []:
+    for bi,b in enumerate(beats or []):
         words=_caption_words(b.get('text',''))
         if not words: continue
         if _caption_clean_word(words[-1]) in bad_end_set: bad_end.append(b['text'])
-        if _caption_clean_word(words[0]) in bad_start_set: bad_start.append(b['text'])
+        first=_caption_clean_word(words[0])
+        # Aceita "PARA" quando é continuação gramatical de "empregos para várias pessoas".
+        valid_para_continuation=(first=='para' and bi>0 and _caption_clean_word(_caption_words(beats[bi-1].get('text',''))[-1])=='empregos')
+        if first in bad_start_set and not valid_para_continuation: bad_start.append(b['text'])
         if len(words)>7: long.append(b['text'])
         if len(words)<2: short.append(b['text'])
         vs=_caption_visual_split_quality(b.get('text',''))
