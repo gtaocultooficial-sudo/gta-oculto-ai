@@ -33,3 +33,44 @@ jobs:
           response=$(curl -sS --max-time 30 https://gta-oculto-ai.onrender.com/api/produce)
           echo "$response"
           echo "$response" | grep -q '"ok":true'
+          job_id=$(echo "$response" | python -c "import json,sys; print(json.load(sys.stdin)['job_id'])")
+          echo "JOB_ID=$job_id" >> "$GITHUB_ENV"
+
+      - name: Wait for production and verify output
+        shell: bash
+        run: |
+          set -e
+          echo "Aguardando conclusão do job $JOB_ID..."
+          for i in {1..40}; do
+            body=$(curl -sS --max-time 30 "https://gta-oculto-ai.onrender.com/api/job/$JOB_ID" || true)
+            echo "$body" > /tmp/job.json
+            status=$(echo "$body" | python -c "import json,sys; print(json.load(sys.stdin).get('status','UNKNOWN'))" 2>/dev/null || echo UNKNOWN)
+            stage=$(echo "$body" | python -c "import json,sys; print(json.load(sys.stdin).get('stage',''))" 2>/dev/null || true)
+            progress=$(echo "$body" | python -c "import json,sys; print(json.load(sys.stdin).get('progress',''))" 2>/dev/null || true)
+            echo "attempt=$i status=$status stage=$stage progress=$progress"
+            if [ "$status" = "DONE" ]; then
+              echo "===== PRODUÇÃO CONCLUÍDA ====="
+              python - <<'PY'
+          import json
+          d=json.load(open('/tmp/job.json'))
+          print("job_id:", d.get("id"))
+          print("status:", d.get("status"))
+          print("stage:", d.get("stage"))
+          print("progress:", d.get("progress"))
+          print("score:", d.get("score"))
+          print("video:", d.get("video"))
+          print("cover:", d.get("cover"))
+          print("metadata:", d.get("metadata",{}))
+          PY
+              exit 0
+            fi
+            if [ "$status" = "ERROR" ]; then
+              echo "===== PRODUÇÃO FALHOU ====="
+              cat /tmp/job.json
+              exit 1
+            fi
+            sleep 15
+          done
+          echo "===== TIMEOUT DE PRODUÇÃO ====="
+          cat /tmp/job.json
+          exit 1
