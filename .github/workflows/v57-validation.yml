@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - v57-trend-brain
+      - fix/v64.6-editorial-gate
   pull_request:
     branches:
       - main
