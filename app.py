@@ -1905,26 +1905,26 @@ def make_script(topic):
     fact='. '.join(fact_parts)+'.'
 
     if focused_work_story:
-        # O corpo da matéria é a âncora. Não inventar nomes de empregadores nem
-        # transformar a interpretação em confirmação.
-        context='Jason e Lucia aparecem envolvidos em trabalhos diferentes enquanto tentam conseguir dinheiro em Vice City.'
-        payoff='Isso ajuda a mostrar a situação da dupla, mas a matéria não confirma que esses trabalhos definam o papel deles na história.'
+        # A evidência aparece uma vez só, na seção proof; contexto e conclusão
+        # acrescentam interpretação sem recontar o mesmo fato.
+        context='A questão é o que essa busca por dinheiro revela sobre o momento vivido pela dupla.'
+        payoff='Isso não confirma que cada trabalho seja uma missão principal nem define o papel deles na história.'
         cta='Você acha que isso vai ter impacto na história?'
     elif kind=='NOTÍCIA':
-        context='A informação mais importante é esta: '+fact
-        payoff='O ponto é entender o que foi realmente informado antes de transformar a novidade em teoria.'
+        context='O ponto agora é entender o alcance real dessa informação, sem confundir o fato com teorias da comunidade.'
+        payoff='A conclusão precisa ficar dentro do que a fonte realmente confirmou, sem prometer mudanças que ela não anunciou.'
         cta='Você acha que isso muda alguma coisa no GTA 6?'
     elif kind=='RUMOR':
-        context='A informação que está circulando é esta: '+fact
-        payoff='Por enquanto, isso deve ser tratado como possibilidade, não como confirmação oficial.'
+        context='O rumor chama atenção porque sugere uma possibilidade, mas ainda precisa ser separado dos fatos confirmados.'
+        payoff='Sem confirmação oficial, essa hipótese não pode ser tratada como informação garantida.'
         cta='Você acha que esse rumor pode se confirmar?'
     elif kind=='MISTÉRIO':
-        context='O que chamou atenção foi isto: '+fact
-        payoff='A pista é interessante, mas a interpretação ainda não pode ser tratada como confirmação.'
+        context='A pista pode abrir uma interpretação interessante, desde que a gente não confunda possibilidade com prova.'
+        payoff='Uma pista isolada não confirma a teoria; é preciso mais evidência para fechar essa conclusão.'
         cta='O que você acha que isso significa?'
     else:
-        context='O ponto mais interessante da matéria é este: '+fact
-        payoff='Esse é o fato que dá peso à história; o restante ainda depende de confirmação ou contexto.'
+        context='O interesse está no que esse fato pode indicar para o jogo, sem ir além do que a matéria mostra.'
+        payoff='A evidência é o ponto de partida; qualquer conclusão maior ainda depende de contexto e confirmação.'
         cta='Você já tinha percebido isso?'
 
 
