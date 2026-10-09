@@ -3804,15 +3804,20 @@ def evaluate(script,duration,scene_count,visual_quality,beats=None,video_count=0
 
 def produce_job(jid):
     global PROCESSING
+    print(f'[JOB {jid}] START production worker',flush=True)
     try:
         update_job(jid,status='RUNNING',stage='PESQUISA',progress=5,log='V64.9: pesquisa limitada a 2 feeds RSS (6s cada) + Newswire opcional (5s).')
+        print(f'[JOB {jid}] stage=RESEARCH start',flush=True)
         topics,urls,_=research_official(); topics=topics or FALLBACK_TOPICS
+        print(f'[JOB {jid}] stage=RESEARCH done topics={len(topics)} visual_urls={len(urls)}',flush=True)
         radar_status=_load_radar()
         update_job(jid,progress=12,log='V64.9: pesquisa encerrada; fontes_ok={} status={} erro={}'.format(radar_status.get('sources_ok',0),radar_status.get('status','?'),radar_status.get('error') or radar_status.get('diagnostic','sem detalhe')))
         job=load_jobs()[jid]; topic=editor_chief_select([job['opportunity']]) or job['opportunity']; job['opportunity']=topic; jobs=load_jobs(); jobs[jid]['opportunity']=topic; save_jobs(jobs)
         update_job(jid,stage='ANÁLISE',progress=16,log=f'EDITOR-CHEFE: {topic.get("editorial_decision","PRODUZIR")} — {topic["title"]} | ângulo: {topic.get("editorial_angle","")}')
         update_job(jid,stage='ROTEIRO',progress=28,log='EDITOR-CHEFE → AGENTE AUTÔNOMO: validando corpo original, tentando estratégias e recuperando a pauta se necessário...')
+        print(f'[JOB {jid}] stage=SCRIPT start topic={topic.get("title","")[:100]}',flush=True)
         topic, script = _autonomous_make_script(jid, topic, topics)
+        print(f'[JOB {jid}] stage=SCRIPT done words={script.get("word_count",0)}',flush=True)
         # Keep the rest of the proven rendering pipeline synchronized with the
         # topic actually selected by the autonomous recovery agent.
         job=load_jobs().get(jid,{})
@@ -3821,14 +3826,19 @@ def produce_job(jid):
         jobs=load_jobs(); jobs[jid]=job; save_jobs(jobs)
         jobdir=WORK/jid; jobdir.mkdir(parents=True,exist_ok=True)
         update_job(jid,script=script,stage='VISUAIS',progress=40,log='Baixando visuais oficiais e montando cenas verticais...')
+        print(f'[JOB {jid}] stage=VISUALS download start',flush=True)
         paths=download_visuals(urls,jobdir/'visuals',topic['title'])
+        print(f'[JOB {jid}] stage=VISUALS download done count={len(paths)}',flush=True)
         image_order=select_visuals(paths,topic['title'],6)
         image_scenes=[]
         # A preparação visual não queima a legenda; o overlay final é desenhado
         # somente depois que temos a duração real da narração.
         for i,src in enumerate(image_order):
             dst=jobdir/f'image_{i}.jpg'; prepare_scene(src,dst,'',i,10); image_scenes.append(dst)
-        update_job(jid,stage='NARRAÇÃO',progress=60,log='Gerando narração PT-BR e capturando timestamps reais da fala...'); audio=jobdir/'narracao.mp3'; word_cues=asyncio.run(make_tts(script['narration'],audio)); duration=duration_of_audio(audio)
+        update_job(jid,stage='NARRAÇÃO',progress=60,log='Gerando narração PT-BR e capturando timestamps reais da fala...')
+        print(f'[JOB {jid}] stage=TTS start',flush=True)
+        audio=jobdir/'narracao.mp3'; word_cues=asyncio.run(make_tts(script['narration'],audio)); duration=duration_of_audio(audio)
+        print(f'[JOB {jid}] stage=TTS done audio_bytes={audio.stat().st_size if audio.exists() else 0} duration={duration:.1f}',flush=True)
         (jobdir/'word_cues.json').write_text(json.dumps(word_cues,ensure_ascii=False,indent=2),encoding='utf-8')
         beats=build_short_timeline(script,topic,duration,10,word_cues=word_cues)
         # V63: corrigir a segmentação antes do encode final. Evita re-renderizações
@@ -3858,12 +3868,17 @@ def produce_job(jid):
         sync_mode='timestamps reais do Edge-TTS' if word_cues else 'fallback editorial pela duração real do áudio'
         update_job(jid,progress=66,log=f'Narração pronta: {script.get("word_count",0)} palavras / {duration:.1f}s. Legendas em {len(beats)} blocos — {sync_mode}.')
         update_job(jid,stage='EDIÇÃO',progress=74,log=f'Obtendo vídeos oficiais da Rockstar e montando timeline com movimento real / {duration:.1f}s...')
+        print(f'[JOB {jid}] stage=OFFICIAL_VIDEO_DOWNLOAD start',flush=True)
         official_videos=download_official_video_clips(jobdir/'official_videos', jid)
+        print(f'[JOB {jid}] stage=OFFICIAL_VIDEO_DOWNLOAD done count={len(official_videos)}',flush=True)
         selected_videos=select_video_clips(official_videos,topic['title'],9)
         if len(image_scenes)<4:
             image_scenes=_augment_scenes_with_real_video_frames(selected_videos,image_scenes,jobdir,target=4)
         update_job(jid,log=f'{len(selected_videos)} vídeos oficiais e {len(image_scenes)} imagens/cenas reais disponíveis. Editando em 9:16 / {duration:.1f}s...')
-        video=jobdir/'GTA_OCULTO_SHORT.mp4'; make_multimedia_video(selected_videos,image_scenes,audio,video,duration,caps,script,topic['title'],beats)
+        video=jobdir/'GTA_OCULTO_SHORT.mp4'
+        print(f'[JOB {jid}] stage=RENDER start',flush=True)
+        make_multimedia_video(selected_videos,image_scenes,audio,video,duration,caps,script,topic['title'],beats)
+        print(f'[JOB {jid}] stage=RENDER done exists={video.exists()} bytes={video.stat().st_size if video.exists() else 0}',flush=True)
         # Nunca deixe a capa derrubar uma produção já renderizada.
         if not image_scenes:
             fallback_cover=jobdir/'cover_fallback.jpg'
@@ -3973,6 +3988,7 @@ def produce_job(jid):
     except Exception as e:
         import traceback
         tb=traceback.format_exc()
+        print(f'[JOB {jid}] ERROR {type(e).__name__}: {str(e)[:1800]}',flush=True)
         recovered=None
         if AUTONOMOUS_ENGINE:
             try:
