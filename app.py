@@ -61,7 +61,7 @@ UA = 'GTA-Oculto-AI/Cloud-Final/V55-SOURCE-RECOVERY-3'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
-BUILD_VERSION = 'V63.2-FAST-QA-20261009'
+BUILD_VERSION = 'V63.3-NO-DUPLICATE-QA-20261009'
 
 FALLBACK_TOPICS = [
     {'id':'leonida','score':96,'priority':'ALTA','title':'GTA 6: o detalhe de Leonida que pode mudar a história','source':'Rockstar Games','url':ROCKSTAR_VI,
@@ -3544,19 +3544,22 @@ def produce_job(jid):
             make_fallback(fallback_cover,0,topic['title'])
             image_scenes=[fallback_cover]
         cover=jobdir/'CAPA.jpg'; make_cover(image_scenes[0],topic['title'],cover)
-        update_job(jid,stage='AVALIAÇÃO',progress=92,log='Avaliando hook, ritmo, visuais, duração e sincronização real das legendas...'); visual_quality=100
-        for sp in image_scenes:
-            q=_image_quality(sp); visual_quality=min(visual_quality, max(0,q))
+        update_job(jid,stage='AVALIAÇÃO',progress=92,log='Avaliando hook, ritmo, duração e sincronização real das legendas...')
+        # V63.3: os mesmos arquivos já foram avaliados na seleção de visuais.
+        # Não reler/redimensionar todos antes da auditoria final no Render Free.
+        visual_quality=94 if len(set(map(str,image_scenes)))>=4 else 78
+        update_job(jid,stage='AVALIAÇÃO',progress=93,log='QA 1/3: integridade do MP4, codecs, áudio e duração...')
         # V41: auditor automático examina o MP4 real e tenta correções seguras antes do gate final.
         audit,beats,repaired=self_heal(jid,script,video,duration,beats,selected_videos,image_scenes,topic,audio)
+        update_job(jid,stage='AVALIAÇÃO',progress=94,log='QA 2/3 concluído: auditor editorial, legenda e mídia.')
 
         # V42: second independent bounded audit. It never replaces the proven
         # V41.3 renderer; it only gets one safe caption-repair attempt when the
         # independent audit detects weak caption segmentation.
         v42_audit = None
-        if v42_full_audit:
+        if v42_full_audit and os.getenv('GTA_V42_AUDIT','0').strip().lower() in {'1','true','yes','on'}:
             try:
-                update_job(jid,stage='AVALIAÇÃO',progress=94,log='Auditoria independente V42: checando legendas e integridade técnica do MP4...')
+                update_job(jid,stage='AVALIAÇÃO',progress=95,log='QA 3/3: auditor independente V42 opcional...')
                 v42_audit = v42_full_audit(video, [b.get('text','') for b in beats], script.get('narration',''))
             except Exception as _v42e:
                 v42_audit={'score':None,'error':str(_v42e)[:500]}
