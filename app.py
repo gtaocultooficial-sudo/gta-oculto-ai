@@ -3683,9 +3683,14 @@ def processor_loop():
                             age=now-datetime.fromisoformat(j.get('updated_at','')).timestamp()
                         except Exception:
                             age=0
-                        if age>1800:
+                        # V61 watchdog: a produção cloud não pode prender a fila
+                        # indefinidamente se a thread morrer ou ficar órfã.
+                        # 20 min é acima do tempo normal de pesquisa/TTS/render
+                        # no plano Free, mas curto o bastante para recuperar a fila.
+                        if age>1200:
                             j['status']='QUEUED'; j['stage']='FILA'; j['progress']=0
-                            j['log']='Produção recuperada após reinício do servidor. Retomando automaticamente.'
+                            j['log']='Watchdog V61: produção RUNNING ficou sem atualização por 20 min. Job recuperado automaticamente.'
+                            j['recovered_at']=now_iso()
                 save_jobs(jobs)
                 target=next((j for j in jobs.values() if j.get('status')=='QUEUED'),None)
             if target and not PROCESSING:
