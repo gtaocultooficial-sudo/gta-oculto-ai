@@ -61,7 +61,7 @@ UA = 'GTA-Oculto-AI/Cloud-Final/V55-SOURCE-RECOVERY-3'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
-BUILD_VERSION = 'V63.9-STREAMED-ZIP-FIX-20261009'
+BUILD_VERSION = 'V64-BOUNDED-VISUAL-FETCH-20261009'
 
 FALLBACK_TOPICS = [
     {'id':'leonida','score':96,'priority':'ALTA','title':'GTA 6: o detalhe de Leonida que pode mudar a história','source':'Rockstar Games','url':ROCKSTAR_VI,
@@ -2085,15 +2085,18 @@ def make_fallback(path,idx,title):
 
 
 def download_visuals(urls,outdir,title):
-    """Download images in streaming chunks so a single large response cannot consume Render RAM."""
+    """Collect visuals with a hard time budget so slow sources cannot stall production."""
     outdir.mkdir(parents=True,exist_ok=True); candidates=[]; seen=set()
-    for i,item in enumerate(urls[:24]):
+    deadline=time.monotonic()+45.0
+    for i,item in enumerate(urls[:12]):
+        if time.monotonic()>=deadline:
+            break
         u=item.get('url') if isinstance(item,dict) else item
         label=item.get('label','') if isinstance(item,dict) else ''
         raw=None
         try:
             raw=outdir/f'raw_{i}'
-            with requests.get(u,headers={'User-Agent':UA,'Accept-Encoding':'identity'},timeout=(10,25),stream=True) as r:
+            with requests.get(u,headers={'User-Agent':UA,'Accept-Encoding':'identity'},timeout=(4,8),stream=True) as r:
                 r.raise_for_status()
                 ctype=(r.headers.get('content-type') or '').lower()
                 if 'image' not in ctype and not u.lower().split('?')[0].endswith(('.jpg','.jpeg','.png','.webp','.avif')):
@@ -2101,6 +2104,8 @@ def download_visuals(urls,outdir,title):
                 total=0
                 with raw.open('wb') as f:
                     for chunk in r.iter_content(256*1024):
+                        if time.monotonic()>=deadline:
+                            raise TimeoutError('limite global de 45s para coleta visual atingido')
                         if not chunk: continue
                         total += len(chunk)
                         if total > 8*1024*1024:
