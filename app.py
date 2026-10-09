@@ -3907,7 +3907,7 @@ def home(): return render_template_string(PAGE)
 @APP.get('/health')
 def health():
     auto=AUTONOMOUS_ENGINE.status() if AUTONOMOUS_ENGINE else {'mode':'DEGRADED'}
-    return jsonify(ok=True,app='GTA Oculto AI',version=BUILD_VERSION,processor='cloud',autonomous_mode=AUTONOMOUS_MODE,max_topic_recovery=AUTONOMOUS_MAX_TOPIC_RECOVERY,autonomy=auto)
+    return jsonify(ok=True,app='GTA Oculto AI',version=BUILD_VERSION,commit=os.environ.get('RENDER_GIT_COMMIT','unknown'),processor='cloud',autonomous_mode=AUTONOMOUS_MODE,max_topic_recovery=AUTONOMOUS_MAX_TOPIC_RECOVERY,autonomy=auto)
 @APP.get('/api/autonomy')
 def autonomy_status():
     return jsonify(AUTONOMOUS_ENGINE.status() if AUTONOMOUS_ENGINE else {'mode':'DEGRADED'})
