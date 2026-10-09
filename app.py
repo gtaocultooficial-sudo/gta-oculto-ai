@@ -4162,3 +4162,4 @@ threading.Thread(target=processor_loop,daemon=True).start()
 threading.Thread(target=radar_loop,daemon=True).start()
 threading.Thread(target=autonomy_loop,daemon=True).start()
 if __name__=='__main__': APP.run(host='0.0.0.0',port=int(os.environ.get('PORT',5000)))
+# V64.12-ROTEIRO-FACT-FIRST-20261009
