@@ -3597,7 +3597,15 @@ def produce_job(jid):
         # completas posteriores no Render Free sem abrir mão do gate de legendas.
         _pre_cap=_audit_caption_quality(beats)
         _pre_align=_caption_narration_alignment(beats,script.get('narration',''))
-        if (_pre_cap.get('score',100)<92 or _pre_align.get('foreign_ratio',0)>0.0 or _pre_align.get('narration_coverage',1.0)<0.98) and beats:
+        # If TTS word-boundary events omitted or corrupted words, rebuild captions from
+        # the complete approved narration instead of repeatedly repairing incomplete text.
+        if (_pre_align.get('foreign_ratio',0)>0.0 or _pre_align.get('narration_coverage',1.0)<0.98) and script.get('narration'):
+            _complete_beats=build_short_timeline(script,topic,duration,14,word_cues=None)
+            if _complete_beats:
+                beats=_complete_beats
+            _pre_cap=_audit_caption_quality(beats)
+            _pre_align=_caption_narration_alignment(beats,script.get('narration',''))
+        if _pre_cap.get('score',100)<92 and beats:
             _fixed_beats=_repair_caption_beats(beats,duration,5)
             if _fixed_beats:
                 beats=_fixed_beats
