@@ -49,6 +49,8 @@ except Exception:
     TREND_BRAIN = None
 WORK.mkdir(parents=True, exist_ok=True)
 STATE_FILE = WORK / 'jobs.json'
+PENDING_QUEUE_DIR = WORK / 'pending_queue'
+PENDING_QUEUE_DIR.mkdir(parents=True, exist_ok=True)
 LOCK = threading.RLock()
 PROCESSING = False
 # V43: autonomous recovery is ON by default. It may switch to another validated Radar topic
@@ -61,7 +63,7 @@ UA = 'GTA-Oculto-AI/Cloud-Final/V55-SOURCE-RECOVERY-3'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
-BUILD_VERSION = 'V64.1-FAST-QUEUE-DISPATCH-20261009'
+BUILD_VERSION = 'V64.2-ISOLATED-PENDING-QUEUE-20261009'
 
 FALLBACK_TOPICS = [
     {'id':'leonida','score':96,'priority':'ALTA','title':'GTA 6: o detalhe de Leonida que pode mudar a história','source':'Rockstar Games','url':ROCKSTAR_VI,
@@ -3688,8 +3690,20 @@ def processor_loop():
     global PROCESSING
     while True:
         try:
+            pending_files=[]
+            pending_jobs=[]
+            for pending_path in sorted(PENDING_QUEUE_DIR.glob('*.json'))[:20]:
+                try:
+                    pending_job=json.loads(pending_path.read_text(encoding='utf-8'))
+                    if isinstance(pending_job,dict) and pending_job.get('id'):
+                        pending_files.append(pending_path)
+                        pending_jobs.append(pending_job)
+                except Exception:
+                    continue
             with LOCK:
                 jobs=load_jobs()
+                for pending_job in pending_jobs:
+                    jobs.setdefault(str(pending_job['id']),pending_job)
                 # If Render restarts after a long encode, a previous RUNNING job
                 # is recovered instead of disappearing from the queue.
                 now=time.time()
@@ -3709,6 +3723,9 @@ def processor_loop():
                             j['recovered_at']=now_iso()
                 save_jobs(jobs)
                 target=next((j for j in jobs.values() if j.get('status')=='QUEUED'),None)
+            for pending_path in pending_files:
+                try: pending_path.unlink(missing_ok=True)
+                except Exception: pass
             if target and not PROCESSING:
                 PROCESSING=True
                 threading.Thread(target=produce_job,args=(target['id'],),daemon=True).start()
@@ -3765,15 +3782,13 @@ def research():
     except Exception as e: return jsonify(error=str(e)),502
 @APP.route('/api/produce', methods=['GET','POST'])
 def produce():
-    # Fast enqueue only: the request must not synchronously wait for trend-brain
-    # ranking, source research, or a potentially stale processing lock.
-    print('[PRODUCE_API] begin',flush=True)
+    # V64.2: enqueue through an isolated one-file queue; do not contend with
+    # the processor's jobs-state lock while a video is being rendered.
     data=request.get_json(silent=True) or {}
     try:
         radar=_load_radar()
         topics=radar.get('opportunities') or FALLBACK_TOPICS
-    except Exception as e:
-        print(f'[PRODUCE_API] radar-cache fallback: {type(e).__name__}',flush=True)
+    except Exception:
         topics=FALLBACK_TOPICS
     topic=None
     requested_id=str(data.get('id') or '').strip()
@@ -3786,25 +3801,23 @@ def produce():
         topic=max((dict(x) for x in topics),key=lambda x:(float(x.get('trend_score',0) or 0),float(x.get('score',0) or 0)))
     jid=uuid.uuid4().hex[:10]
     job={'id':jid,'title':topic['title'],'opportunity':topic,'status':'QUEUED','stage':'FILA','progress':0,'log':'Tarefa recebida. A produção cloud começará automaticamente.','video':None,'cover':None,'created_at':now_iso()}
-    acquired=LOCK.acquire(timeout=2.0)
-    if not acquired:
-        print('[PRODUCE_API] enqueue lock busy; returned 503',flush=True)
-        return jsonify(ok=False,error='A fila está ocupada gravando o estado. Tente novamente em alguns segundos.'),503
     try:
-        jobs=load_jobs()
-        jobs[jid]=job
-        save_jobs(jobs)
+        _atomic_write_json(PENDING_QUEUE_DIR / f'{jid}.json',job)
     except Exception as e:
-        print(f'[PRODUCE_API] enqueue failed: {type(e).__name__}: {e}',flush=True)
-        return jsonify(ok=False,error='Não foi possível salvar o job na fila: '+str(e)[:300]),500
-    finally:
-        LOCK.release()
-    print(f'[PRODUCE_API] queued job={jid}',flush=True)
+        print(f'[PRODUCE_API] queue write failed: {type(e).__name__}: {e}',flush=True)
+        return jsonify(ok=False,error='Não foi possível colocar o job na fila: '+str(e)[:300]),500
+    print(f'[PRODUCE_API] queued job={jid} via pending file',flush=True)
     return jsonify(ok=True,job_id=jid,title=topic['title'])
 
 @APP.get('/api/job/<jid>')
 def one(jid):
-    j=load_jobs().get(jid); return (jsonify(j) if j else (jsonify(error='not found'),404))
+    j=load_jobs().get(jid)
+    if j: return jsonify(j)
+    pending=PENDING_QUEUE_DIR / f'{jid}.json'
+    if pending.exists():
+        try: return jsonify(json.loads(pending.read_text(encoding='utf-8')))
+        except Exception: pass
+    return jsonify(error='not found'),404
 LIVE_JOBS_FILE = WORK / 'live_jobs.json'
 LIVE_JOBS_LOCK = threading.RLock()
 
