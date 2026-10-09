@@ -60,6 +60,7 @@ AUTONOMOUS_MODE = os.getenv('GTA_AUTONOMOUS_MODE','1').strip().lower() not in ('
 AUTONOMOUS_MAX_TOPIC_RECOVERY = max(1, min(6, int(os.getenv('GTA_AUTONOMOUS_MAX_TOPIC_RECOVERY','5'))))
 _last_gnews_diagnostics = []
 UA = 'GTA-Oculto-AI/Cloud-Final/V55-SOURCE-RECOVERY-3' 
+# V64.11-HOOK-RETENTION-20261009
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
