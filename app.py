@@ -3436,29 +3436,18 @@ def self_heal(jid, script, video, duration, beats, selected_videos, image_scenes
             log='🧠 AUDITOR IA: QA visual concluído. Sem re-render automático no Render Free.'
         )
     if any(x['code'] in {'CAPTIONS_BAD_BOUNDARY','CAPTIONS_REPEATED','CAPTIONS_NOT_FROM_NARRATION'} for x in audit['issues']):
-        _learn_event('CAPTIONS_BAD_BOUNDARY','auditor detectou cortes semânticos/visuais', 'resegmentar captions e equilibrar quebra de linha', None)
-        new_beats=_repair_caption_beats(beats,duration,6)
-        if new_beats and new_beats!=beats:
-            update_job(jid,stage='AUTO-CORREÇÃO',progress=94,log='🧠 AUDITOR IA: legendas abaixo do padrão. Recalculando cortes semânticos e renderizando novamente...')
-            caps=[b['text'] for b in new_beats]
-            video2=video.with_name('GTA_OCULTO_SHORT_REPAIRED.mp4')
-            make_multimedia_video(selected_videos,image_scenes,audio,video2,duration,caps,script,topic['title'],new_beats)
-            os.replace(video2,video)
-            audit2=audit_short(script,video,duration,new_beats,selected_videos,image_scenes)
-            _learn_event('CAPTIONS_BAD_BOUNDARY','reparo de legendas concluído', 'resegmentar captions preservando fala', audit2['score']>=audit['score'])
-            repaired=True; beats=new_beats; audit=audit2
-            # V55.3: uma segunda passada só é feita se ainda houver bloqueio de legenda.
-            if any(x.get('code') in {'CAPTIONS_BAD_BOUNDARY','CAPTIONS_REPEATED','CAPTIONS_NOT_FROM_NARRATION'} for x in audit.get('issues',[])):
-                retry=_repair_caption_beats(beats,duration,7)
-                if retry and retry!=beats:
-                    video3=video.with_name('GTA_OCULTO_SHORT_REPAIRED_2.mp4')
-                    make_multimedia_video(selected_videos,image_scenes,audio,video3,duration,[b['text'] for b in retry],script,topic['title'],retry)
-                    audit3=audit_short(script,video3,duration,retry,selected_videos,image_scenes)
-                    if audit3.get('score',0)>=audit.get('score',0) and not any(x.get('code') in {'CAPTIONS_BAD_BOUNDARY','CAPTIONS_REPEATED','CAPTIONS_NOT_FROM_NARRATION'} for x in audit3.get('issues',[])):
-                        os.replace(video3,video); beats=retry; audit=audit3
-                    else:
-                        try: video3.unlink(missing_ok=True)
-                        except Exception: pass
+        _learn_event(
+            'CAPTIONS_BAD_BOUNDARY',
+            'auditor detectou legenda que exige correção',
+            'correção antecipada antes do encode; manter bloqueio QA sem renderização duplicada',
+            False
+        )
+        update_job(
+            jid,
+            stage='AVALIAÇÃO',
+            progress=95,
+            log='🧠 AUDITOR IA: legenda fora do padrão detectada; sem segundo encode no plano gratuito.'
+        )
     return audit,beats,repaired
 
 def evaluate(script,duration,scene_count,visual_quality,beats=None,video_count=0,image_count=0):
@@ -3512,6 +3501,14 @@ def produce_job(jid):
         update_job(jid,stage='NARRAÇÃO',progress=60,log='Gerando narração PT-BR e capturando timestamps reais da fala...'); audio=jobdir/'narracao.mp3'; word_cues=asyncio.run(make_tts(script['narration'],audio)); duration=duration_of_audio(audio)
         (jobdir/'word_cues.json').write_text(json.dumps(word_cues,ensure_ascii=False,indent=2),encoding='utf-8')
         beats=build_short_timeline(script,topic,duration,10,word_cues=word_cues)
+        # V63: corrigir a segmentação antes do encode final. Evita re-renderizações
+        # completas posteriores no Render Free sem abrir mão do gate de legendas.
+        _pre_cap=_audit_caption_quality(beats)
+        _pre_align=_caption_narration_alignment(beats,script.get('narration',''))
+        if (_pre_cap.get('score',100)<92 or _pre_align.get('foreign_ratio',0)>0.0) and beats:
+            _fixed_beats=_repair_caption_beats(beats,duration,6)
+            if _fixed_beats:
+                beats=_fixed_beats
         caps=[b['text'] for b in beats]
         sync_mode='timestamps reais do Edge-TTS' if word_cues else 'fallback editorial pela duração real do áudio'
         update_job(jid,progress=66,log=f'Narração pronta: {script.get("word_count",0)} palavras / {duration:.1f}s. Legendas em {len(beats)} blocos — {sync_mode}.')
@@ -3538,32 +3535,8 @@ def produce_job(jid):
         v42_audit = None
         if v42_full_audit:
             try:
+                update_job(jid,stage='AVALIAÇÃO',progress=94,log='Auditoria independente V42: checando legendas e integridade técnica do MP4...')
                 v42_audit = v42_full_audit(video, [b.get('text','') for b in beats], script.get('narration',''))
-                if v42_audit.get('caption',{}).get('score',100) < 85 and v42_repair_captions:
-                    repaired_caps = v42_repair_captions([b.get('text','') for b in beats], script.get('narration',''), target=max(6,min(10,len(beats) or 9)))
-                    if repaired_caps and repaired_caps != [b.get('text','') for b in beats]:
-                        repaired_beats=[]
-                        n=min(len(repaired_caps),len(beats))
-                        for i,c in enumerate(repaired_caps[:n]):
-                            b=dict(beats[i]); b['text']=c; repaired_beats.append(b)
-                        if repaired_beats:
-                            video2=video.with_name('GTA_OCULTO_SHORT_V42_REPAIRED.mp4')
-                            make_multimedia_video(selected_videos,image_scenes,audio,video2,duration,[b['text'] for b in repaired_beats],script,topic['title'],repaired_beats)
-                            va2=v42_full_audit(video2,[b['text'] for b in repaired_beats],script.get('narration',''))
-                            # V55.9: never accept an independent caption repair if it
-                            # introduces words that are not present in the actual narration.
-                            # The previous V42 repair could improve visual segmentation while
-                            # silently introducing foreign/metadata text, which then caused the
-                            # final strict caption gate to block the whole production.
-                            va2_align = _caption_narration_alignment(repaired_beats, script.get('narration',''))
-                            va2_safe = (va2_align.get('foreign_ratio', 1.0) <= 0.03 and
-                                        va2_align.get('score', 0) >= 85)
-                            if va2.get('score',0) >= v42_audit.get('score',0) and va2_safe:
-                                os.replace(video2,video); beats=repaired_beats; repaired=True; v42_audit=va2
-                            elif video2.exists():
-                                video2.unlink()
-                                if not va2_safe:
-                                    v42_audit.setdefault('notes',[]).append('V55.9: reparo V42 descartado por desalinhamento com a narração.')
             except Exception as _v42e:
                 v42_audit={'score':None,'error':str(_v42e)[:500]}
 
