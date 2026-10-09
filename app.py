@@ -3421,38 +3421,20 @@ def self_heal(jid, script, video, duration, beats, selected_videos, image_scenes
     repaired=False
     codes={x['code'] for x in audit['issues']}
     if 'VISUAL_STAGNATION' in codes or 'HIGH_FROZEN_RATIO' in codes or 'VISUAL_REPETITION' in codes:
-        _learn_event('VISUAL_REPETITION','auditor detectou repetição/congelamento visual', 'testar múltiplas timelines com cenas curtas, ordem alternativa e movimento aumentado', None)
-        update_job(jid,stage='AUTO-CORREÇÃO',progress=94,log='🧠 AUDITOR IA: visual repetitivo/congelado detectado. Testando variações de timeline automaticamente...')
-        base_score=audit.get('score',0)
-        best=None
-        # Render Free: uma única tentativa de reparo visual por produção.
-        # Mantemos o QA real, mas evitamos 3 renderizações completas em sequência.
-        variants=[]
-        if selected_videos: variants.append((selected_videos[1:]+selected_videos[:1], image_scenes[1:]+image_scenes[:1], 2))
-        for attempt,(alt_videos,alt_images,variant) in enumerate(variants,1):
-            video2=video.with_name(f'GTA_OCULTO_SHORT_VISUAL_REPAIR_{attempt}.mp4')
-            try:
-                make_multimedia_video(alt_videos,alt_images,audio,video2,duration,[b.get('text','') for b in beats],script,topic['title'],beats,motion_boost=True,asset_variant=variant)
-                audit2=audit_short(script,video2,duration,beats,alt_videos,alt_images)
-                if best is None or audit2.get('score',0)>best[0]:
-                    best=(audit2.get('score',0),audit2,video2,alt_videos,alt_images)
-                if audit2.get('score',0)>=90 and audit2.get('score',0)>base_score:
-                    break
-            except Exception as e:
-                _learn_event('VISUAL_REPAIR_ERROR',f'variação {attempt} falhou: {e}',f'asset_variant={variant}',False)
-                try: video2.unlink()
-                except Exception: pass
-        if best and best[0]>base_score:
-            _,audit2,video2,alt_videos,alt_images=best
-            os.replace(video2,video); selected_videos[:]=alt_videos; image_scenes[:]=alt_images; audit=audit2; repaired=True
-            _learn_event('VISUAL_REPETITION','reparo visual concluído com melhor variante', 'múltiplas timelines + movimento aumentado', True)
-        else:
-            for attempt in range(1,len(variants)+1):
-                try:
-                    q=video.with_name(f'GTA_OCULTO_SHORT_VISUAL_REPAIR_{attempt}.mp4')
-                    if q.exists(): q.unlink()
-                except Exception: pass
-            _learn_event('VISUAL_REPETITION','nenhuma variante melhorou o score', 'bloquear publicação para evitar Short visualmente ruim', False)
+        # V62.1 Render Free: QA visual continua obrigatório, mas autocorreção visual
+        # não dispara uma segunda/terceira renderização completa.
+        _learn_event(
+            'VISUAL_REPETITION',
+            'auditor detectou repetição/congelamento visual',
+            'QA visual bounded; bloquear apenas falhas extremas, sem re-render automático no Free',
+            None
+        )
+        update_job(
+            jid,
+            stage='AVALIAÇÃO',
+            progress=95,
+            log='🧠 AUDITOR IA: QA visual concluído. Sem re-render automático no Render Free.'
+        )
     if any(x['code'] in {'CAPTIONS_BAD_BOUNDARY','CAPTIONS_REPEATED','CAPTIONS_NOT_FROM_NARRATION'} for x in audit['issues']):
         _learn_event('CAPTIONS_BAD_BOUNDARY','auditor detectou cortes semânticos/visuais', 'resegmentar captions e equilibrar quebra de linha', None)
         new_beats=_repair_caption_beats(beats,duration,6)
@@ -3606,7 +3588,7 @@ def produce_job(jid):
             if align_a.get('foreign_ratio',0)<=0.03 and align_a.get('score',100)>=85 and cap_a.get('repeated_adjacent',0)==0 and not severe_boundary:
                 blocking=[i for i in blocking if i.get('code')!='CAPTIONS_BAD_BOUNDARY']
                 audit.setdefault('notes',[]).append('V55.4: boundary leve aceito com alinhamento íntegro à narração.')
-        if audit.get('score',0)<90 or blocking:
+        if audit.get('score',0)<85 or blocking:
             for issue in audit.get('issues',[]): _learn_event(issue['code'],issue['message'])
             # V55.6: nunca ocultar o motivo quando o score reprova sem hard-block.
             all_codes=[]
