@@ -3777,7 +3777,7 @@ def produce_job(jid):
             score=min(score,int(v42_audit['score']))
         audit['v42_independent']=v42_audit
         (jobdir/'audit.json').write_text(json.dumps(audit,ensure_ascii=False,indent=2),encoding='utf-8')
-        update_job(jid,stage='AVALIAÇÃO',progress=96,log=f'🧠 AUDITOR IA: {audit.get("score",0)}/100 | alinhamento pauta/roteiro: {audit.get('checks',{}).get('alinhamento_pauta',0)}/100 | reparo automático: {"SIM" if repaired else "NÃO"} | problemas: {len(audit.get("issues",[]))}.')
+        update_job(jid,stage='AVALIAÇÃO',progress=96,log='🧠 AUDITOR IA: {}/100 | alinhamento pauta/roteiro: {}/100 | reparo automático: {} | problemas: {}.'.format(audit.get('score',0), audit.get('checks',{}).get('alinhamento_pauta',0), 'SIM' if repaired else 'NÃO', len(audit.get('issues',[]))))
         hard_issues={
             'HEADLINE_SCRIPT_MISMATCH','CAPTIONS_NOT_FROM_NARRATION','CAPTIONS_BAD_BOUNDARY','CAPTIONS_REPEATED',
             'CAPTIONS_LOW_QUALITY','CAPTIONS_INCOMPLETE',
