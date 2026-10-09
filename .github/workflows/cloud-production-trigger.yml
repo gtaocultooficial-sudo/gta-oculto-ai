@@ -24,7 +24,7 @@ jobs:
             deployed=$(echo "$body" | python -c "import json,sys; print(json.load(sys.stdin).get('commit',''))" 2>/dev/null || true)
             version=$(echo "$body" | python -c "import json,sys; print(json.load(sys.stdin).get('version',''))" 2>/dev/null || true)
             echo "health=$code commit=$deployed version=$version attempt=$i"
-            if [ "$code" = "200" ] && [ "$deployed" = "$GITHUB_SHA" ] && echo "$version" | grep -q 'V64.7'; then
+            if [ "$code" = "200" ] && [ "$deployed" = "$GITHUB_SHA" ] && echo "$version" | grep -q 'V64.8'; then
               echo "Render ativo no commit esperado."
               exit 0
             fi
