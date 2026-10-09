@@ -45,3 +45,6 @@ O sistema tem auto-recuperação real para falhas conhecidas e uma política de 
 
 
 <!-- production verification trigger 2026-10-09b -->
+
+
+<!-- production e2e verification 1791511136093 -->
