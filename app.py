@@ -63,7 +63,7 @@ UA = 'GTA-Oculto-AI/Cloud-Final/V55-SOURCE-RECOVERY-3'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
-BUILD_VERSION = 'V64.7-SEMANTIC-VISUAL-GATE-20261009'
+BUILD_VERSION = 'V64.8-BOUNDED-SOURCE-RECOVERY-20261009'
 
 FALLBACK_TOPICS = [
     {'id':'leonida','score':96,'priority':'ALTA','title':'GTA 6: o detalhe de Leonida que pode mudar a história','source':'Rockstar Games','url':ROCKSTAR_VI,
@@ -1711,24 +1711,32 @@ def _autonomous_make_script(jid, topic, topics):
         if not key or key in seen: continue
         seen.add(key); candidates.append(dict(t))
     candidates.sort(key=lambda x:(1 if x.get('recovery_urls') else 0, int(x.get('score',0))), reverse=True)
-    candidates=candidates[:max(AUTONOMOUS_MAX_TOPIC_RECOVERY,6)]
+    # V64.8: cap total de recuperação. O resolver já possui orçamento interno;
+    # empilhar 5 pautas pode multiplicar chamadas externas e deixar o job sem progresso.
+    candidates=candidates[:min(2, max(1, AUTONOMOUS_MAX_TOPIC_RECOVERY))]
     last_exc=None
     for attempt,candidate in enumerate(candidates,1):
+        started=time.monotonic()
+        title=str(candidate.get('title') or 'GTA 6')
+        update_job(jid,title=title,opportunity=candidate,stage='AUTO-RECUPERAÇÃO',progress=min(30,24+attempt),
+                   log=f'V64.8: validação de fonte {attempt}/{len(candidates)} — {title}')
         try:
-            update_job(jid,title=str(candidate.get('title') or 'GTA 6'),opportunity=candidate,stage='AUTO-RECUPERAÇÃO',progress=min(30,24+attempt),
-                       log=f'🤖 V54: validando fonte antes de renderizar — pauta {attempt}/{len(candidates)}: {candidate.get("title","")}')
             script=make_script(candidate)
-            if attempt>1:
-                update_job(jid,log=f'✅ V54 AUTO-TROCA: corpo original encontrado. Nova pauta: {candidate.get("title","")}')
+            elapsed=round(time.monotonic()-started,1)
+            update_job(jid,log=f'V64.8: fonte validada em {elapsed}s; pauta aprovada: {title}')
             return candidate, script
         except Exception as exc:
             last_exc=exc
-            if not _is_source_recovery_error(exc): raise
-            try: _learn_event('V54_SOURCE_RECOVERY_FAILED',f'pauta descartada: {str(exc)[:500]}',candidate.get('title',''))
+            diagnostic=f'{type(exc).__name__}: {str(exc)[:450]}'
+            try: _learn_event('V64_SOURCE_RECOVERY_FAILED',diagnostic,title)
             except Exception: pass
-            update_job(jid,log='⚠️ V54: pauta descartada por fonte não confiável/indisponível. Tentando automaticamente a próxima pauta...')
+            update_job(jid,log=f'V64.8: pauta descartada após {round(time.monotonic()-started,1)}s — {diagnostic}')
+            if not _is_source_recovery_error(exc):
+                raise
+            if attempt < len(candidates):
+                update_job(jid,log='V64.8: tentando uma única pauta alternativa; não vai reutilizar manchete sem corpo original.')
     if last_exc:
-        raise ValueError('V55: nenhuma pauta com corpo original confiável foi encontrada após recuperação automática. Última falha: '+str(last_exc)[:600])
+        raise ValueError('V64.8: nenhuma pauta com corpo original confiável após no máximo duas tentativas. Última falha: '+str(last_exc)[:600])
     raise ValueError('V55: nenhuma oportunidade disponível para recuperação de fonte.')
 
 
