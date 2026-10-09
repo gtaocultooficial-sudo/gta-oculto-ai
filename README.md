@@ -48,3 +48,5 @@ O sistema tem auto-recuperação real para falhas conhecidas e uma política de 
 
 
 <!-- production e2e verification 1791511136093 -->
+
+<!-- encoder verification 1791511932071 -->
