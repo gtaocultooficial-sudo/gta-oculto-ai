@@ -61,7 +61,7 @@ UA = 'GTA-Oculto-AI/Cloud-Final/V55-SOURCE-RECOVERY-3'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
-BUILD_VERSION = 'V63.8-STREAMED-ZIP-EXTRACTION-20261009'
+BUILD_VERSION = 'V63.9-STREAMED-ZIP-FIX-20261009'
 
 FALLBACK_TOPICS = [
     {'id':'leonida','score':96,'priority':'ALTA','title':'GTA 6: o detalhe de Leonida que pode mudar a história','source':'Rockstar Games','url':ROCKSTAR_VI,
@@ -2306,7 +2306,7 @@ def _remote_zip_entries(url):
 def _remote_zip_extract(url,entry,target):
     """Extract one selected ZIP member with bounded RAM (2 MiB network chunks)."""
     local=_http_range(url,entry['local'],entry['local']+29)
-    if local[:4] != b'PK\\x03\\x04':
+    if local[:4] != b'PK\x03\x04':
         raise RuntimeError(f'Cabeçalho local inválido: {entry["name"]}')
     _,ver,flags,method,mtime,mdate,crc,csize,usize,fn,extra=struct.unpack('<4s5H3L2H',local)
     data_start=entry['local']+30+fn+extra
