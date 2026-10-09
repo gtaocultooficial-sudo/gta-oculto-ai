@@ -1789,6 +1789,13 @@ def make_script(topic):
     clean_topic=re.sub(r'^\s*GTA\s*6\s*[—:-]\s*','',headline,flags=re.I).strip()
     if not clean_topic:
         clean_topic='uma nova informação sobre GTA 6'
+    # The focused Jason/Lucia work-money story must not keep a broad listicle script.
+    focused_story=(
+        bool(re.search(r'\bjason\b',headline,re.I))
+        and bool(re.search(r'\blucia\b',headline,re.I))
+        and bool(re.search(r'\btrabalh\w*\b',headline,re.I))
+        and bool(re.search(r'\b(?:dinheiro|ganh\w*)\b',headline,re.I))
+    )
 
     hook_map={
         'NOTÍCIA':'A ROCKSTAR REVELOU UMA NOVA INFORMAÇÃO SOBRE GTA 6',
@@ -1798,16 +1805,23 @@ def make_script(topic):
     }
     hook=hook_map[kind]
 
-    # Usa no máximo dois fatos fortes do MESMO corpo principal.
-    # Menos fatos, melhor retenção e menor chance de carregar ruído editorial.
+    # Use only one factual sentence for a narrowly focused story, preventing the
+    # same work/money point from being stated in context, evidence and payoff.
     fact_parts=[]
-    for item in evidence[:2]:
+    selected_evidence=evidence[:1] if focused_story else evidence[:2]
+    for item in selected_evidence:
         item=_clean_narrative_text(item).rstrip('.!?')
+        if focused_story:
+            item=re.sub(r'^do pouco que foi mostrado,\s*','Até agora, ',item,flags=re.I)
         if item and item not in fact_parts:
             fact_parts.append(item)
     fact='. '.join(fact_parts)+'.'
 
-    if kind=='NOTÍCIA':
+    if focused_story:
+        context='A matéria destaca a rotina dos protagonistas em Vice City.'
+        payoff='O texto não esclarece todas as motivações da dupla, então vale separar o que foi mostrado das interpretações.'
+        cta='Você acha que esse será um dos focos da história?'
+    elif kind=='NOTÍCIA':
         context=f'Uma nova informação envolvendo GTA 6 ganhou destaque: {clean_topic}.'
         payoff='O ponto principal é separar o que a matéria realmente informa daquilo que ainda seria apenas especulação.'
         cta='Você quer ver mais detalhes sobre isso no GTA 6?'
@@ -3648,7 +3662,7 @@ def produce_job(jid):
             _pre_cap=_audit_caption_quality(beats)
             _pre_align=_caption_narration_alignment(beats,script.get('narration',''))
         if _pre_cap.get('score',100)<92 and beats:
-            _fixed_beats=_repair_caption_beats(beats,duration,5)
+            _fixed_beats=_repair_caption_beats(beats,duration,7)
             if _fixed_beats:
                 beats=_fixed_beats
         _pre_cap=_audit_caption_quality(beats)
