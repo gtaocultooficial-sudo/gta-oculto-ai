@@ -31,6 +31,8 @@ jobs:
         shell: bash
         run: |
           set -e
+          echo "Deployment candidate: $GITHUB_SHA"
+          echo "Starting exactly one production for this run"
           response=$(curl -sS --max-time 30 https://gta-oculto-ai.onrender.com/api/produce)
           echo "$response"
           echo "$response" | grep -q '"ok":true'
@@ -44,13 +46,18 @@ jobs:
           echo "Aguardando conclusão do job $JOB_ID..."
           for i in {1..24}; do
             body=$(curl -sS --max-time 30 "https://gta-oculto-ai.onrender.com/api/job/$JOB_ID" || true)
+            if ! echo "$body" | python -c "import json,sys; d=json.load(sys.stdin); assert d.get('id') or d.get('job_id')" 2>/dev/null; then
+              echo "Resposta de job ausente/inválida; não marcar como sucesso."
+              echo "$body"
+              exit 1
+            fi
             echo "$body" > /tmp/job.json
             status=$(echo "$body" | python -c "import json,sys; print(json.load(sys.stdin).get('status','UNKNOWN'))" 2>/dev/null || echo UNKNOWN)
             stage=$(echo "$body" | python -c "import json,sys; print(json.load(sys.stdin).get('stage',''))" 2>/dev/null || true)
             progress=$(echo "$body" | python -c "import json,sys; print(json.load(sys.stdin).get('progress',''))" 2>/dev/null || true)
             echo "attempt=$i status=$status stage=$stage progress=$progress"
             if [ "$status" = "DONE" ]; then
-              echo "===== PRODUÇÃO CONCLUÍDA ====="
+              echo "===== PRODUÇÃO CONCLUÍDA: status não substitui QA editorial ====="
               python - <<'PY'
           import json
           d=json.load(open('/tmp/job.json'))
