@@ -2483,35 +2483,35 @@ def _remote_zip_extract(url,entry,target):
         raise
 
 def download_official_video_clips(outdir, jid=None):
-    """Baixa um banco de 10 clipes oficiais, sem baixar o ZIP inteiro.
+    """Baixa até 9 clipes oficiais disponíveis, sem baixar o ZIP inteiro.
     Usa o diretório central de cache para que um próximo Short reaproveite os clipes.
     """
     outdir.mkdir(parents=True, exist_ok=True)
     cache=WORK/'official_video_cache'; cache.mkdir(parents=True, exist_ok=True)
     clips=sorted([p for p in cache.glob('rockstar_real_v251_*.mp4') if p.stat().st_size>20000])
-    if len(clips)>=10:
-        return clips[:10]
+    if len(clips)>=9:
+        return clips[:9]
     try:
         if jid: update_job(jid,log='Lendo catálogo oficial da Rockstar e selecionando apenas os clipes necessários...')
         total,entries=_remote_zip_entries(ROCKSTAR_VIDEO_ZIP)
         media=[e for e in entries if e['name'].lower().endswith(('.mp4','.mov','.m4v'))]
-        if len(media)<10:
-            raise RuntimeError(f'O pacote oficial possui apenas {len(media)} vídeos utilizáveis; são necessários 10 para garantir variedade visual.')
+        if len(media)<6:
+            raise RuntimeError(f'O pacote oficial possui apenas {len(media)} vídeos utilizáveis; são necessários pelo menos 6.')
         preferred=[]
         for key in ('Jason','Lucia','Cal','Boobie','Raul','Brian','Real','Dre'):
             preferred += [e for e in media if key.lower() in Path(e['name']).stem.lower() and e not in preferred]
-        chosen=(preferred+[e for e in media if e not in preferred])[:10]
+        chosen=(preferred+[e for e in media if e not in preferred])[:9]
         ff=_ffmpeg_executable()
         for i,entry in enumerate(chosen):
             target=cache/f'rockstar_real_v251_{i}.mp4'
             if target.exists() and target.stat().st_size>20000:
                 continue
             raw=cache/f'raw_v251_{i}.mp4'
-            if jid: update_job(jid,log=f'Baixando clipe oficial {i+1}/10: {Path(entry["name"]).stem}...')
+            if jid: update_job(jid,log=f'Baixando clipe oficial {i+1}/9: {Path(entry["name"]).stem}...')
             _remote_zip_extract(ROCKSTAR_VIDEO_ZIP,entry,raw)
             # V63.7: limitar o DECODIFICADOR na conversão do arquivo-fonte
             # (era o único FFmpeg pesado sem limite de threads).
-            update_job(jid,log=f'Convertendo clipe-fonte para proxy leve 320x568 ({i+1}/10)...') if jid else None
+            update_job(jid,log=f'Convertendo clipe-fonte para proxy leve 320x568 ({i+1}/9)...') if jid else None
             run_cmd([ff,'-loglevel','error','-y','-threads:v','1','-probesize','1M','-analyzeduration','1M','-i',str(raw),'-t','5',
                      '-vf','scale=320:568:force_original_aspect_ratio=increase,crop=320:568,setsar=1,fps=12',
                      '-an','-c:v','libx264','-preset','ultrafast','-crf','31','-threads','1',
@@ -2520,9 +2520,9 @@ def download_official_video_clips(outdir, jid=None):
             try: raw.unlink()
             except Exception: pass
         clips=sorted([p for p in cache.glob('rockstar_real_v251_*.mp4') if p.stat().st_size>20000])
-        if len(clips)<10:
-            raise RuntimeError(f'Apenas {len(clips)} clipes reais foram preparados; a variedade mínima é 10.')
-        return clips[:10]
+        if len(clips)<6:
+            raise RuntimeError(f'Apenas {len(clips)} clipes reais foram preparados; são necessários pelo menos 6.')
+        return clips[:9]
     except Exception as e:
         raise RuntimeError('Não foi possível obter os vídeos oficiais da Rockstar: '+str(e)[:1800])
 
@@ -3787,7 +3787,7 @@ def produce_job(jid):
         update_job(jid,progress=66,log=f'Narração pronta: {script.get("word_count",0)} palavras / {duration:.1f}s. Legendas em {len(beats)} blocos — {sync_mode}.')
         update_job(jid,stage='EDIÇÃO',progress=74,log=f'Obtendo vídeos oficiais da Rockstar e montando timeline com movimento real / {duration:.1f}s...')
         official_videos=download_official_video_clips(jobdir/'official_videos', jid)
-        selected_videos=select_video_clips(official_videos,topic['title'],10)
+        selected_videos=select_video_clips(official_videos,topic['title'],9)
         if len(image_scenes)<4:
             image_scenes=_augment_scenes_with_real_video_frames(selected_videos,image_scenes,jobdir,target=4)
         update_job(jid,log=f'{len(selected_videos)} vídeos oficiais e {len(image_scenes)} imagens/cenas reais disponíveis. Editando em 9:16 / {duration:.1f}s...')
