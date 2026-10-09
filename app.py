@@ -61,7 +61,7 @@ UA = 'GTA-Oculto-AI/Cloud-Final/V55-SOURCE-RECOVERY-3'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
-BUILD_VERSION = 'V63.6-LOW-RAM-DECODER-20261009'
+BUILD_VERSION = 'V63.7-LOW-RAM-SOURCE-PROXY-20261009'
 
 FALLBACK_TOPICS = [
     {'id':'leonida','score':96,'priority':'ALTA','title':'GTA 6: o detalhe de Leonida que pode mudar a história','source':'Rockstar Games','url':ROCKSTAR_VI,
@@ -2350,10 +2350,13 @@ def download_official_video_clips(outdir, jid=None):
             raw=cache/f'raw_v251_{i}.mp4'
             if jid: update_job(jid,log=f'Baixando clipe oficial {i+1}/6: {Path(entry["name"]).stem}...')
             _remote_zip_extract(ROCKSTAR_VIDEO_ZIP,entry,raw)
-            run_cmd([ff,'-loglevel','error','-y','-i',str(raw),'-t','5',
-                     '-vf','scale=320:568:force_original_aspect_ratio=increase,crop=320:568,setsar=1,fps=15',
-                     '-an','-c:v','libx264','-preset','ultrafast','-crf','29','-threads','1',
-                     '-filter_threads','1','-filter_complex_threads','1','-x264-params','threads=1:lookahead-threads=1',
+            # V63.7: limitar o DECODIFICADOR na conversão do arquivo-fonte
+            # (era o único FFmpeg pesado sem limite de threads).
+            update_job(jid,log=f'Convertendo clipe-fonte para proxy leve 320x568 ({i+1}/6)...') if jid else None
+            run_cmd([ff,'-loglevel','error','-y','-threads:v','1','-probesize','1M','-analyzeduration','1M','-i',str(raw),'-t','5',
+                     '-vf','scale=320:568:force_original_aspect_ratio=increase,crop=320:568,setsar=1,fps=12',
+                     '-an','-c:v','libx264','-preset','ultrafast','-crf','31','-threads','1',
+                     '-filter_threads','1','-filter_complex_threads','1','-x264-params','threads=1:lookahead-threads=1:rc-lookahead=0:sync-lookahead=0',
                      '-pix_fmt','yuv420p','-movflags','+faststart',str(target)],90)
             try: raw.unlink()
             except Exception: pass
