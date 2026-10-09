@@ -17,14 +17,21 @@ jobs:
         shell: bash
         run: |
           set -e
-          sleep 45
-          for i in {1..18}; do
+          echo "Esperando o Render executar exatamente o commit $GITHUB_SHA"
+          for i in {1..36}; do
             code=$(curl -s -o /tmp/health.json -w "%{http_code}" https://gta-oculto-ai.onrender.com/health || true)
-            echo "health_body=$(cat /tmp/health.json 2>/dev/null || true)"
-            echo "health=$code attempt=$i"
-            if [ "$code" = "200" ]; then exit 0; fi
+            body=$(cat /tmp/health.json 2>/dev/null || true)
+            deployed=$(echo "$body" | python -c "import json,sys; print(json.load(sys.stdin).get('commit',''))" 2>/dev/null || true)
+            version=$(echo "$body" | python -c "import json,sys; print(json.load(sys.stdin).get('version',''))" 2>/dev/null || true)
+            echo "health=$code commit=$deployed version=$version attempt=$i"
+            if [ "$code" = "200" ] && [ "$deployed" = "$GITHUB_SHA" ] && echo "$version" | grep -q 'V64.6'; then
+              echo "Render ativo no commit esperado."
+              exit 0
+            fi
             sleep 10
           done
+          echo "Render não ativou o commit esperado; produção bloqueada."
+          cat /tmp/health.json 2>/dev/null || true
           exit 1
 
       - name: Start autonomous production
