@@ -58,3 +58,5 @@ O sistema tem auto-recuperação real para falhas conhecidas e uma política de 
 <!-- [produce] V62.1 verify no visual re-render loop -->
 
 <!-- [produce] V62.2 verify low-RAM final encoder -->
+
+<!-- [produce] V63 single-encode end-to-end verification -->
