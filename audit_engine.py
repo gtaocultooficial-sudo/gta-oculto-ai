@@ -83,6 +83,26 @@ def repair_captions(captions, narration='', target=9):
     return chunks[:target]
 
 
+
+def hook_audit(narration=''):
+    """Score the opening of a Short for immediate curiosity and clarity."""
+    text=_norm(narration)
+    if not text: return {'score':0,'issues':['hook_missing']}
+    first=re.split(r'(?<=[.!?])\\s+',text,maxsplit=1)[0].strip()
+    words=_words(first)
+    score=100; issues=[]
+    if len(words)<5:
+        score-=20; issues.append('hook_too_short')
+    if len(words)>24:
+        score-=18; issues.append('hook_too_long')
+    lower=first.lower()
+    curiosity=('?' in first or any(x in lower for x in ('segredo','detalhe','ninguém','pode mudar','descobriu','revelou','por que','como','confirmou','escondido')))
+    if not curiosity:
+        score-=18; issues.append('hook_low_curiosity')
+    if any(x in lower for x in ('radar','editor-chefe','score','confiança','fontes','pesquisa editorial')):
+        score-=30; issues.append('hook_internal_metadata')
+    return {'score':max(0,min(100,score)),'issues':sorted(set(issues)),'text':first}
+
 def technical_video_audit(video_path):
     p=Path(video_path)
     if not p.exists(): return {'score':0,'issues':['video_missing']}
@@ -111,6 +131,6 @@ def technical_video_audit(video_path):
 
 
 def full_audit(video_path, captions, narration=''):
-    ca=caption_audit(captions,narration); va=technical_video_audit(video_path)
-    score=round(ca['score']*0.45 + va['score']*0.55)
-    return {'score':score,'caption':ca,'technical':va,'ok':score>=78}
+    ca=caption_audit(captions,narration); ha=hook_audit(narration); va=technical_video_audit(video_path)
+    score=round(ca['score']*0.40 + ha['score']*0.20 + va['score']*0.40)
+    return {'score':score,'caption':ca,'hook':ha,'technical':va,'ok':score>=78}
