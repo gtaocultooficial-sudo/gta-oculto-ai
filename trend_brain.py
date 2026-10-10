@@ -2,7 +2,7 @@ import json, math, os, re, time, threading
 from pathlib import Path
 
 class TrendBrain:
-    """V58 editorial memory. It ranks radar topics and learns from YouTube Analytics."""
+    """V59 editorial memory. It ranks radar topics and learns from YouTube Analytics."""
     def __init__(self, workspace=None):
         self.root=Path(workspace or os.getenv("GTA_WORKSPACE","workspace"))
         self.root.mkdir(parents=True, exist_ok=True)
@@ -94,7 +94,7 @@ class TrendBrain:
         def ix(n):
             try:return headers.index(n)
             except ValueError:return -1
-        vi,vw,vl,vs=ix("video"),ix("views"),ix("likes"),ix("subscribersgained")
+        vi,vw,vl,vs,vd,vm=ix("video"),ix("views"),ix("likes"),ix("subscribersgained"),ix("averageviewduration"),ix("estimatedminuteswatched")
         with self.lock:
             d=self._read()
             pubs=publications or {}
@@ -103,10 +103,18 @@ class TrendBrain:
                 vid=str(row[vi]); views=float(row[vw] or 0) if 0<=vw<len(row) else 0
                 likes=float(row[vl] or 0) if 0<=vl<len(row) else 0
                 subs=float(row[vs] or 0) if 0<=vs<len(row) else 0
+                avg_duration=float(row[vd] or 0) if 0<=vd<len(row) else 0
+                watched_minutes=float(row[vm] or 0) if 0<=vm<len(row) else 0
                 like_rate=(likes/views*100) if views else 0
-                perf=min(100,math.log10(max(1,views))*18+min(20,like_rate*4)+min(15,subs*3))
+                # Retention matters more than raw views for Shorts. Use bounded Analytics signals.
+                retention_signal=min(30,avg_duration*2.0)
+                watch_signal=min(15,math.log10(max(1,watched_minutes+1))*5)
+                engagement=min(20,like_rate*4)
+                subscriber_signal=min(15,subs*3)
+                view_signal=min(40,math.log10(max(1,views))*10)
+                perf=min(100,view_signal+retention_signal+watch_signal+engagement+subscriber_signal)
                 p=pubs.get(vid,{})
-                d["videos"][vid]={"topic_key":p.get("topic_key",d["videos"].get(vid,{}).get("topic_key","")),"performance_score":round(perf,2),"views":views,"likes":likes,"subscribers":subs,"updated":time.time()}
+                d["videos"][vid]={"topic_key":p.get("topic_key",d["videos"].get(vid,{}).get("topic_key","")),"performance_score":round(perf,2),"views":views,"likes":likes,"subscribers":subs,"average_view_duration":avg_duration,"estimated_minutes_watched":watched_minutes,"like_rate":round(like_rate,3),"updated":time.time()}
             d["videos"]=dict(list(d["videos"].items())[-500:])
             self._write(d)
         return {"ok":True,"videos_learned":len(rows)}
