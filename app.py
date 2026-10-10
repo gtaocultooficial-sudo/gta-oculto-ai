@@ -3880,18 +3880,22 @@ def produce_job(jid):
         make_multimedia_video(selected_videos,image_scenes,audio,video,duration,caps,script,topic['title'],beats)
         print(f'[JOB {jid}] stage=RENDER done exists={video.exists()} bytes={video.stat().st_size if video.exists() else 0}',flush=True)
         # Nunca deixe a capa derrubar uma produção já renderizada.
+        print(f'[JOB {jid}] stage=POST_RENDER cover start',flush=True)
         if not image_scenes:
             fallback_cover=jobdir/'cover_fallback.jpg'
             make_fallback(fallback_cover,0,topic['title'])
             image_scenes=[fallback_cover]
         cover=jobdir/'CAPA.jpg'; make_cover(image_scenes[0],topic['title'],cover)
+        print(f'[JOB {jid}] stage=POST_RENDER cover done exists={cover.exists()} bytes={cover.stat().st_size if cover.exists() else 0}',flush=True)
         update_job(jid,stage='AVALIAÇÃO',progress=92,log='Avaliando hook, ritmo, duração e sincronização real das legendas...')
         # V63.3: os mesmos arquivos já foram avaliados na seleção de visuais.
         # Não reler/redimensionar todos antes da auditoria final no Render Free.
         visual_quality=94 if len(set(map(str,image_scenes)))>=4 else 78
         update_job(jid,stage='AVALIAÇÃO',progress=93,log='QA 1/3: integridade do MP4, codecs, áudio e duração...')
         # V41: auditor automático examina o MP4 real e tenta correções seguras antes do gate final.
+        print(f'[JOB {jid}] stage=QA start',flush=True)
         audit,beats,repaired=self_heal(jid,script,video,duration,beats,selected_videos,image_scenes,topic,audio)
+        print(f'[JOB {jid}] stage=QA done score={audit.get("score",0)} issues={len(audit.get("issues",[]))}',flush=True)
         update_job(jid,stage='AVALIAÇÃO',progress=94,log='QA 2/3 concluído: auditor editorial, legenda e mídia.')
 
         # V42: second independent bounded audit. It never replaces the proven
@@ -3905,7 +3909,9 @@ def produce_job(jid):
             except Exception as _v42e:
                 v42_audit={'score':None,'error':str(_v42e)[:500]}
 
+        print(f'[JOB {jid}] stage=EVALUATE start',flush=True)
         score=evaluate(script,duration,len(beats),visual_quality,beats,len(selected_videos),len(image_scenes))
+        print(f'[JOB {jid}] stage=EVALUATE done score={score}',flush=True)
         score=min(score,audit.get('score',score))
         if v42_audit and isinstance(v42_audit.get('score'),(int,float)):
             score=min(score,int(v42_audit['score']))
@@ -3972,7 +3978,9 @@ def produce_job(jid):
         meta={'title':topic['title'].upper()+' 👀','description':script['narration']+'\n\n🔎 GTA Oculto — onde os segredos vêm à tona.','hashtags':['#GTA6','#GTAVI','#GTAOculto','#RockstarGames','#GTA'],'tags':['GTA 6','GTA VI','GTA 6 Brasil','GTA 6 teorias','GTA 6 segredos','Rockstar Games','GTA Oculto'],'score':score,'audit_score':audit.get('score',0),'audit':audit,'script_version':script.get('script_version','V33.0-MAIN-ARTICLE-LOCKED')}
         (jobdir/'metadata.json').write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding='utf-8')
         final_video=jobdir/'GTA_OCULTO_SHORT.mp4'
+        print(f'[JOB {jid}] stage=FINAL_VALIDATION start',flush=True)
         final_probe=_probe_media(final_video)
+        print(f'[JOB {jid}] stage=FINAL_VALIDATION probe ok={final_probe.get("ok")} size={final_probe.get("size")} duration={final_probe.get("duration")}',flush=True)
         final_videos=final_probe.get('video') or []
         final_audios=final_probe.get('audio') or []
         if not (final_probe.get('ok') and final_probe.get('size',0)>=50000 and final_videos and final_audios and
