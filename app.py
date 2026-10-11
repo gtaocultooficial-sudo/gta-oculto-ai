@@ -2726,6 +2726,8 @@ def download_official_video_clips(outdir, jid=None):
             raise RuntimeError(f'Apenas {len(safe)} clipes reais e seguros foram preparados; são necessários pelo menos 4.')
         return safe[:8]
 
+    except Exception as e:
+        raise RuntimeError('Não foi possível obter os vídeos oficiais da Rockstar: '+str(e)[:1800])
 def _video_relevance(path,title):
     text=(path.stem+' '+title).lower()
     score=0
