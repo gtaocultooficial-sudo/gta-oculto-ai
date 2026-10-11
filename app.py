@@ -2762,18 +2762,21 @@ def _expand_video_clips_into_distinct_windows(video_clips, jobdir, windows_per_c
             dst=outdir/f'{clip.stem}_window_{wi+1:02d}.mp4'
             try:
                 if not dst.exists() or dst.stat().st_size<8000:
+                    vf=f"trim=start={start:.2f}:duration=1.4,setpts=PTS-STARTPTS,scale=320:568:force_original_aspect_ratio=increase,crop=320:568,setsar=1,fps=12"
                     run_cmd([
-                        ff,'-loglevel','error','-y','-ss',f'{start:.2f}','-i',str(clip),
-                        '-t','1.4','-vf','scale=320:568:force_original_aspect_ratio=increase,crop=320:568,setsar=1,fps=12',
-                        '-an','-c:v','libx264','-preset','ultrafast','-crf','30',
+                        ff,'-loglevel','error','-y','-i',str(clip),
+                        '-vf',vf,'-t','1.4',
+                        '-an','-c:v','libx264','-preset','ultrafast','-crf','28',
                         '-threads','1','-filter_threads','1','-filter_complex_threads','1',
                         '-x264-params','threads=1:lookahead-threads=1:rc-lookahead=0:sync-lookahead=0',
                         '-pix_fmt','yuv420p','-movflags','+faststart',str(dst)
                     ],30)
-                if dst.exists() and dst.stat().st_size>=8000:
+                if dst.exists() and dst.stat().st_size>=5000:
                     expanded.append(dst)
-            except Exception:
+            except Exception as e:
+                print(f'[VIDEO_WINDOWS] skip source={clip.name} window={wi+1} error={type(e).__name__}:{str(e)[:180]}',flush=True)
                 continue
+    print(f'[VIDEO_WINDOWS] expanded {len(video_clips or [])} source clips into {len(expanded)} valid windows',flush=True)
     # Do not silently fall back to recycling whole source videos if segmentation
     # failed; callers can see the actual count and the render gate will stop if
     # the distinct pool is too small.
