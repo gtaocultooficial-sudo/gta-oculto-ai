@@ -2125,32 +2125,94 @@ def _scene_keywords(topic_title):
         ]
     return [['gta 6'],['jason'],['lucia'],['vice city'],['leonida'],['map'],['rockstar'],['jason','lucia'],['city'],['road'],['gta vi'],['gta 6']]
 
+def _visual_fingerprint(path):
+    """Cheap perceptual fingerprint used to reject near-duplicate stills before render."""
+    try:
+        im=Image.open(path).convert('L').resize((32,32))
+        a=list(im.getdata())
+        # Difference hash catches the same composition even after resize/crop.
+        small=im.resize((9,8))
+        px=list(small.getdata())
+        dh=0
+        for k in range(8*8):
+            x=k%9; y=k//9
+            if px[y*9+x] > px[y*9+x+1]:
+                dh |= (1<<k)
+        # Low-resolution luminance signature catches near-identical frames with
+        # small compression/color changes that can evade a simple dHash.
+        mean=sum(a)/max(1,len(a))
+        sig=tuple(int((v-mean)/8) for v in a[::2])
+        return dh,sig
+    except Exception:
+        return None
+
+def _visual_distance(fp1,fp2):
+    if not fp1 or not fp2: return 999
+    dh1,s1=fp1; dh2,s2=fp2
+    h=(dh1^dh2).bit_count()
+    n=min(len(s1),len(s2))
+    if not n: return h
+    # Mean absolute normalized luminance difference.
+    sad=sum(abs(s1[k]-s2[k]) for k in range(n))/n
+    return h + sad*0.35
+
+def _is_near_duplicate(fp,selected_fps):
+    # Hard visual lock: once a composition is selected, a visually equivalent
+    # still cannot re-enter the Short. Threshold is intentionally conservative.
+    return any(_visual_distance(fp,x) <= 10.5 for x in selected_fps)
+
 def select_visuals(paths, topic_title, count=10):
     if not paths: return []
     count=max(0,min(int(count),len(paths)))
     if count==0: return []
     plans=_scene_keywords(topic_title)[:count]
-    chosen=[]; used=set()
+    chosen=[]; used=set(); selected_fps=[]
+    fingerprints={}
+    for idx,item in enumerate(paths):
+        p=item['path'] if isinstance(item,dict) else item
+        fingerprints[idx]=_visual_fingerprint(p)
+
+    def accept(idx):
+        if idx in used: return False
+        fp=fingerprints.get(idx)
+        if fp and _is_near_duplicate(fp,selected_fps):
+            return False
+        chosen.append(idx); used.add(idx)
+        if fp: selected_fps.append(fp)
+        return True
+
     for kws in plans:
         ranked=[]
         for idx,item in enumerate(paths):
-            p=item['path'] if isinstance(item,dict) else item
             if idx in used: continue
+            p=item['path'] if isinstance(item,dict) else item
+            fp=fingerprints.get(idx)
+            if fp and _is_near_duplicate(fp,selected_fps):
+                continue
             txt=_asset_text(item)
             hits=sum(1 for k in kws if k in txt)
             ranked.append((hits, _image_quality(p), idx))
         if ranked:
             ranked.sort(key=lambda x:(x[0],x[1]),reverse=True)
-            chosen.append(ranked[0][2]); used.add(ranked[0][2])
-    # Fill only after unique assets are exhausted; avoid adjacent repeats.
-    if len(chosen)<count:
-        for idx in range(len(paths)):
-            if idx not in used:
-                chosen.append(idx); used.add(idx)
-                if len(chosen)>=count: break
-    # Do not repeat a still image to meet a requested count.
-    return [paths[i]['path'] if isinstance(paths[i],dict) else paths[i] for i in chosen[:count]]
+            accept(ranked[0][2])
 
+    # Fill only with perceptually unique assets. Never recycle a still just to
+    # reach the requested count; fewer unique visuals is safer than a slideshow loop.
+    if len(chosen)<count:
+        remaining=[]
+        for idx in range(len(paths)):
+            if idx in used: continue
+            fp=fingerprints.get(idx)
+            if fp and _is_near_duplicate(fp,selected_fps):
+                continue
+            remaining.append(idx)
+        remaining.sort(key=lambda idx:_image_quality(paths[idx]['path'] if isinstance(paths[idx],dict) else paths[idx]),reverse=True)
+        for idx in remaining:
+            if accept(idx) and len(chosen)>=count:
+                break
+
+    print(f'[VISUAL_DEDUP] requested={count} input={len(paths)} selected={len(chosen)} rejected_near_duplicates={len(paths)-len(chosen)}',flush=True)
+    return [paths[i]['path'] if isinstance(paths[i],dict) else paths[i] for i in chosen[:count]]
 
 def research_official():
     facts=[]; images=[]
