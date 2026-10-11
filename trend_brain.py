@@ -77,14 +77,14 @@ class TrendBrain:
             ranked.append(t)
         return sorted(ranked,key=lambda x:(x.get("trend_score",0),x.get("score",0)),reverse=True)
 
-    def record_publication(self, topic, metadata=None, video_id=None):
+    def record_publication(self, topic, metadata=None, video_id=None, publish_slot=None):
         if not video_id:
             return
         with self.lock:
             d=self._read()
             k=self._key(topic or {})
             old=d["videos"].get(str(video_id),{})
-            d["videos"][str(video_id)]={"topic_key":k,"title":str((topic or {}).get("title","")),"hook":str((topic or {}).get("editorial_hook","")),"angle":str((topic or {}).get("editorial_angle","")),"performance_score":old.get("performance_score",0),"updated":time.time()}
+            d["videos"][str(video_id)]={"topic_key":k,"title":str((topic or {}).get("title","")),"hook":str((topic or {}).get("editorial_hook","")),"angle":str((topic or {}).get("editorial_angle","")),"performance_score":old.get("performance_score",0),"publish_slot":str(publish_slot or old.get("publish_slot","")),"updated":time.time()}
             self._write(d)
 
     def learn(self,result,publications=None):
@@ -114,7 +114,14 @@ class TrendBrain:
                 view_signal=min(40,math.log10(max(1,views))*10)
                 perf=min(100,view_signal+retention_signal+watch_signal+engagement+subscriber_signal)
                 p=pubs.get(vid,{})
-                d["videos"][vid]={"topic_key":p.get("topic_key",d["videos"].get(vid,{}).get("topic_key","")),"performance_score":round(perf,2),"views":views,"likes":likes,"subscribers":subs,"average_view_duration":avg_duration,"estimated_minutes_watched":watched_minutes,"like_rate":round(like_rate,3),"updated":time.time()}
+                existing=d["videos"].get(vid,{})
+                d["videos"][vid]={"topic_key":p.get("topic_key",existing.get("topic_key","")),"title":existing.get("title",p.get("title","")),"hook":existing.get("hook",p.get("hook","")),"angle":existing.get("angle",p.get("angle","")),"fingerprint":existing.get("fingerprint",""),"publish_slot":existing.get("publish_slot",p.get("publish_slot","")),"performance_score":round(perf,2),"views":views,"likes":likes,"subscribers":subs,"average_view_duration":avg_duration,"estimated_minutes_watched":watched_minutes,"like_rate":round(like_rate,3),"updated":time.time()}
+                slot=existing.get("publish_slot",p.get("publish_slot",""))
+                if slot:
+                    sp=d.setdefault("patterns",{}).setdefault("publish_slots",{})
+                    oldslot=sp.get(slot,{"sum":0,"n":0}) if isinstance(sp.get(slot),dict) else {"sum":0,"n":0}
+                    oldslot["sum"]+=float(perf); oldslot["n"]+=1
+                    sp[slot]=round(oldslot["sum"]/max(1,oldslot["n"]),2)
             d["videos"]=dict(list(d["videos"].items())[-500:])
             self._write(d)
         return {"ok":True,"videos_learned":len(rows)}
