@@ -2784,26 +2784,34 @@ def _expand_video_clips_into_distinct_windows(video_clips, jobdir, windows_per_c
     return expanded
 
 
-def _augment_scenes_with_real_video_frames(video_clips, image_scenes, jobdir, target=4):
-    """Fill visual slots only with real frames from selected official clips."""
+def _augment_scenes_with_real_video_frames(video_clips, image_scenes, jobdir, target=18):
+    """Extract multiple distinct real frames from each official clip as moving stills."""
     out=list(image_scenes or [])
     if len(out)>=target:
-        return out
+        return out[:target]
     ff=_ffmpeg_executable()
     for idx,clip in enumerate(video_clips or []):
-        if len(out)>=target:
-            break
-        dst=Path(jobdir)/f'official_frame_{idx:02d}.jpg'
         try:
-            timestamp=0.6 + (idx % 5)*0.7
-            run_cmd([ff,'-loglevel','error','-y','-ss',f'{timestamp:.2f}','-i',str(clip),
-                     '-frames:v','1','-vf','scale=540:960:force_original_aspect_ratio=increase,crop=540:960',
-                     '-q:v','3',str(dst)],20)
-            if dst.exists() and dst.stat().st_size>4000:
-                out.append(dst)
+            probe=_probe_media(Path(clip))
+            duration=max(0.8,float(probe.get('duration') or 8.5))
         except Exception:
-            continue
-    return out
+            duration=8.5
+        # Four samples spread across each source. This is a fallback only when
+        # Rockstar exposes too few usable video clips; all frames remain genuine.
+        for fi in range(4):
+            if len(out)>=target:
+                break
+            timestamp=min(max(0.05,duration*0.12 + fi*(duration*0.24)),max(0.05,duration-0.08))
+            dst=Path(jobdir)/f'official_frame_{idx:02d}_{fi:02d}.jpg'
+            try:
+                run_cmd([ff,'-loglevel','error','-y','-ss',f'{timestamp:.2f}','-i',str(clip),
+                         '-frames:v','1','-vf','scale=540:960:force_original_aspect_ratio=increase,crop=540:960',
+                         '-q:v','3',str(dst)],20)
+                if dst.exists() and dst.stat().st_size>4000:
+                    out.append(dst)
+            except Exception:
+                continue
+    return out[:target]
 
 
 def _caption_overlay(path,caption,idx,total,W=320,H=568,highlight=None):
@@ -3477,7 +3485,7 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
     beats=_normalize_visual_beats(beats,duration,max_scene=1.8)
     # Use todos os assets disponíveis; quando há poucos, o renderer aplica
     # enquadramentos diferentes em cada reutilização em vez de congelar a tela.
-    imgs=list(image_paths)[:6]
+    imgs=list(image_paths)[:18]
     assets=_choose_timeline_assets(video_clips,imgs,beats,topic_title,variant=asset_variant)
     scene_files=[]
     render_use_counts={}
@@ -4268,12 +4276,14 @@ def produce_job(jid):
         print(f'[JOB {jid}] stage=OFFICIAL_VIDEO_DOWNLOAD done count={len(official_videos)}',flush=True)
         selected_videos=select_video_clips(official_videos,topic['title'],9)
         source_video_count=len(selected_videos)
-        selected_videos=_expand_video_clips_into_distinct_windows(selected_videos,jobdir,windows_per_clip=6)
-        if len(image_scenes)<4:
-            image_scenes=_augment_scenes_with_real_video_frames(official_videos,image_scenes,jobdir,target=4)
-        update_job(jid,log=f'{source_video_count} vídeos-fonte divididos em {len(selected_videos)} janelas distintas; {len(image_scenes)} imagens/cenas de apoio. Editando em 9:16 / {duration:.1f}s...')
-        if len(selected_videos)<min(12,len(beats)):
-            raise RuntimeError(f'GATE VISUAL: só {len(selected_videos)} janelas distintas para {len(beats)} cenas; não vou reciclar o mesmo plano para preencher o Short.')
+        if len(selected_videos)<8:
+            image_scenes=_augment_scenes_with_real_video_frames(selected_videos,image_scenes,jobdir,target=18)
+        update_job(jid,log=f'{source_video_count} vídeos oficiais + {len(image_scenes)} cenas/imagens reais distintas disponíveis. Editando em 9:16 / {duration:.1f}s...')
+        # Hard gate: available unique video windows (2 uses/source) plus one-use
+        # real-frame supports must cover the timeline; never recycle on fallback.
+        available_slots=len(selected_videos)*2+len(image_scenes)
+        if available_slots<len(beats):
+            raise RuntimeError(f'GATE VISUAL: só {available_slots} slots visuais distintos para {len(beats)} cenas; não vou reciclar planos.')
         video=jobdir/'GTA_OCULTO_SHORT.mp4'
         print(f'[JOB {jid}] stage=RENDER start',flush=True)
         make_multimedia_video(selected_videos,image_scenes,audio,video,duration,caps,script,topic['title'],beats)
