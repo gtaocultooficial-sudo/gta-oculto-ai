@@ -4110,7 +4110,12 @@ def audit_short(script, video, duration, beats, selected_videos, image_scenes):
         issues.append(('VISUAL_CONTAMINATION','tela ESRB/disclaimer detectada no vídeo final'))
     checks['visuais']=100
     unique=len({str(x) for x in selected_videos})
-    if unique<4: checks['visuais']-=15; issues.append(('LOW_VIDEO_VARIETY',f'apenas {unique} clipes únicos'))
+    unique_images=len({str(x) for x in image_scenes})
+    # A healthy fallback may contain only 2 official video clips plus a large
+    # pool of unique researched/official frames. Count the combined visual pool.
+    visual_pool=unique*2+unique_images
+    if unique<4 and visual_pool<12:
+        checks['visuais']-=15; issues.append(('LOW_VIDEO_VARIETY',f'apenas {unique} clipes únicos e {unique_images} imagens distintas'))
     # Image variety is optional on Render Free: never reject a healthy
     # video merely because the research returned fewer than four usable images.
     if len(images_available if 'images_available' in locals() else []) >= 4 and len(image_scenes)<4:
@@ -4356,7 +4361,7 @@ def produce_job(jid):
             'NO_VIDEO_STREAM','NO_AUDIO_STREAM','WRONG_ASPECT','VISUAL_CONTAMINATION'
         }
         blocking=[i for i in audit.get('issues',[]) if i.get('code') in hard_issues]
-        if not selected_videos and len(image_scenes)>=8:
+        if (len(selected_videos)<4 and len(image_scenes)>=8) or (len(selected_videos)>=2 and len(image_scenes)>=8):
             blocking=[i for i in blocking if i.get('code')!='LOW_VIDEO_VARIETY']
         # V55.4: a mild boundary warning cannot block an otherwise aligned caption track.
         if any(i.get('code')=='CAPTIONS_BAD_BOUNDARY' for i in blocking):
