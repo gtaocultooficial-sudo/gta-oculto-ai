@@ -4299,7 +4299,7 @@ def produce_job(jid):
             # Force the fallback splitter to honor the unique-visual count; the
             # partial/real WordBoundary list can otherwise expand back to 17 beats.
             if len(beats)>fallback_count:
-                narration_words=re.sub(r'\\s+',' ',str(script.get('narration','')).strip()).split()
+                narration_words=re.sub(r'\s+',' ',str(script.get('narration','')).strip()).split()
                 chunks=[]
                 for bi in range(fallback_count):
                     a=round(bi*len(narration_words)/fallback_count)
