@@ -3133,6 +3133,19 @@ def _build_timed_caption_beats(word_cues, duration, count=10):
     return out
 
 
+def _learned_timeline_count(duration, fallback=10):
+    """Map an Analytics-learned winning duration bucket to pacing density."""
+    try:
+        profile=TREND_BRAIN.recommend_editorial_profile() if TREND_BRAIN else {}
+        pref=(profile or {}).get('preferred_duration') or {}
+        bucket=str(pref.get('bucket') or '')
+        s=float(duration or 0)
+        actual='20-29s' if s < 30 else ('30-39s' if s < 40 else ('40-49s' if s < 50 else '50-60s'))
+        if bucket != actual: return fallback
+        return {'20-29s':8,'30-39s':10,'40-49s':12,'50-60s':14}.get(bucket,fallback)
+    except Exception:
+        return fallback
+
 def build_short_timeline(script, topic, duration, count=10, word_cues=None):
     """V31: se houver WordBoundary, usa timestamps reais da voz; caso contrário usa fallback editorial."""
     if word_cues:
@@ -4079,7 +4092,8 @@ def produce_job(jid):
         audio=jobdir/'narracao.mp3'; word_cues=asyncio.run(make_tts(script['narration'],audio)); duration=duration_of_audio(audio)
         print(f'[JOB {jid}] stage=TTS done audio_bytes={audio.stat().st_size if audio.exists() else 0} duration={duration:.1f}',flush=True)
         (jobdir/'word_cues.json').write_text(json.dumps(word_cues,ensure_ascii=False,indent=2),encoding='utf-8')
-        beats=build_short_timeline(script,topic,duration,10,word_cues=word_cues)
+        timeline_count=_learned_timeline_count(duration,10)
+        beats=build_short_timeline(script,topic,duration,timeline_count,word_cues=word_cues)
         # V63: corrigir a segmentação antes do encode final. Evita re-renderizações
         # completas posteriores no Render Free sem abrir mão do gate de legendas.
         _pre_cap=_audit_caption_quality(beats)
@@ -4087,7 +4101,7 @@ def produce_job(jid):
         # If TTS word-boundary events omitted or corrupted words, rebuild captions from
         # the complete approved narration instead of repeatedly repairing incomplete text.
         if (_pre_align.get('foreign_ratio',0)>0.0 or _pre_align.get('narration_coverage',1.0)<0.98) and script.get('narration'):
-            _complete_beats=build_short_timeline(script,topic,duration,14,word_cues=None)
+            _complete_beats=build_short_timeline(script,topic,duration,_learned_timeline_count(duration,14),word_cues=None)
             if _complete_beats:
                 beats=_complete_beats
             _pre_cap=_audit_caption_quality(beats)
