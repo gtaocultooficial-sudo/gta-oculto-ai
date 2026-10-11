@@ -2300,14 +2300,27 @@ def editor_chief_select(topics):
             editorial += 3
         angle,hook=_editorial_angle(topic)
         item=dict(topic)
+        learning={'learned':False}
+        if TREND_BRAIN:
+            try:
+                learning=TREND_BRAIN.recommend_editorial_profile() or {'learned':False}
+            except Exception:
+                learning={'learned':False}
+        # Closed-loop editorial ranking: once the channel has enough evidence,
+        # favor a proven hook style, but keep the effect deliberately small so
+        # a genuinely strong new topic can still beat the learned pattern.
+        learned_type=str(learning.get('preferred_hook_type','')).upper()
+        current_type=TREND_BRAIN._hook_type(hook) if TREND_BRAIN and hasattr(TREND_BRAIN,'_hook_type') else ''
+        learning_conf=float(learning.get('confidence',0) or 0)
+        learning_bonus=0
+        if learning.get('learned') and learned_type and current_type==learned_type:
+            learning_bonus=round(5*learning_conf)
+            editorial+=learning_bonus
         item['editorial_score']=int(max(0,min(100,round(editorial))))
         item['editorial_angle']=angle
         item['editorial_hook']=hook
-        if TREND_BRAIN:
-            try:
-                item['editorial_learning']=TREND_BRAIN.recommend_editorial_profile()
-            except Exception:
-                item['editorial_learning']={'learned':False}
+        item['editorial_learning']=learning
+        item['editorial_learning_bonus']=learning_bonus
         item['editorial_decision']='PRODUZIR' if item['editorial_score']>=62 else 'OBSERVAR'
         if item['editorial_score']>=78 and conf>=65:
             item['editorial_decision']='PRODUZIR AGORA'
