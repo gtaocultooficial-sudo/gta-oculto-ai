@@ -2182,6 +2182,11 @@ def editor_chief_select(topics):
         item['editorial_score']=int(max(0,min(100,round(editorial))))
         item['editorial_angle']=angle
         item['editorial_hook']=hook
+        if TREND_BRAIN:
+            try:
+                item['editorial_learning']=TREND_BRAIN.recommend_editorial_profile()
+            except Exception:
+                item['editorial_learning']={'learned':False}
         item['editorial_decision']='PRODUZIR' if item['editorial_score']>=62 else 'OBSERVAR'
         if item['editorial_score']>=78 and conf>=65:
             item['editorial_decision']='PRODUZIR AGORA'
