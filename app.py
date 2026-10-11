@@ -2323,6 +2323,33 @@ def editor_chief_select(topics):
             type_conf=min(1.0,max(0.0,(samples-1)/4.0))
             type_bonus=round(4*type_conf)
             editorial+=type_bonus
+        # Aprendizado de embalagem: título e ângulo entram apenas como desempate.
+        title_pattern_bonus=0
+        preferred_title=(learning.get('preferred_title_pattern') or {})
+        candidate_title_pattern=''
+        try:
+            candidate_title_pattern=TREND_BRAIN._title_pattern(topic.get('title','')) if TREND_BRAIN else ''
+        except Exception:
+            candidate_title_pattern=''
+        if learning.get('learned') and preferred_title and candidate_title_pattern==str(preferred_title.get('pattern','')):
+            samples=int(preferred_title.get('samples',0) or 0)
+            title_conf=min(1.0,max(0.0,(samples-1)/4.0))
+            title_pattern_bonus=round(3*title_conf)
+            editorial+=title_pattern_bonus
+
+        angle_bonus=0
+        preferred_angle=(learning.get('preferred_angle_type') or {})
+        candidate_angle_type=''
+        try:
+            candidate_angle_type=TREND_BRAIN._angle_type(angle) if TREND_BRAIN else ''
+        except Exception:
+            candidate_angle_type=''
+        if learning.get('learned') and preferred_angle and candidate_angle_type==str(preferred_angle.get('type','')):
+            samples=int(preferred_angle.get('samples',0) or 0)
+            angle_conf=min(1.0,max(0.0,(samples-1)/4.0))
+            angle_bonus=round(3*angle_conf)
+            editorial+=angle_bonus
+
         # Duration learning stays conservative: it is a tie-breaker, not a hard rule.
         duration_bonus=0
         preferred_duration=learning.get('preferred_duration') or {}
@@ -2344,7 +2371,7 @@ def editor_chief_select(topics):
         item['editorial_angle']=angle
         item['editorial_hook']=hook
         item['editorial_learning']=learning
-        item['editorial_learning_bonus']=learning_bonus+type_bonus+duration_bonus
+        item['editorial_learning_bonus']=learning_bonus+type_bonus+title_pattern_bonus+angle_bonus+duration_bonus
         item['editorial_decision']='PRODUZIR' if item['editorial_score']>=62 else 'OBSERVAR'
         if item['editorial_score']>=78 and conf>=65:
             item['editorial_decision']='PRODUZIR AGORA'
