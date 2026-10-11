@@ -19,8 +19,17 @@ class YouTubePublisher:
         try:
             from googleapiclient.http import MediaFileUpload
             service=self._service()
-            body={'snippet':{'title':metadata.get('title','GTA 6'),'description':metadata.get('description',''),'tags':metadata.get('tags',[]),'categoryId':'20'},'status':{'privacyStatus':os.getenv('YOUTUBE_PRIVACY','private'),'selfDeclaredMadeForKids':False}}
+            publish_at=str(metadata.get('publish_at') or '').strip()
+            # YouTube requires scheduled videos to be private until the scheduled time.
+            status={'privacyStatus':'private' if publish_at else os.getenv('YOUTUBE_PRIVACY','private'),'selfDeclaredMadeForKids':False}
+            if publish_at:
+                status['publishAt']=publish_at
+            body={'snippet':{'title':metadata.get('title','GTA 6'),'description':metadata.get('description',''),'tags':metadata.get('tags',[]),'categoryId':'20'},'status':status}
             req=service.videos().insert(part='snippet,status',body=body,media_body=MediaFileUpload(str(video_path),mimetype='video/mp4',resumable=True))
             resp=req.execute()
-            return {'ok':True,'video_id':resp.get('id'),'privacy':body['status']['privacyStatus']}
-        except Exception as e: return {'ok':False,'reason':str(e)[:1000]}
+            return {'ok':True,'video_id':resp.get('id'),'privacy':body['status']['privacyStatus'],'scheduled_at':publish_at or None,'scheduled':bool(publish_at)}
+        except Exception as e:
+            detail=str(e)[:1000]
+            if 'uploadLimitExceeded' in detail:
+                return {'ok':False,'reason':'YOUTUBE_DAILY_UPLOAD_LIMIT: o YouTube bloqueou novos envios para este canal. O MP4 foi mantido no servidor; aguarde a liberação do limite e tente novamente.','retry_after_hours':24,'error_detail':detail}
+            return {'ok':False,'reason':detail}
