@@ -4651,7 +4651,7 @@ threading.Thread(target=processor_loop,daemon=True).start()
 threading.Thread(target=boot_produce_once,daemon=True).start()
 threading.Thread(target=radar_loop,daemon=True).start()
 threading.Thread(target=autonomy_loop,daemon=True).start()
-if __name__=='__main__': APP.run(host='0.0.0.0',port=int(os.environ.get('PORT',5000))),'',stem)
+if __name__=='__main__': APP.run(host='0.0.0.0',port=int(os.environ.get('PORT',5000)))
 
     def recent_penalty(p, bi):
         pen=0
