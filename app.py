@@ -2316,11 +2316,18 @@ def editor_chief_select(topics):
         if learning.get('learned') and learned_type and current_type==learned_type:
             learning_bonus=round(5*learning_conf)
             editorial+=learning_bonus
+        type_bonus=0
+        preferred_type=str((learning.get('preferred_content_type') or {}).get('type','')).upper()
+        if learning.get('learned') and preferred_type and str(kind).upper()==preferred_type:
+            samples=int((learning.get('preferred_content_type') or {}).get('samples',0) or 0)
+            type_conf=min(1.0,max(0.0,(samples-1)/4.0))
+            type_bonus=round(4*type_conf)
+            editorial+=type_bonus
         item['editorial_score']=int(max(0,min(100,round(editorial))))
         item['editorial_angle']=angle
         item['editorial_hook']=hook
         item['editorial_learning']=learning
-        item['editorial_learning_bonus']=learning_bonus
+        item['editorial_learning_bonus']=learning_bonus+type_bonus
         item['editorial_decision']='PRODUZIR' if item['editorial_score']>=62 else 'OBSERVAR'
         if item['editorial_score']>=78 and conf>=65:
             item['editorial_decision']='PRODUZIR AGORA'
