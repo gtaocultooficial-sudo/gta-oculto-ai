@@ -1629,6 +1629,28 @@ def _safe_hook(title,kind):
 
 
 
+def _learned_hook_variant(preferred_type, kind, focused_work_story, title):
+    """Select a proven hook style without changing the underlying factual claim."""
+    p=str(preferred_type or '').upper()
+    k=str(kind or '').upper()
+    if focused_work_story:
+        variants={
+            'CURIOSIDADE':'VOCÊ PERCEBEU ESSE DETALHE SOBRE JASON E LUCIA EM GTA 6?',
+            'DETALHE':'ESSE DETALHE SOBRE JASON E LUCIA PODE SER IMPORTANTE EM GTA 6?',
+            'CONFIRMACAO':'A ROCKSTAR REVELOU UM DETALHE SOBRE JASON E LUCIA EM GTA 6',
+            'RUMOR':'ISSO SOBRE JASON E LUCIA AINDA NÃO FOI CONFIRMADO',
+        }
+        return variants.get(p)
+    variants={
+        'CONFIRMACAO':'A ROCKSTAR REVELOU UMA NOVA INFORMAÇÃO SOBRE GTA 6',
+        'RUMOR':'ISSO SOBRE GTA 6 AINDA NÃO FOI CONFIRMADO',
+        'DETALHE':'ESSE DETALHE DE GTA 6 PODE TER MAIS IMPORTÂNCIA DO QUE PARECE',
+        'CURIOSIDADE':'VOCÊ PERCEBEU ESSE DETALHE NO GTA 6?',
+    }
+    if p in variants:
+        return variants[p]
+    return None
+
 def _editorial_noise_score(text, headline=''):
     """Detects text that looks like a headline/metadata rather than article body."""
     t=re.sub(r'\s+',' ',str(text or '')).strip()
@@ -1891,6 +1913,16 @@ def make_script(topic):
         hook='ESSE DETALHE DE GTA 6 PODE TER MAIS IMPORTÂNCIA DO QUE PARECE'
     else:
         hook='TEM UM DETALHE NESSA HISTÓRIA DE GTA 6 QUE VALE A PENA VER'
+
+    # V64.13: when Analytics has enough evidence, let the learned winning hook style
+    # choose the presentation. The factual evidence and claims remain unchanged.
+    learned_profile={}
+    if TREND_BRAIN:
+        try: learned_profile=TREND_BRAIN.recommend_editorial_profile() or {}
+        except Exception: learned_profile={}
+    learned_hook=_learned_hook_variant(learned_profile.get('preferred_hook_type'),kind,focused_work_story,headline)
+    if learned_hook:
+        hook=learned_hook
 
     # Use only the factual material needed for the story. The narration should
     # not restate the same idea in the hook, context, proof and payoff.
