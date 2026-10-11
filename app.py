@@ -3408,7 +3408,11 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
             # Movimento leve em todas as cenas. Em reparos, aumenta a amplitude.
             amp=28 if motion_boost else 10
             vf=f"scale=574:1020:force_original_aspect_ratio=increase,crop=540:960:x='10+{amp}*sin(n/18)':y='18+{max(4,amp//2)}*cos(n/23)',setsar=1,fps=30"
-            inp=['-stream_loop','-1','-threads:v','1','-probesize','1M','-analyzeduration','1M','-i',str(src)]
+            # Reused clips start at different offsets so the same source is
+            # not perceived as the exact same shot on every occurrence.
+            reuse_n=asset_counts.get(str(src),1)
+            offset=min(2.4,max(0.0,(reuse_n-1)*0.75))
+            inp=['-stream_loop','-1','-threads:v','1','-probesize','1M','-analyzeduration','1M','-ss',f'{offset:.2f}','-i',str(src)]
         else:
             zoom='0.008' if motion_boost else '0.003'
             vf=f"scale=540:960:force_original_aspect_ratio=increase,crop=540:960,setsar=1,zoompan=z='min(zoom+{zoom},1.06)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=540x960:fps=30"
@@ -4000,7 +4004,10 @@ def audit_short(script, video, duration, beats, selected_videos, image_scenes):
     checks['visuais']=100
     unique=len({str(x) for x in selected_videos})
     if unique<4: checks['visuais']-=15; issues.append(('LOW_VIDEO_VARIETY',f'apenas {unique} clipes únicos'))
-    if len(image_scenes)<4: checks['visuais']-=5; issues.append(('LOW_IMAGE_VARIETY','poucas imagens auxiliares'))
+    # Image variety is optional on Render Free: never reject a healthy
+    # video merely because the research returned fewer than four usable images.
+    if len(images_available if 'images_available' in locals() else []) >= 4 and len(image_scenes)<4:
+        checks['visuais']-=5; issues.append(('LOW_IMAGE_VARIETY','poucas imagens auxiliares'))
     # V63.2: Render Free cannot reliably afford two full decodes of the final
     # 1080p MP4. Keep the real MP4/codec/audio/duration and caption audits below;
     # use the known timeline structure for the fast visual check by default.
