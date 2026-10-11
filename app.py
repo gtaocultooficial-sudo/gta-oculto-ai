@@ -3301,7 +3301,7 @@ def _choose_timeline_assets(video_clips, image_paths, beats, topic_title, varian
     def _source_key(p):
         # V64: files ending _B are a second temporal window of the same source.
         stem=Path(p).stem
-        return re.sub(r'_B
+        return re.sub(r'_B$','',stem)
     def under_reuse_budget(p):
         # Images are one-shot support assets; videos have a separate reuse budget.
         kind='video' if p in videos else 'image'
