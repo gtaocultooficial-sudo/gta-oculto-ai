@@ -3252,8 +3252,10 @@ def _choose_timeline_assets(video_clips, image_paths, beats, topic_title, varian
     image_max_reuse=1
     video_max_reuse=max(2,int(math.ceil(max(1,len(beats)-min(len(images),len(beats))) / max(1,len(videos))))) if beats and videos else 2
     max_reuse=max(image_max_reuse,video_max_reuse)
-    target_video=max(1, min(len(beats), len(videos)*video_max_reuse, int(math.ceil(len(beats)*0.92)))) if beats and videos else 0
-    target_images=min(len(images), max(0, len(beats)-target_video)) if beats and images else 0
+    # V62: quando existem pelo menos 4 vídeos reais, não use imagens repetidas
+    # para preencher a timeline. Movimento real é preferível a slideshow reciclado.
+    target_video=len(beats) if beats and len(videos)>=4 else (max(1, min(len(beats), len(videos)*video_max_reuse, int(math.ceil(len(beats)*0.92)))) if beats and videos else 0)
+    target_images=0 if len(videos)>=4 else (min(len(images), max(0, len(beats)-target_video)) if beats and images else 0)
     video_used=0
 
     def recent_penalty(p, bi):
@@ -3300,6 +3302,12 @@ def _choose_timeline_assets(video_clips, image_paths, beats, topic_title, varian
         else:
             candidates=remaining or [(idx,kind,p) for idx,(kind,p) in enumerate(pool)]
 
+        # V62: balance source usage before semantic ranking. This prevents
+        # one character/shot from winning repeatedly just because its filename
+        # matches the topic better than the other clips.
+        if force_video and candidates:
+            min_count=min(asset_counts.get(p,0) for _idx,_kind,p in candidates)
+            candidates=[x for x in candidates if asset_counts.get(x[2],0)==min_count] or candidates
         ranked=[]
         for idx,kind,p in candidates:
             if force_video and kind!='video':
@@ -3419,9 +3427,16 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
             # Reused clips start at different offsets so the same source is
             # not perceived as the exact same shot on every occurrence.
             reuse_n=render_use_counts.get(str(src),0)
-            # The source proxy is 8.5s long. Jump much farther on each reuse so
-            # the same character/camera shot is not visibly recycled.
-            offset=min(6.4,max(0.0,reuse_n*1.6))
+            # V62: use six distinct windows across the 8.5s proxy. The previous
+            # 6.4s cap caused the 5th/6th reuse to collapse onto nearly the same
+            # opening, which is exactly the "same video came back" problem.
+            offset=min(7.0,max(0.0,reuse_n*1.4))
+            zoom_variant=reuse_n % 4
+            crop_w=540 + zoom_variant*10
+            crop_h=960 + zoom_variant*18
+            scale_w=574 + zoom_variant*18
+            scale_h=1020 + zoom_variant*30
+            vf=f"scale={scale_w}:{scale_h}:force_original_aspect_ratio=increase,crop={crop_w}:{crop_h}:x='10+{10+zoom_variant*8}*sin(n/18)':y='18+{max(4,10+zoom_variant*5)}*cos(n/23)',scale=540:960,setsar=1,fps=30"
             inp=['-stream_loop','-1','-threads:v','1','-probesize','1M','-analyzeduration','1M','-ss',f'{offset:.2f}','-i',str(src)]
         else:
             zoom='0.008' if motion_boost else '0.003'
