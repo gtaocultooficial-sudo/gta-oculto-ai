@@ -2565,44 +2565,126 @@ def _video_contains_rating_disclaimer(path, sample_fps=2.0):
 
 
 def download_official_video_clips(outdir, jid=None):
-    """Prepare up to 9 safe official clips, rejecting rating/disclaimer cards.
-    The cache is also re-screened so old contaminated clips cannot return to a
-    new production.
-    """
-    outdir.mkdir(parents=True,exist_ok=True)
-    cache=WORK/'official_video_cache'; cache.mkdir(parents=True,exist_ok=True)
+    """Prepare up to 9 safe official clips and reject rating/disclaimer cards."""
+    outdir.mkdir(parents=True, exist_ok=True)
+    cache=WORK/'official_video_cache'
+    cache.mkdir(parents=True, exist_ok=True)
+
     cached=[]
     for p in sorted(cache.glob('rockstar_real_v251_*.mp4')):
         try:
-            if p.stat().st_size<=20000:
-                p.unlink(missing_ok=True); continue
+            if p.stat().st_size <= 20000:
+                p.unlink(missing_ok=True)
+                continue
             if _video_contains_rating_disclaimer(p):
-                if jid: update_job(jid,log=f'Filtro visual: removendo clipe oficial contaminado por tela ESRB/disclaimer — {p.name}')
-                p.unlink(missing_ok=True); continue
+                if jid:
+                    update_job(jid,log=f'Filtro visual: removendo clipe oficial contaminado por tela ESRB/disclaimer — {p.name}')
+                p.unlink(missing_ok=True)
+                continue
             cached.append(p)
         except Exception:
             continue
-    if len(cached)>=9:
+    if len(cached) >= 9:
         return cached[:9]
+
     try:
-        if jid: update_job(jid,log='Lendo catálogo oficial da Rockstar e filtrando telas ESRB/disclaimers...')
+        if jid:
+            update_job(jid,log='Lendo catálogo oficial da Rockstar e filtrando telas ESRB/disclaimers...')
         total,entries=_remote_zip_entries(ROCKSTAR_VIDEO_ZIP)
         media=[e for e in entries if e['name'].lower().endswith(('.mp4','.mov','.m4v'))]
-        if len(media)<6:
+        if len(media) < 6:
             raise RuntimeError(f'O pacote oficial possui apenas {len(media)} vídeos utilizáveis; são necessários pelo menos 6.')
+
         preferred=[]
         for key in ('Jason','Lucia','Cal','Boobie','Raul','Brian','Real','Dre'):
             preferred += [e for e in media if key.lower() in Path(e['name']).stem.lower() and e not in preferred]
         candidates=preferred+[e for e in media if e not in preferred]
+
         ff=_ffmpeg_executable()
         safe=list(cached)
-        next_index=max([-1]+[int(re.search(r'_(\d+)\.mp4
-    """Fill visual slots only with real frames from already selected official video clips."""
+        used_names={p.name for p in safe}
+        next_index=0
+        for p in cache.glob('rockstar_real_v251_*.mp4'):
+            m=re.search(r'_(\d+)\.mp4$',p.name)
+            if m:
+                next_index=max(next_index,int(m.group(1))+1)
+
+        for entry in candidates:
+            if len(safe) >= 9:
+                break
+            idx=next_index
+            next_index += 1
+            target=cache/f'rockstar_real_v251_{idx}.mp4'
+            raw=cache/f'raw_v251_{idx}.mp4'
+            try:
+                if jid:
+                    update_job(jid,log=f'Baixando clipe oficial para revisão visual: {Path(entry["name"]).stem}...')
+                _remote_zip_extract(ROCKSTAR_VIDEO_ZIP,entry,raw)
+                if jid:
+                    update_job(jid,log='Convertendo clipe-fonte para proxy leve 320x568...')
+                run_cmd([
+                    ff,'-loglevel','error','-y','-threads:v','1',
+                    '-probesize','1M','-analyzeduration','1M','-i',str(raw),'-t','5',
+                    '-vf','scale=320:568:force_original_aspect_ratio=increase,crop=320:568,setsar=1,fps=12',
+                    '-an','-c:v','libx264','-preset','ultrafast','-crf','31',
+                    '-threads','1','-filter_threads','1','-filter_complex_threads','1',
+                    '-x264-params','threads=1:lookahead-threads=1:rc-lookahead=0:sync-lookahead=0',
+                    '-pix_fmt','yuv420p','-movflags','+faststart',str(target)
+                ],90)
+                if not target.exists() or target.stat().st_size <= 20000:
+                    raise RuntimeError('proxy inválido ou vazio')
+                if _video_contains_rating_disclaimer(target):
+                    if jid:
+                        update_job(jid,log=f'Filtro visual: descartando clipe com tela ESRB/disclaimer — {Path(entry["name"]).stem}')
+                    target.unlink(missing_ok=True)
+                    continue
+                safe.append(target)
+                used_names.add(target.name)
+            except Exception as e:
+                if jid:
+                    update_job(jid,log=f'Clipe oficial ignorado: {Path(entry["name"]).stem} — {str(e)[:180]}')
+                try:
+                    target.unlink(missing_ok=True)
+                except Exception:
+                    pass
+            finally:
+                try:
+                    raw.unlink(missing_ok=True)
+                except Exception:
+                    pass
+
+        safe=[p for p in safe if p.exists() and p.stat().st_size>20000]
+        if len(safe) < 6:
+            raise RuntimeError(f'Apenas {len(safe)} clipes reais e seguros foram preparados; são necessários pelo menos 6.')
+        return safe[:9]
+    except Exception as e:
+        raise RuntimeError('Não foi possível obter os vídeos oficiais da Rockstar: '+str(e)[:1800])
+
+
+def _video_relevance(path,title):
+    text=(path.stem+' '+title).lower()
+    score=0
+    groups=[('jason',12),('lucia',12),('vice',8),('leonida',8),('cal',4),('boobie',4),('raul',4),('brian',4),('real',4),('dre',4),('cover',1)]
+    for k,v in groups:
+        if k in text:
+            score += v
+    return score
+
+
+def select_video_clips(videos,title,count=5):
+    ranked=sorted(videos,key=lambda p:_video_relevance(p,title),reverse=True)
+    return ranked[:count]
+
+
+def _augment_scenes_with_real_video_frames(video_clips, image_scenes, jobdir, target=4):
+    """Fill visual slots only with real frames from selected official clips."""
     out=list(image_scenes or [])
-    if len(out)>=target: return out
+    if len(out)>=target:
+        return out
     ff=_ffmpeg_executable()
     for idx,clip in enumerate(video_clips or []):
-        if len(out)>=target: break
+        if len(out)>=target:
+            break
         dst=Path(jobdir)/f'official_frame_{idx:02d}.jpg'
         try:
             timestamp=0.6 + (idx % 5)*0.7
