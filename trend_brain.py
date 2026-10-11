@@ -189,17 +189,56 @@ class TrendBrain:
             self._write(d)
 
     def recommend_publish_slot(self, now=None):
-        """Free baseline scheduler: choose a strong BR publishing window, then learn later from slot metrics."""
-        from datetime import datetime
-        n=now or datetime.now()
-        slots=[(12,30),(18,30),(20,30),(22,0)]
-        # Prefer evening for GTA audience; once slot scores exist, use learned winners.
-        d=self._read(); scores=d.get("patterns",{}).get("publish_slots",{})
-        if scores:
-            best=max(scores.items(), key=lambda kv:float(kv[1]))[0]
-            h,m=map(int,best.split(':')); return {"time":best,"reason":"aprendido","timezone":"America/Sao_Paulo"}
-        h,m=min(slots,key=lambda x:abs((x[0]*60+x[1])-(n.hour*60+n.minute)))
-        return {"time":f"{h:02d}:{m:02d}","reason":"baseline","timezone":"America/Sao_Paulo"}
+        """Reserve the next strong publishing window in Brazil time; learn from performance over time."""
+        from datetime import datetime, timedelta
+        from zoneinfo import ZoneInfo
+        tz=ZoneInfo("America/Sao_Paulo")
+        n=now or datetime.now(tz)
+        if n.tzinfo is None:
+            n=n.replace(tzinfo=tz)
+        else:
+            n=n.astimezone(tz)
+        base_slots=[("12:30",62),("18:30",100),("20:30",96),("22:00",68)]
+        d=self._read()
+        learned=d.get("patterns",{}).get("publish_slots",{})
+        reserved=d.setdefault("scheduled_slots",{})
+        # Drop old reservations so failed jobs cannot block the calendar forever.
+        cutoff=(n-timedelta(hours=2)).isoformat()
+        reserved={k:v for k,v in reserved.items() if k>cutoff}
+        d["scheduled_slots"]=reserved
+        candidates=[]
+        for day_offset in range(0,8):
+            day=(n+timedelta(days=day_offset)).date()
+            for slot,baseline in base_slots:
+                hh,mm=map(int,slot.split(":"))
+                dt=datetime(day.year,day.month,day.day,hh,mm,tzinfo=tz)
+                if dt <= n+timedelta(minutes=30):
+                    continue
+                if dt.isoformat() in reserved:
+                    continue
+                # Learned score is used when available; otherwise use the GTA-friendly baseline.
+                learned_score=learned.get(slot)
+                score=float(learned_score) if learned_score is not None else float(baseline)
+                score-=day_offset*12  # favor the strongest available slot without waiting needlessly
+                candidates.append((score,dt,slot,"aprendido" if learned_score is not None else "baseline"))
+        if not candidates:
+            dt=n+timedelta(days=1)
+            dt=dt.replace(hour=18,minute=30,second=0,microsecond=0)
+            return {"time":"18:30","date":dt.date().isoformat(),"publish_at":dt.isoformat(),"reason":"baseline","timezone":"America/Sao_Paulo"}
+        score,dt,slot,reason=max(candidates,key=lambda x:(x[0],-x[1].timestamp()))
+        return {"time":slot,"date":dt.date().isoformat(),"publish_at":dt.isoformat(),"reason":reason,"timezone":"America/Sao_Paulo"}
+
+    def reserve_publish_slot(self, job_id, now=None):
+        """Reserve a unique future slot for a finished job so the queue cannot collide."""
+        from datetime import timedelta
+        with self.lock:
+            slot=self.recommend_publish_slot(now=now)
+            if slot.get("publish_at"):
+                d=self._read()
+                reserved=d.setdefault("scheduled_slots",{})
+                reserved[slot["publish_at"]]=str(job_id)
+                self._write(d)
+            return slot
 
     def record_slot_performance(self, slot, score):
         if not slot: return
