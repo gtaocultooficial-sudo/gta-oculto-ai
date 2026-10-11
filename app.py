@@ -2497,7 +2497,9 @@ def _remote_zip_entries(url):
         nameb=cd[p+46:p+46+fn]
         try: name=nameb.decode('utf-8')
         except Exception: name=nameb.decode('cp437','replace')
-        entries.append({'name':name,'compression':comp,'compressed':csize,'size':usize,'local':local})        p += 46+fn+extra+comm    if len(entries)<3: raise RuntimeError(f'ZIP oficial expôs apenas {len(entries)} arquivos.')
+        entries.append({'name':name,'compression':comp,'compressed':csize,'size':usize,'local':local})
+        p += 46+fn+extra+comm
+    if len(entries)<3: raise RuntimeError(f'ZIP oficial expôs apenas {len(entries)} arquivos.')
     return total,entries
 
 
