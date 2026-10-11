@@ -3621,6 +3621,49 @@ def _job_output_is_valid(job):
         return False
 
 
+
+def _log_visual_contact_sheet(video_path, jid):
+    """Emit a tiny sampled contact sheet to logs so remote visual QA can inspect frames."""
+    if os.getenv('GTA_VISUAL_QA_LOG','0').strip().lower() not in ('1','true','yes','on'):
+        return
+    tmp=Path(str(video_path)+'.visual_qa')
+    try:
+        import base64, io
+        tmp.mkdir(parents=True,exist_ok=True)
+        ff=_ffmpeg_executable()
+        cmd=[ff,'-hide_banner','-loglevel','error','-y','-i',str(video_path),
+             '-vf','fps=1/5,scale=80:142:force_original_aspect_ratio=decrease,pad=80:142:(ow-iw)/2:(oh-ih)/2',
+             '-frames:v','6','-q:v','10',str(tmp/'frame_%02d.jpg')]
+        subprocess.run(cmd,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,timeout=25,check=True)
+        frames=[]
+        for fp in sorted(tmp.glob('frame_*.jpg'))[:6]:
+            try:
+                with Image.open(fp) as im:
+                    frames.append(im.convert('RGB').copy())
+            except Exception:
+                pass
+        if not frames:
+            print(f'[VISUAL_QA] job={jid} no_frames_extracted',flush=True)
+            return
+        sheet=Image.new('RGB',(240,284),(10,12,16))
+        for i,im in enumerate(frames):
+            sheet.paste(im.resize((80,142)),((i%3)*80,(i//3)*142))
+        buf=io.BytesIO()
+        sheet.save(buf,format='JPEG',quality=28,optimize=True)
+        encoded=base64.b64encode(buf.getvalue()).decode('ascii')
+        # Split into small log records to avoid truncation by log transport.
+        chunks=[encoded[i:i+2800] for i in range(0,len(encoded),2800)]
+        print(f'[VISUAL_QA_BEGIN] job={jid} chunks={len(chunks)} width=240 height=284',flush=True)
+        for i,chunk in enumerate(chunks):
+            print(f'[VISUAL_QA_DATA] job={jid} part={i+1}/{len(chunks)} data={chunk}',flush=True)
+        print(f'[VISUAL_QA_END] job={jid}',flush=True)
+    except Exception as e:
+        print(f'[VISUAL_QA] job={jid} failed={type(e).__name__}: {str(e)[:250]}',flush=True)
+    finally:
+        try: shutil.rmtree(tmp,ignore_errors=True)
+        except Exception: pass
+
+
 def _visual_motion_audit(path):
     """Audita o MP4 real em baixa resolução para detectar congelamento/repetição visual.
     Não usa análise semântica: mede mudança real entre amostras do vídeo.
@@ -4147,6 +4190,7 @@ def produce_job(jid):
         meta['media_validation']={'ok':True,'size':final_probe['size'],'duration':final_probe['duration'],'video_codec':final_videos[0].get('codec_name'),'audio_codec':final_audios[0].get('codec_name'),'width':final_videos[0].get('width'),'height':final_videos[0].get('height')}
         (jobdir/'metadata.json').write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding='utf-8')
         update_job(jid,status='DONE',stage='PRONTO',progress=100,log=f'PRONTO — MP4 validado (vídeo + áudio + duração + vertical), nota {score}/100.',video=f'{jid}/GTA_OCULTO_SHORT.mp4',cover=f'{jid}/CAPA.jpg',score=score,metadata=meta,media_validation=meta['media_validation'])
+        _log_visual_contact_sheet(final_video,jid)
         if AUTONOMOUS_ENGINE:
             try: AUTONOMOUS_ENGINE.on_done(jid,sys.modules[__name__])
             except Exception as _pub_e: update_job(jid,log=f'PRONTO — publicação automática aguardando configuração: {str(_pub_e)[:300]}')
