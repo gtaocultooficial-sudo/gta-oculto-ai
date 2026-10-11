@@ -2629,7 +2629,7 @@ def _video_contains_rating_disclaimer(path, sample_fps=2.0):
 
 
 def download_official_video_clips(outdir, jid=None):
-    """Prepare up to 9 safe official clips and reject rating/disclaimer cards."""
+    """Prepare a bounded pool of safe official clips and reject rating/disclaimer cards."""
     outdir.mkdir(parents=True, exist_ok=True)
     cache=WORK/'official_video_cache'
     cache.mkdir(parents=True, exist_ok=True)
@@ -2648,20 +2648,20 @@ def download_official_video_clips(outdir, jid=None):
             cached.append(p)
         except Exception:
             continue
-    # V60: keep a larger pool of distinct official clips. Six clips were
-    # technically stable, but caused visible repetition in 24-scene Shorts.
-    # Eight clips gives the editor enough visual diversity while staying bounded
-    # for the Render Free memory/download budget.
-    if len(cached) >= 8:
-        return cached[:8]
+    # V65.6: the Rockstar CDN often exposes only four practical clips in a
+    # production run. Do not spend several minutes downloading four more just
+    # to satisfy a source-count target; the editor now expands each source into
+    # distinct real-frame supports when the pool is small.
+    if len(cached) >= 4:
+        return cached[:4]
 
     try:
         if jid:
             update_job(jid,log='Lendo catálogo oficial da Rockstar e filtrando telas ESRB/disclaimers...')
         total,entries=_remote_zip_entries(ROCKSTAR_VIDEO_ZIP)
         media=[e for e in entries if e['name'].lower().endswith(('.mp4','.mov','.m4v'))]
-        if len(media) < 8:
-            raise RuntimeError(f'O pacote oficial possui apenas {len(media)} vídeos utilizáveis; são necessários pelo menos 8.')
+        if len(media) < 4:
+            raise RuntimeError(f'O pacote oficial possui apenas {len(media)} vídeos utilizáveis; são necessários pelo menos 4.')
 
         preferred=[]
         for key in ('Jason','Lucia','Cal','Boobie','Raul','Brian','Real','Dre'):
@@ -2678,7 +2678,7 @@ def download_official_video_clips(outdir, jid=None):
                 next_index=max(next_index,int(m.group(1))+1)
 
         for entry in candidates:
-            if len(safe) >= 8:
+            if len(safe) >= 4:
                 break
             idx=next_index
             next_index += 1
@@ -2724,7 +2724,7 @@ def download_official_video_clips(outdir, jid=None):
         safe=[p for p in safe if p.exists() and p.stat().st_size>20000]
         if len(safe) < 4:
             raise RuntimeError(f'Apenas {len(safe)} clipes reais e seguros foram preparados; são necessários pelo menos 4.')
-        return safe[:8]
+        return safe[:4]
     except Exception as e:
         raise RuntimeError('Não foi possível obter os vídeos oficiais da Rockstar: '+str(e)[:1800])
 
