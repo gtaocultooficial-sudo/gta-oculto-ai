@@ -2653,6 +2653,10 @@ def download_official_video_clips(outdir, jid=None):
     # downloads when the visual slot gate can be satisfied safely.
     if len(cached) >= 2:
         return cached[:2]
+    if not cached:
+        if jid:
+            update_job(jid,log='CDN oficial indisponível nesta execução; usando o conjunto de visuais pesquisados sem travar a produção.')
+        return []
 
     try:
         if jid:
@@ -4281,6 +4285,13 @@ def produce_job(jid):
         # Hard gate: available unique video windows (2 uses/source) plus one-use
         # real-frame supports must cover the timeline; never recycle on fallback.
         available_slots=len(selected_videos)*2+len(image_scenes)
+        if not selected_videos and len(image_scenes)>=8 and available_slots<len(beats):
+            # CDN unavailable: preserve narration in a shorter unique visual timeline.
+            fallback_count=min(len(image_scenes),12)
+            beats=build_short_timeline(script,topic,duration,fallback_count,word_cues=word_cues)
+            caps=[b['text'] for b in beats]
+            available_slots=len(image_scenes)
+            update_job(jid,log=f'Fallback controlado: {len(image_scenes)} visuais únicos, timeline reduzida para {len(beats)} cenas sem reciclagem.')
         if available_slots<len(beats):
             raise RuntimeError(f'GATE VISUAL: só {available_slots} slots visuais distintos para {len(beats)} cenas; não vou reciclar planos.')
         video=jobdir/'GTA_OCULTO_SHORT.mp4'
@@ -4334,6 +4345,8 @@ def produce_job(jid):
             'NO_VIDEO_STREAM','NO_AUDIO_STREAM','WRONG_ASPECT','VISUAL_CONTAMINATION'
         }
         blocking=[i for i in audit.get('issues',[]) if i.get('code') in hard_issues]
+        if not selected_videos and len(image_scenes)>=8:
+            blocking=[i for i in blocking if i.get('code')!='LOW_VIDEO_VARIETY']
         # V55.4: a mild boundary warning cannot block an otherwise aligned caption track.
         if any(i.get('code')=='CAPTIONS_BAD_BOUNDARY' for i in blocking):
             cap_a=audit.get('caption_audit',{}) or {}
