@@ -2295,8 +2295,8 @@ def make_fallback(path,idx,title):
 def download_visuals(urls,outdir,title):
     """Collect visuals with a hard time budget so slow sources cannot stall production."""
     outdir.mkdir(parents=True,exist_ok=True); candidates=[]; seen=set()
-    deadline=time.monotonic()+45.0
-    for i,item in enumerate(urls[:12]):
+    deadline=time.monotonic()+55.0
+    for i,item in enumerate(urls[:36]):
         if time.monotonic()>=deadline:
             break
         u=item.get('url') if isinstance(item,dict) else item
@@ -2463,13 +2463,13 @@ def _safe_filename(name):
 def _http_total_size(url):
     headers={'User-Agent':UA,'Accept-Encoding':'identity'}
     try:
-        r=requests.head(url,headers=headers,timeout=20,allow_redirects=True)
+        r=requests.head(url,headers=headers,timeout=5,allow_redirects=True)
         n=int(r.headers.get('content-length','0') or 0)
         if n: return n
     except Exception:
         pass
     try:
-        r=requests.get(url,headers={**headers,'Range':'bytes=0-0'},timeout=(15,30),stream=True)
+        r=requests.get(url,headers={**headers,'Range':'bytes=0-0'},timeout=(5,8),stream=True)
         cr=r.headers.get('content-range','')
         m=re.search(r'/([0-9]+)$',cr)
         if r.status_code==206 and m: return int(m.group(1))
@@ -2481,7 +2481,7 @@ def _http_total_size(url):
 def _http_range(url,start,end):
     if end < start: return b''
     headers={'User-Agent':UA,'Accept-Encoding':'identity','Range':f'bytes={start}-{end}'}
-    r=requests.get(url,headers=headers,timeout=(20,90))
+    r=requests.get(url,headers=headers,timeout=(5,10))
     if r.status_code != 206:
         raise RuntimeError(f'CDN não aceitou Range HTTP (status {r.status_code}).')
     return r.content
@@ -4230,7 +4230,7 @@ def produce_job(jid):
         print(f'[JOB {jid}] stage=VISUALS download start',flush=True)
         paths=download_visuals(urls,jobdir/'visuals',topic['title'])
         print(f'[JOB {jid}] stage=VISUALS download done count={len(paths)}',flush=True)
-        image_order=select_visuals(paths,topic['title'],6)
+        image_order=select_visuals(paths,topic['title'],18)
         image_scenes=[]
         # A preparação visual não queima a legenda; o overlay final é desenhado
         # somente depois que temos a duração real da narração.
