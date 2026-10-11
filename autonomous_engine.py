@@ -135,7 +135,11 @@ class AutonomousEngine:
         return result
     def collect_analytics(self):
         print('[AUTONOMY] analytics collection start', flush=True)
-        r=self.analytics.collect(7)
+        video_ids=[]
+        if self.trend_brain:
+            try: video_ids=self.trend_brain.tracked_video_ids()
+            except Exception: video_ids=[]
+        r=self.analytics.collect(7, video_ids=video_ids)
         print(f'[AUTONOMY] analytics collection result ok={r.get("ok")} reason={str(r.get("reason",""))[:400]}', flush=True)
         learned={'videos_learned':0}
         if r.get('ok'):
