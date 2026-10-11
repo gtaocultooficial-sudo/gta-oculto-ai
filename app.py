@@ -4295,9 +4295,20 @@ def produce_job(jid):
             # visual timeline instead of failing or recycling the same shot.
             selected_videos=[]
             fallback_count=min(len(image_scenes),12)
-            beats=build_short_timeline(script,topic,duration,fallback_count,word_cues=word_cues)
+            beats=build_short_timeline(script,topic,duration,fallback_count,word_cues=None)
+            # Force the fallback splitter to honor the unique-visual count; the
+            # partial/real WordBoundary list can otherwise expand back to 17 beats.
+            if len(beats)>fallback_count:
+                narration_words=re.sub(r'\\s+',' ',str(script.get('narration','')).strip()).split()
+                chunks=[]
+                for bi in range(fallback_count):
+                    a=round(bi*len(narration_words)/fallback_count)
+                    b=round((bi+1)*len(narration_words)/fallback_count)
+                    chunks.append({'text':' '.join(narration_words[a:b]),'duration':duration/fallback_count,'start':bi*duration/fallback_count,'end':(bi+1)*duration/fallback_count})
+                beats=chunks
             caps=[b['text'] for b in beats]
             available_slots=len(image_scenes)
+            print(f'[JOB {jid}] visual fallback scenes={len(beats)} images={len(image_scenes)}',flush=True)
             update_job(jid,log=f'Fallback controlado: {len(image_scenes)} visuais únicos, timeline reduzida para {len(beats)} cenas sem reciclagem.')
         if available_slots<len(beats):
             raise RuntimeError(f'GATE VISUAL: só {available_slots} slots visuais distintos para {len(beats)} cenas; não vou reciclar planos.')
