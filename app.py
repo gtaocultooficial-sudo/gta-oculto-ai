@@ -3193,6 +3193,7 @@ def _choose_timeline_assets(video_clips, image_paths, beats, topic_title, varian
         # Intercala imagens de apoio sem deixar de cumprir a proporção mínima de vídeo.
         remaining_slots=len(beats)-bi-1
         can_use_image=image_due and (video_used + remaining_slots >= target_video)
+        force_video=bool(videos) and video_used < target_video and not can_use_image
         if can_use_image:
             candidates=[x for x in remaining if x[1]=='image'] or [(len(videos)+idx,'image',p) for idx,p in enumerate(images)]
         elif bool(videos) and video_used < target_video:
