@@ -77,6 +77,7 @@ class AutonomousEngine:
         job=app_module.load_jobs().get(jid,{})
         meta=job.get('metadata') or {}; video=job.get('video')
         result={'published':False,'analytics':None}
+        print(f'[AUTONOMY {jid}] on_done start video={bool(video)} publisher_enabled={self.publisher.enabled} token_configured={bool(self.publisher.token_json)}', flush=True)
         if video:
             if self.trend_brain:
                 try:
@@ -87,13 +88,21 @@ class AutonomousEngine:
                 except Exception as e: self.memory.event('publish_slot_error',str(e))
             path=app_module.WORK/video
             if path.exists():
+                print(f'[AUTONOMY {jid}] YouTube upload start bytes={path.stat().st_size}', flush=True)
                 pub=self.publisher.upload(path,meta); result['published']=bool(pub.get('ok')); result['publish']=pub
+                print(f'[AUTONOMY {jid}] YouTube upload result ok={pub.get("ok")} reason={str(pub.get("reason",""))[:500]} video_id={pub.get("video_id","")}', flush=True)
                 self.memory.event('publish',f'job {jid}',pub,pub.get('ok'))
                 if pub.get('ok'):
                     if self.trend_brain:
                         try: self.trend_brain.record_publication(job.get('opportunity') or {}, meta, pub.get('video_id'))
                         except Exception: pass
                     app_module.update_job(jid,stage='PUBLICAÇÃO',log=f'▶️ YouTube: vídeo enviado ({pub.get("video_id")}).',youtube=pub)
+                else:
+                    app_module.update_job(jid,stage='PUBLICAÇÃO PENDENTE',log=f'⚠️ Vídeo pronto, mas o envio ao YouTube falhou: {str(pub.get("reason","erro desconhecido"))[:500]}',youtube=pub)
+            else:
+                pub={'ok':False,'reason':'FINAL_MP4_MISSING','path':str(path)}
+                print(f'[AUTONOMY {jid}] YouTube upload skipped: final MP4 missing path={path}', flush=True)
+                app_module.update_job(jid,stage='PUBLICAÇÃO PENDENTE',log='⚠️ Vídeo pronto, mas o MP4 final não foi encontrado para envio.',youtube=pub)
         # Optional social adapters use the public Render output URL and stay disabled without credentials.
         if self.social:
             try:
@@ -107,7 +116,9 @@ class AutonomousEngine:
                 self.memory.event('social_publish_error',str(e))
         return result
     def collect_analytics(self):
+        print('[AUTONOMY] analytics collection start', flush=True)
         r=self.analytics.collect(7)
+        print(f'[AUTONOMY] analytics collection result ok={r.get("ok")} reason={str(r.get("reason",""))[:400]}', flush=True)
         self.memory.event('analytics','weekly_collection',r,r.get('ok'))
         if r.get('ok'):
             self.memory.metric('latest_analytics',r)
