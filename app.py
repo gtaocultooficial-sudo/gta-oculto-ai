@@ -64,7 +64,7 @@ UA = 'GTA-Oculto-AI/Cloud-Final/V55-SOURCE-RECOVERY-3'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
-BUILD_VERSION = 'V58-VIDEO-FIRST-REUSE-VIDEO-20261011'
+BUILD_VERSION = 'V59-VIDEO-FIRST-INTERLEAVED-20261011'
 
 FALLBACK_TOPICS = [
     {'id':'leonida','score':96,'priority':'ALTA','title':'GTA 6: o detalhe de Leonida que pode mudar a história','source':'Rockstar Games','url':ROCKSTAR_VI,
@@ -3186,10 +3186,16 @@ def _choose_timeline_assets(video_clips, image_paths, beats, topic_title, varian
     for bi,beat in enumerate(beats):
         remaining=[(idx,kind,p) for idx,(kind,p) in enumerate(pool) if idx not in used]
         remaining_videos=[x for x in remaining if x[1]=='video']
+        target_images=min(len(images), max(1, int(round(len(beats)*0.17)))) if beats and images else 0
+        image_slots={int(round((i+1)*len(beats)/(target_images+1)))-1 for i in range(target_images)} if target_images else set()
+        image_due=(bi in image_slots) and bool(images)
 
-        # Mantém a cota de vídeo mesmo depois de consumir todos os arquivos únicos.
-        force_video = bool(videos) and video_used < target_video
-        if force_video:
+        # Intercala imagens de apoio sem deixar de cumprir a proporção mínima de vídeo.
+        remaining_slots=len(beats)-bi-1
+        can_use_image=image_due and (video_used + remaining_slots >= target_video)
+        if can_use_image:
+            candidates=[x for x in remaining if x[1]=='image'] or [(len(videos)+idx,'image',p) for idx,p in enumerate(images)]
+        elif bool(videos) and video_used < target_video:
             candidates=remaining_videos or [(idx,'video',p) for idx,p in enumerate(videos)]
         else:
             candidates=remaining or [(idx,kind,p) for idx,(kind,p) in enumerate(pool)]
