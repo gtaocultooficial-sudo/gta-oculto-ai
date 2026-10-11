@@ -2744,6 +2744,42 @@ def select_video_clips(videos,title,count=5):
     return ranked[:count]
 
 
+def _expand_video_clips_into_distinct_windows(video_clips, jobdir, windows_per_clip=6):
+    """Create distinct short windows from each validated official proxy.
+
+    The editor works in ~1.1–1.8s beats. Splitting each 8.5s proxy into six
+    independent windows gives it enough distinct timeline assets even when the
+    Rockstar CDN only yields four usable source videos.
+    """
+    ff=_ffmpeg_executable()
+    outdir=Path(jobdir)/'video_windows'
+    outdir.mkdir(parents=True,exist_ok=True)
+    expanded=[]
+    for clip in video_clips or []:
+        clip=Path(clip)
+        for wi in range(windows_per_clip):
+            start=wi*1.4
+            dst=outdir/f'{clip.stem}_window_{wi+1:02d}.mp4'
+            try:
+                if not dst.exists() or dst.stat().st_size<8000:
+                    run_cmd([
+                        ff,'-loglevel','error','-y','-ss',f'{start:.2f}','-i',str(clip),
+                        '-t','1.4','-vf','scale=320:568:force_original_aspect_ratio=increase,crop=320:568,setsar=1,fps=12',
+                        '-an','-c:v','libx264','-preset','ultrafast','-crf','30',
+                        '-threads','1','-filter_threads','1','-filter_complex_threads','1',
+                        '-x264-params','threads=1:lookahead-threads=1:rc-lookahead=0:sync-lookahead=0',
+                        '-pix_fmt','yuv420p','-movflags','+faststart',str(dst)
+                    ],30)
+                if dst.exists() and dst.stat().st_size>=8000:
+                    expanded.append(dst)
+            except Exception:
+                continue
+    # Do not silently fall back to recycling whole source videos if segmentation
+    # failed; callers can see the actual count and the render gate will stop if
+    # the distinct pool is too small.
+    return expanded
+
+
 def _augment_scenes_with_real_video_frames(video_clips, image_scenes, jobdir, target=4):
     """Fill visual slots only with real frames from selected official clips."""
     out=list(image_scenes or [])
@@ -4227,9 +4263,13 @@ def produce_job(jid):
         official_videos=download_official_video_clips(jobdir/'official_videos', jid)
         print(f'[JOB {jid}] stage=OFFICIAL_VIDEO_DOWNLOAD done count={len(official_videos)}',flush=True)
         selected_videos=select_video_clips(official_videos,topic['title'],9)
+        source_video_count=len(selected_videos)
+        selected_videos=_expand_video_clips_into_distinct_windows(selected_videos,jobdir,windows_per_clip=6)
         if len(image_scenes)<4:
-            image_scenes=_augment_scenes_with_real_video_frames(selected_videos,image_scenes,jobdir,target=4)
-        update_job(jid,log=f'{len(selected_videos)} vídeos oficiais e {len(image_scenes)} imagens/cenas reais disponíveis. Editando em 9:16 / {duration:.1f}s...')
+            image_scenes=_augment_scenes_with_real_video_frames(official_videos,image_scenes,jobdir,target=4)
+        update_job(jid,log=f'{source_video_count} vídeos-fonte divididos em {len(selected_videos)} janelas distintas; {len(image_scenes)} imagens/cenas de apoio. Editando em 9:16 / {duration:.1f}s...')
+        if len(selected_videos)<min(12,len(beats)):
+            raise RuntimeError(f'GATE VISUAL: só {len(selected_videos)} janelas distintas para {len(beats)} cenas; não vou reciclar o mesmo plano para preencher o Short.')
         video=jobdir/'GTA_OCULTO_SHORT.mp4'
         print(f'[JOB {jid}] stage=RENDER start',flush=True)
         make_multimedia_video(selected_videos,image_scenes,audio,video,duration,caps,script,topic['title'],beats)
