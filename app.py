@@ -64,7 +64,7 @@ UA = 'GTA-Oculto-AI/Cloud-Final/V55-SOURCE-RECOVERY-3'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
-BUILD_VERSION = 'V64.10-DIVERSE-CLIPS-AND-CAPTION-BOUNDARY-20261009'
+BUILD_VERSION = 'V57-VIDEO-FIRST-RETENTION-20261011'
 
 FALLBACK_TOPICS = [
     {'id':'leonida','score':96,'priority':'ALTA','title':'GTA 6: o detalhe de Leonida que pode mudar a história','source':'Rockstar Games','url':ROCKSTAR_VI,
@@ -3163,61 +3163,74 @@ def _asset_relevance(path, title, beat_text, kind):
     return score
 
 def _choose_timeline_assets(video_clips, image_paths, beats, topic_title, variant=0):
-    """V56: schedule assets for retention, not just relevance.
-    Uses every unique asset before reuse, enforces motion variety, and protects
-    the final seconds from immediately repeating an early visual.
+    """V57: editor video-first.
+    Prioriza material em movimento e usa imagens apenas como apoio editorial.
+    Evita repetição imediata e garante variedade sem transformar o Short em slideshow.
     """
     videos=[p for p in video_clips if p]
     images=[p for p in image_paths if p]
     pool=[('video',p) for p in videos]+[('image',p) for p in images]
     chosen=[]; used=set()
+    target_video=max(1, int(math.ceil(len(beats)*0.78))) if beats else 1
+    video_used=0
 
     def recent_penalty(p, bi):
         pen=0
         recent=[x[1] for x in chosen[-3:]]
-        if p in recent:
-            pen += 90
-        if chosen and chosen[-1][0]=='image' and p in [x[1] for x in chosen[-2:]]:
-            pen += 35
-        if beats and bi >= max(0, int(len(beats)*0.80)) and p in [x[1] for x in chosen[:3]]:
-            pen += 75
+        if p in recent: pen += 120
+        if chosen and chosen[-1][1]==p: pen += 180
+        if beats and bi >= max(0, int(len(beats)*0.80)) and p in [x[1] for x in chosen[:2]]:
+            pen += 100
         return pen
 
     for bi,beat in enumerate(beats):
         remaining=[(idx,kind,p) for idx,(kind,p) in enumerate(pool) if idx not in used]
         candidates=remaining or [(idx,kind,p) for idx,(kind,p) in enumerate(pool)]
+
+        # Enquanto houver vídeos inéditos, força a cota video-first.
+        remaining_videos=[x for x in candidates if x[1]=='video']
+        force_video = bool(remaining_videos) and video_used < target_video
+
         ranked=[]
         for idx,kind,p in candidates:
+            if force_video and kind!='video':
+                continue
             score=_asset_relevance(p,topic_title,beat.get('text',''),kind)
-            if bi==0 and kind=='video':
-                score += 35
-            if bi>0 and chosen[-1][0] != kind:
-                score += 12
-            if bi % 2 == 0 and kind=='video':
-                score += 9
-            if bi % 2 == 1 and kind=='image':
-                score += 5
-            if bi >= max(0,int(len(beats)*0.75)) and kind=='video':
-                score += 16
-            if variant and idx % 4 == (bi+variant)%4:
-                score += 10
+
+            # Movimento é prioridade editorial: vídeos recebem grande vantagem.
+            if kind=='video':
+                score += 55
+                if bi==0: score += 20
+                if bi>=2: score += 12
+            else:
+                score -= 10
+
+            # Nunca repetir o mesmo visual imediatamente.
             score -= recent_penalty(p,bi)
+
+            # Relevância semântica continua valendo, mas não supera a prioridade
+            # de movimento quando o vídeo é utilizável.
+            if variant and idx % 4 == (bi+variant)%4:
+                score += 6
+
             ranked.append((score,kind,p,idx))
+
+        # Fallback caso a cota tenha acabado ou só existam imagens restantes.
+        if not ranked:
+            ranked=[]
+            for idx,kind,p in candidates:
+                score=_asset_relevance(p,topic_title,beat.get('text',''),kind)
+                score += 40 if kind=='video' else -5
+                score -= recent_penalty(p,bi)
+                ranked.append((score,kind,p,idx))
+
         ranked.sort(key=lambda x:x[0],reverse=True)
         _,kind,p,idx=ranked[0]
         chosen.append((kind,p))
         used.add(idx)
+        if kind=='video':
+            video_used += 1
 
-    # Protect the ending from immediately reusing one of the opening visuals.
-    if len(chosen)>=6:
-        early={chosen[0][1],chosen[1][1]}
-        for j in range(max(0,len(chosen)-3),len(chosen)):
-            if chosen[j][1] in early:
-                limit=max(2, len(chosen)-3)
-                for k in range(2,limit):
-                    if chosen[k][1] not in early and chosen[k][1] != chosen[j][1]:
-                        chosen[j],chosen[k]=chosen[k],chosen[j]
-                        break
     return chosen
 
 def _normalize_visual_beats(beats, duration, max_scene=3.2):
@@ -3265,7 +3278,7 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
     INTER_W, INTER_H = 540, 960
     if INTER_W % 2 or INTER_H % 2:
         raise RuntimeError(f'Dimensões intermediárias inválidas: {INTER_W}x{INTER_H}.')
-    """V25 editor: narration-driven timeline, 12 short beats, real clips + images.
+    """V57 editor: narration-driven video-first timeline, short beats, real clips + limited images.
     Still optimized for Render Free by encoding one scene at a time.
     """
     ff=_ffmpeg_executable()
@@ -3277,7 +3290,7 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
     beats=beats or build_short_timeline(script, {'title':topic_title}, duration, count=10)
     # Nunca permita que uma legenda/beat de timestamps incompletos vire uma
     # cena final de 10–15s. A timeline visual é normalizada independentemente.
-    beats=_normalize_visual_beats(beats,duration,max_scene=2.4)
+    beats=_normalize_visual_beats(beats,duration,max_scene=1.8)
     # Use todos os assets disponíveis; quando há poucos, o renderer aplica
     # enquadramentos diferentes em cada reutilização em vez de congelar a tela.
     imgs=list(image_paths)[:6]
