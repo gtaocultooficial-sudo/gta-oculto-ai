@@ -3399,6 +3399,7 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
     imgs=list(image_paths)[:6]
     assets=_choose_timeline_assets(video_clips,imgs,beats,topic_title,variant=asset_variant)
     scene_files=[]
+    render_use_counts={}
     print(f'[RENDER] start title={topic_title[:100]} scenes={len(beats)} videos={len(videos) if (videos:=list(video_clips)) else 0} images={len(imgs)} duration={duration:.1f}s', flush=True)
     for i,(beat,(kind,src)) in enumerate(zip(beats,assets)):
         print(f'[RENDER] scene {i+1}/{len(beats)} start kind={kind} duration={float(beat.get("duration",0)):.2f}s source={Path(src).name}', flush=True)
@@ -3410,8 +3411,8 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
             vf=f"scale=574:1020:force_original_aspect_ratio=increase,crop=540:960:x='10+{amp}*sin(n/18)':y='18+{max(4,amp//2)}*cos(n/23)',setsar=1,fps=30"
             # Reused clips start at different offsets so the same source is
             # not perceived as the exact same shot on every occurrence.
-            reuse_n=asset_counts.get(str(src),1)
-            offset=min(2.4,max(0.0,(reuse_n-1)*0.75))
+            reuse_n=render_use_counts.get(str(src),0)
+            offset=min(2.4,max(0.0,reuse_n*0.75))
             inp=['-stream_loop','-1','-threads:v','1','-probesize','1M','-analyzeduration','1M','-ss',f'{offset:.2f}','-i',str(src)]
         else:
             zoom='0.008' if motion_boost else '0.003'
@@ -3424,6 +3425,7 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
              '-x264-params','threads=1:lookahead-threads=1:rc-lookahead=0:sync-lookahead=0','-pix_fmt','yuv420p','-movflags','+faststart',str(scene)]
         run_cmd(cmd,75)
         scene_files.append(scene)
+        render_use_counts[str(src)]=render_use_counts.get(str(src),0)+1
         print(f'[RENDER] scene {i+1}/{len(beats)} done bytes={scene.stat().st_size if scene.exists() else 0}', flush=True)
         try: overlay.unlink()
         except Exception: pass
