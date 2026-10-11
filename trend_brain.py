@@ -140,10 +140,10 @@ class TrendBrain:
     def _duration_bucket(seconds):
         s=float(seconds or 0)
         if s <= 0: return "UNKNOWN"
-        if s < 30: return "20-29s"
-        # Keep learning inside the duration range supported by the current
-        # generation/evaluation pipeline; longer outputs are penalized.
-        if s < 40: return "30-39s"
+        if s < 30: return "24-29s"
+        # Learn only inside the range that the current evaluator considers healthy.
+        # Sub-24s and 39s+ outputs are treated as unsupported for editorial learning.
+        if s < 39: return "30-38s"
         return "UNSUPPORTED"
 
     def recommend_editorial_profile(self):
@@ -161,7 +161,7 @@ class TrendBrain:
         duration_stats={}
         for row in rows:
             b=str(row.get("duration_bucket",""))
-            if b not in ("20-29s","30-39s"): continue
+            if b not in ("24-29s","30-38s"): continue
             x=duration_stats.setdefault(b,{"sum":0.0,"n":0}); x["sum"]+=float(row.get("performance_score",0) or 0); x["n"]+=1
         duration_eligible={a:b for a,b in duration_stats.items() if b["n"]>=2}
         preferred_duration=None
