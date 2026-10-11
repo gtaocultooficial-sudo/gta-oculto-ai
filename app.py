@@ -4290,8 +4290,10 @@ def produce_job(jid):
         # Hard gate: available unique video windows (2 uses/source) plus one-use
         # real-frame supports must cover the timeline; never recycle on fallback.
         available_slots=len(selected_videos)*2+len(image_scenes)
-        if not selected_videos and len(image_scenes)>=8 and available_slots<len(beats):
-            # CDN unavailable: preserve narration in a shorter unique visual timeline.
+        if len(image_scenes)>=8 and available_slots<len(beats):
+            # When the available pool cannot cover every beat, switch to a one-use
+            # visual timeline instead of failing or recycling the same shot.
+            selected_videos=[]
             fallback_count=min(len(image_scenes),12)
             beats=build_short_timeline(script,topic,duration,fallback_count,word_cues=word_cues)
             caps=[b['text'] for b in beats]
