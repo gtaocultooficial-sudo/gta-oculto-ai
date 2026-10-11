@@ -3175,9 +3175,9 @@ def build_short_timeline(script, topic, duration, count=10, word_cues=None):
         return [{'text':'GTA 6','duration':duration,'highlight':'GTA','start':0,'end':duration}]
     sentences=[s.strip() for s in re.split(r'(?<=[.!?])\s+',narration) if s.strip()]
     all_chunks=[]
-    for sent in sentences: all_chunks.extend(_semantic_caption_chunks(sent,3,7))
+    for sent in sentences: all_chunks.extend(_semantic_caption_chunks(sent,3,6))
     if not all_chunks: all_chunks=[_caption_words(narration)]
-    all_chunks=_merge_caption_chunks(all_chunks,target_count=max(1,count),max_words=7)
+    all_chunks=_merge_caption_chunks(all_chunks,target_count=max(1,count),max_words=6)
     phrases=[]
     for ch in all_chunks:
         phrase=_clean_caption_phrase(' '.join(ch))
@@ -4044,7 +4044,6 @@ def evaluate(script,duration,scene_count,visual_quality,beats=None,video_count=0
     if len(words)<70: score-=8
     if '?' not in narration[:210]: score-=4
     if scene_count<10: score-=10
-    if scene_count<10: score-=4
     if video_count<4: score-=8
     if image_count<4: score-=4
     if visual_quality<60: score-=12
