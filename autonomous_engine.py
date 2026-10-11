@@ -86,8 +86,11 @@ class AutonomousEngine:
                     if isinstance(job.get('media_validation'),dict):
                         meta['duration_seconds']=float(job['media_validation'].get('duration',0) or 0)
                     self.trend_brain.record_production(job.get('opportunity') or {}, meta, quality)
-                    job['recommended_publish_slot']=self.trend_brain.recommend_publish_slot()
-                    app_module.update_job(jid,recommended_publish_slot=job['recommended_publish_slot'])
+                    job['recommended_publish_slot']=self.trend_brain.reserve_publish_slot(jid)
+                    if isinstance(job['recommended_publish_slot'],dict):
+                        meta['publish_at']=job['recommended_publish_slot'].get('publish_at','')
+                        meta['publish_slot']=job['recommended_publish_slot'].get('time','')
+                    app_module.update_job(jid,recommended_publish_slot=job['recommended_publish_slot'],metadata=meta)
                 except Exception as e: self.memory.event('publish_slot_error',str(e))
             path=app_module.WORK/video
             if path.exists():
@@ -101,9 +104,19 @@ class AutonomousEngine:
                             slot=(job.get('recommended_publish_slot') or {}).get('time','') if isinstance(job.get('recommended_publish_slot'),dict) else ''
                             self.trend_brain.record_publication(job.get('opportunity') or {}, meta, pub.get('video_id'), slot)
                         except Exception: pass
-                    app_module.update_job(jid,stage='PUBLICAÇÃO',log=f'▶️ YouTube: vídeo enviado ({pub.get("video_id")}).',youtube=pub)
+                    if pub.get('scheduled'):
+                        slot=job.get('recommended_publish_slot') or {}
+                        when=f"{slot.get('date','')} às {slot.get('time','')} (horário de Brasília)"
+                        app_module.update_job(jid,stage='PUBLICAÇÃO AGENDADA',log=f'🗓️ YouTube: Short enviado e agendado para {when}.',youtube=pub)
+                    else:
+                        app_module.update_job(jid,stage='PUBLICAÇÃO',log=f'▶️ YouTube: vídeo enviado ({pub.get("video_id")}).',youtube=pub)
                 else:
-                    app_module.update_job(jid,stage='PUBLICAÇÃO PENDENTE',log=f'⚠️ Vídeo pronto, mas o envio ao YouTube falhou: {str(pub.get("reason","erro desconhecido"))[:500]}',youtube=pub)
+                    reason=str(pub.get("reason","erro desconhecido"))
+                    if 'YOUTUBE_DAILY_UPLOAD_LIMIT' in reason:
+                        log=f'⏸️ Limite diário de envio do YouTube atingido. O MP4 continua salvo no servidor; não será feito loop de tentativas. Aguarde até 24 horas e tente novamente.'
+                    else:
+                        log=f'⚠️ Vídeo pronto, mas o envio ao YouTube falhou: {reason[:500]}'
+                    app_module.update_job(jid,stage='PUBLICAÇÃO PENDENTE',log=log,youtube=pub)
             else:
                 pub={'ok':False,'reason':'FINAL_MP4_MISSING','path':str(path)}
                 print(f'[AUTONOMY {jid}] YouTube upload skipped: final MP4 missing path={path}', flush=True)
