@@ -65,15 +65,28 @@ class TrendBrain:
             novelty=100 if seen<=1 else max(25,100-(seen-1)*10)
             demand=min(100,base*.55+mentions*10)
             history=0
+            history_samples=0
             for v in d["videos"].values():
                 if v.get("topic_key")==self._key(t):
+                    history_samples+=1
                     history=max(history,float(v.get("performance_score",0) or 0))
+            # Exploração controlada: temas pouco testados recebem um pequeno bônus,
+            # enquanto temas repetidos perdem prioridade. Histórico só influencia
+            # exploração depois de haver amostra suficiente para evitar overfitting.
+            if history_samples < 2:
+                learned_history=0
+                exploration_bonus=8 if seen<=1 else (4 if seen<=3 else (0 if seen<=5 else -3))
+            else:
+                learned_history=history
+                exploration_bonus=2 if seen<=2 else 0
             repetition=self._repetition_penalty(t,d)
-            score=base*.42+conf*.14+demand*.18+novelty*.10+history*.16-repetition
+            score=base*.40+conf*.14+demand*.18+novelty*.12+learned_history*.14+exploration_bonus-repetition
             t["trend_score"]=int(max(0,min(100,round(score))))
             t["repetition_penalty"]=repetition
+            t["exploration_bonus"]=exploration_bonus
+            t["history_samples"]=history_samples
             t["trend_signal"]="FORTE" if t["trend_score"]>=78 else ("MÉDIO" if t["trend_score"]>=60 else "FRACO")
-            t["trend_reason"]=f"Radar {int(base)}/100; demanda {int(demand)}; novidade {int(novelty)}; histórico {int(history)}; repetição -{int(repetition)}."
+            t["trend_reason"]=f"Radar {int(base)}/100; demanda {int(demand)}; novidade {int(novelty)}; histórico {int(learned_history)} ({history_samples} amostras); exploração {int(exploration_bonus):+d}; repetição -{int(repetition)}."
             ranked.append(t)
         return sorted(ranked,key=lambda x:(x.get("trend_score",0),x.get("score",0)),reverse=True)
 
