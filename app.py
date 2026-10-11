@@ -3240,17 +3240,23 @@ def _choose_timeline_assets(video_clips, image_paths, beats, topic_title, varian
     videos=[p for p in video_clips if p]
     images=[p for p in image_paths if p]
     pool=[('video',p) for p in videos]+[('image',p) for p in images]
-    chosen=[]; used=set()
+    chosen=[]; used=set(); asset_counts={}
     target_video=max(1, int(math.ceil(len(beats)*0.78))) if beats else 1
     video_used=0
 
     def recent_penalty(p, bi):
         pen=0
-        recent=[x[1] for x in chosen[-3:]]
-        if p in recent: pen += 120
-        if chosen and chosen[-1][1]==p: pen += 180
+        # V60: a visual must have a meaningful separation before returning.
+        # With the larger official pool this prevents obvious back-to-back and
+        # near-back-to-back repeats such as the same helicopter shot.
+        recent=[x[1] for x in chosen[-6:]]
+        if p in recent: pen += 220
+        if chosen and chosen[-1][1]==p: pen += 300
         if beats and bi >= max(0, int(len(beats)*0.80)) and p in [x[1] for x in chosen[:2]]:
-            pen += 100
+            pen += 140
+        # Balance reuse across the pool instead of repeatedly selecting the
+        # same high-scoring source.
+        pen += asset_counts.get(p,0) * 75
         return pen
 
     for bi,beat in enumerate(beats):
@@ -3307,6 +3313,7 @@ def _choose_timeline_assets(video_clips, image_paths, beats, topic_title, varian
         ranked.sort(key=lambda x:x[0],reverse=True)
         _,kind,p,idx=ranked[0]
         chosen.append((kind,p))
+        asset_counts[p]=asset_counts.get(p,0)+1
         used.add(idx)
         if kind=='video':
             video_used += 1
