@@ -3483,9 +3483,14 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
     if script is None:
         script={'narration':' '.join(captions)}
     beats=beats or build_short_timeline(script, {'title':topic_title}, duration, count=10)
-    # Nunca permita que uma legenda/beat de timestamps incompletos vire uma
-    # cena final de 10–15s. A timeline visual é normalizada independentemente.
-    beats=_normalize_visual_beats(beats,duration,max_scene=1.8)
+    # Video-first timelines are normalized to short beats. In the controlled
+    # image-only fallback, preserve one unique image per beat instead of splitting
+    # each 2.5s beat into duplicates that would recycle the same stills.
+    if video_clips:
+        beats=_normalize_visual_beats(beats,duration,max_scene=1.8)
+    else:
+        n=max(1,len(beats))
+        beats=[dict(b, start=i*duration/n, end=(i+1)*duration/n, duration=duration/n) for i,b in enumerate(beats)]
     # Use todos os assets disponíveis; quando há poucos, o renderer aplica
     # enquadramentos diferentes em cada reutilização em vez de congelar a tela.
     imgs=list(image_paths)[:18]
