@@ -2762,10 +2762,11 @@ def _expand_video_clips_into_distinct_windows(video_clips, jobdir, windows_per_c
             dst=outdir/f'{clip.stem}_window_{wi+1:02d}.mp4'
             try:
                 if not dst.exists() or dst.stat().st_size<8000:
-                    vf=f"trim=start={start:.2f}:duration=1.4,setpts=PTS-STARTPTS,scale=320:568:force_original_aspect_ratio=increase,crop=320:568,setsar=1,fps=12"
+                    dst.unlink(missing_ok=True)
                     run_cmd([
                         ff,'-loglevel','error','-y','-i',str(clip),
-                        '-vf',vf,'-t','1.4',
+                        '-ss',f'{start:.2f}','-t','1.4',
+                        '-vf','scale=320:568:force_original_aspect_ratio=increase,crop=320:568,setsar=1,fps=12',
                         '-an','-c:v','libx264','-preset','ultrafast','-crf','28',
                         '-threads','1','-filter_threads','1','-filter_complex_threads','1',
                         '-x264-params','threads=1:lookahead-threads=1:rc-lookahead=0:sync-lookahead=0',
