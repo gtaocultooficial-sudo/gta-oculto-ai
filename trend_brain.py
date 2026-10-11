@@ -93,7 +93,7 @@ class TrendBrain:
             k=self._key(topic or {})
             old=d["videos"].get(str(video_id),{})
             hook=str((metadata or {}).get("hook",(topic or {}).get("editorial_hook","")) or "")
-            d["videos"][str(video_id)]={"topic_key":k,"title":str((topic or {}).get("title","")),"hook":hook,"hook_type":self._hook_type(hook),"angle":str((metadata or {}).get("editorial_angle",(topic or {}).get("editorial_angle","")) or ""),"duration_bucket":self._duration_bucket((metadata or {}).get("duration_seconds",0)),"performance_score":old.get("performance_score",0),"publish_slot":str(publish_slot or old.get("publish_slot","")),"updated":time.time()}
+            d["videos"][str(video_id)]={"topic_key":k,"title":str((topic or {}).get("title","")),"hook":hook,"hook_type":self._hook_type(hook),"content_type":str((topic or {}).get("content_type","CURIOSIDADE") or "CURIOSIDADE").upper(),"angle":str((metadata or {}).get("editorial_angle",(topic or {}).get("editorial_angle","")) or ""),"duration_bucket":self._duration_bucket((metadata or {}).get("duration_seconds",0)),"performance_score":old.get("performance_score",0),"publish_slot":str(publish_slot or old.get("publish_slot","")),"updated":time.time()}
             self._write(d)
 
     def learn(self,result,publications=None):
@@ -124,7 +124,7 @@ class TrendBrain:
                 perf=min(100,view_signal+retention_signal+watch_signal+engagement+subscriber_signal)
                 p=pubs.get(vid,{})
                 existing=d["videos"].get(vid,{})
-                d["videos"][vid]={"topic_key":p.get("topic_key",existing.get("topic_key","")),"title":existing.get("title",p.get("title","")),"hook":existing.get("hook",p.get("hook","")),"angle":existing.get("angle",p.get("angle","")),"fingerprint":existing.get("fingerprint",""),"duration_bucket":existing.get("duration_bucket",p.get("duration_bucket","")),"hook_type":existing.get("hook_type",self._hook_type(existing.get("hook",""))),"publish_slot":existing.get("publish_slot",p.get("publish_slot","")),"performance_score":round(perf,2),"views":views,"likes":likes,"subscribers":subs,"average_view_duration":avg_duration,"estimated_minutes_watched":watched_minutes,"like_rate":round(like_rate,3),"updated":time.time()}
+                d["videos"][vid]={"topic_key":p.get("topic_key",existing.get("topic_key","")),"title":existing.get("title",p.get("title","")),"hook":existing.get("hook",p.get("hook","")),"angle":existing.get("angle",p.get("angle","")),"fingerprint":existing.get("fingerprint",""),"duration_bucket":existing.get("duration_bucket",p.get("duration_bucket","")),"hook_type":existing.get("hook_type",self._hook_type(existing.get("hook",""))),"content_type":existing.get("content_type",p.get("content_type","CURIOSIDADE")),"publish_slot":existing.get("publish_slot",p.get("publish_slot","")),"performance_score":round(perf,2),"views":views,"likes":likes,"subscribers":subs,"average_view_duration":avg_duration,"estimated_minutes_watched":watched_minutes,"like_rate":round(like_rate,3),"updated":time.time()}
                 slot=existing.get("publish_slot",p.get("publish_slot",""))
                 if slot:
                     sp=d.setdefault("patterns",{}).setdefault("publish_slots",{})
@@ -159,11 +159,15 @@ class TrendBrain:
         rows=[v for v in d.get("videos",{}).values() if float(v.get("performance_score",0) or 0)>0 and v.get("hook_type")]
         if len(rows)<3: return {"learned":False,"sample_size":len(rows)}
         stats={}
+        type_stats={}
         for v in rows:
             k=str(v.get("hook_type"))
-            if k=="OUTRO": continue
-            x=stats.setdefault(k,{"sum":0.0,"n":0}); x["sum"]+=float(v.get("performance_score",0) or 0); x["n"]+=1
+            if k!="OUTRO":
+                x=stats.setdefault(k,{"sum":0.0,"n":0}); x["sum"]+=float(v.get("performance_score",0) or 0); x["n"]+=1
+            ct=str(v.get("content_type","CURIOSIDADE") or "CURIOSIDADE").upper()
+            x2=type_stats.setdefault(ct,{"sum":0.0,"n":0}); x2["sum"]+=float(v.get("performance_score",0) or 0); x2["n"]+=1
         eligible={k:v for k,v in stats.items() if v["n"]>=2}
+        type_eligible={k:v for k,v in type_stats.items() if v["n"]>=2}
         if not eligible: return {"learned":False,"sample_size":len(rows)}
         k,v=max(eligible.items(),key=lambda kv:kv[1]["sum"]/kv[1]["n"])
         duration_stats={}
@@ -180,8 +184,14 @@ class TrendBrain:
         best_score=round(v["sum"]/v["n"],2)
         # Keep the learning signal conservative: it only influences editorial
         # ranking after at least two videos of the same hook style exist.
+        preferred_content_type=None
+        if type_eligible:
+            ck,cv=max(type_eligible.items(),key=lambda kv:kv[1]["sum"]/kv[1]["n"])
+            preferred_content_type={"type":ck,"score":round(cv["sum"]/cv["n"],2),"samples":cv["n"]}
         return {"learned":True,"preferred_hook_type":k,"score":best_score,
                 "sample_size":len(rows),"by_style":by_style,
+                "preferred_content_type":preferred_content_type,
+                "by_content_type":{a:round(b["sum"]/b["n"],2) for a,b in type_stats.items()},
                 "preferred_duration":preferred_duration,
                 "confidence":min(1.0, max(0.0, (v["n"]-1)/4.0))}
 
