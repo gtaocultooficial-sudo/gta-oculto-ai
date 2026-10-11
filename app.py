@@ -2711,8 +2711,8 @@ def download_official_video_clips(outdir, jid=None):
                     pass
 
         safe=[p for p in safe if p.exists() and p.stat().st_size>20000]
-        if len(safe) < 6:
-            raise RuntimeError(f'Apenas {len(safe)} clipes reais e seguros foram preparados; são necessários pelo menos 6.')
+        if len(safe) < 4:
+            raise RuntimeError(f'Apenas {len(safe)} clipes reais e seguros foram preparados; são necessários pelo menos 4.')
         return safe[:8]
     except Exception as e:
         raise RuntimeError('Não foi possível obter os vídeos oficiais da Rockstar: '+str(e)[:1800])
@@ -3242,10 +3242,13 @@ def _choose_timeline_assets(video_clips, image_paths, beats, topic_title, varian
     pool=[('video',p) for p in videos]+[('image',p) for p in images]
     chosen=[]; used=set(); asset_counts={}
     # V61: repetition is now a hard budget, not just a score penalty.
-    # With 8 official clips + 4 image assets, 16 video scenes + 8 image scenes
-    # fill a 24-scene Short with each source used at most twice.
-    target_video=max(1, min(len(beats), int(math.floor(len(beats)*0.67)))) if beats else 1
-    target_images=min(len(images)*2, max(1, len(beats)-target_video)) if beats and images else 0
+    # The pool can shrink on Render Free after a restart, so the reuse budget is
+    # calculated from the assets actually available. With 8 videos + 4 images
+    # this yields 16 video + 8 image scenes; with 4 + 4 it yields 12 + 12.
+    asset_total=max(1,len(videos)+len(images))
+    max_reuse=max(2,int(math.ceil(len(beats)/asset_total))) if beats else 2
+    target_video=max(1, min(len(beats), len(videos)*max_reuse, int(math.ceil(len(beats)*0.67)))) if beats and videos else 0
+    target_images=min(len(images)*max_reuse, max(0, len(beats)-target_video)) if beats and images else 0
     video_used=0
 
     def recent_penalty(p, bi):
@@ -3260,8 +3263,8 @@ def _choose_timeline_assets(video_clips, image_paths, beats, topic_title, varian
         return pen
 
     def under_reuse_budget(p):
-        # Never let one source appear three times in the same Short.
-        return asset_counts.get(p,0) < 2
+        # Never exceed the dynamically calculated reuse budget for this pool.
+        return asset_counts.get(p,0) < max_reuse
 
     for bi,beat in enumerate(beats):
         remaining=[(idx,kind,p) for idx,(kind,p) in enumerate(pool) if idx not in used]
