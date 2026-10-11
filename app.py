@@ -3369,18 +3369,20 @@ def _choose_timeline_assets(video_clips, image_paths, beats, topic_title, varian
     # at most once in a Short. Video sources can repeat only because each proxy
     # is now 8.5s long and the renderer seeks to a materially different offset.
     image_max_reuse=1
-    # V65: uma mesma fonte de vídeo nunca aparece mais de 2 vezes no Short.
-    # O objetivo é obrigar a timeline a esgotar as fontes inéditas antes de
-    # voltar a qualquer plano já exibido.
-    video_max_reuse=2 if videos else 2
+    # V66.8: não reciclar a mesma fonte de vídeo quando já existe um pool
+    # suficiente de imagens únicas. O problema observado no V66.7 era que,
+    # com apenas 2 vídeos oficiais, cada fonte podia voltar 2 vezes e reapresentar
+    # exatamente o mesmo personagem/plano em outra parte do Short.
+    #
+    # Regra dura:
+    # - >= 8 imagens únicas: cada vídeo oficial entra no máximo 1 vez.
+    # - pool visual curto: ainda permitimos até 2 usos por vídeo para não travar
+    #   a produção, mas a auditoria deve continuar sinalizando repetição.
+    video_max_reuse=1 if len(images)>=8 else 2
     max_reuse=max(image_max_reuse,video_max_reuse)
-    # V62: quando existem pelo menos 4 vídeos reais, não use imagens repetidas
-    # para preencher a timeline. Movimento real é preferível a slideshow reciclado.
-    # V64-safe: even with 4+ source clips, cap video usage at the computed reuse
-    # budget. Fill the remaining slots with unique supporting images instead of
-    # forcing every beat to recycle footage and creating obvious visual loops.
     target_video=min(len(beats), len(videos)*video_max_reuse) if beats and videos else 0
     target_images=min(len(images), max(0, len(beats)-target_video)) if beats and images else 0
+    print(f'[TIMELINE_VARIETY] videos={len(videos)} images={len(images)} video_max_reuse={video_max_reuse} target_video={target_video} target_images={target_images}',flush=True)
     video_used=0
 
     def recent_penalty(p, bi):
