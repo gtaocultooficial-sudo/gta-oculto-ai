@@ -2724,39 +2724,7 @@ def download_official_video_clips(outdir, jid=None):
         safe=[p for p in safe if p.exists() and p.stat().st_size>20000]
         if len(safe) < 4:
             raise RuntimeError(f'Apenas {len(safe)} clipes reais e seguros foram preparados; são necessários pelo menos 4.')
-
-        # V64: uma fonte oficial pode conter vários planos. O editor anterior
-        # contava a fonte inteira como um único asset e apenas mudava o offset,
-        # permitindo que o mesmo plano/personagem voltasse várias vezes.
-        # Criamos duas janelas independentes por fonte para aumentar a diversidade
-        # real sem baixar novamente o pacote da Rockstar.
-        expanded=[]
-        for src in safe[:8]:
-            expanded.append(src)
-            try:
-                stem=src.stem
-                part=cache/f'{stem}_B.mp4'
-                if not part.exists() or part.stat().st_size<=20000:
-                    run_cmd([
-                        ff,'-loglevel','error','-y','-ss','4.1','-i',str(src),'-t','4.0',
-                        '-vf','scale=320:568:force_original_aspect_ratio=increase,crop=320:568,setsar=1,fps=12',
-                        '-an','-c:v','libx264','-preset','ultrafast','-crf','31','-threads','1',
-                        '-filter_threads','1','-filter_complex_threads','1',
-                        '-x264-params','threads=1:lookahead-threads=1:rc-lookahead=0:sync-lookahead=0',
-                        '-pix_fmt','yuv420p','-movflags','+faststart',str(part)
-                    ],60)
-                if part.exists() and part.stat().st_size>20000 and not _video_contains_rating_disclaimer(part):
-                    expanded.append(part)
-            except Exception as e:
-                if jid:
-                    update_job(jid,log=f'Janela visual secundária ignorada: {src.name} — {str(e)[:140]}')
-        safe=[p for p in expanded if p.exists() and p.stat().st_size>20000]
-        if jid:
-            update_job(jid,log=f'Pool visual V64: {len(safe)} janelas independentes derivadas de {len(expanded)//2 if expanded else 0} fontes oficiais.')
-        return safe[:10]
-    except Exception as e:
-        raise RuntimeError('Não foi possível obter os vídeos oficiais da Rockstar: '+str(e)[:1800])
-
+        return safe[:8]
 
 def _video_relevance(path,title):
     text=(path.stem+' '+title).lower()
@@ -3298,10 +3266,6 @@ def _choose_timeline_assets(video_clips, image_paths, beats, topic_title, varian
     target_images=0 if len(videos)>=4 else (min(len(images), max(0, len(beats)-target_video)) if beats and images else 0)
     video_used=0
 
-    def _source_key(p):
-        # V64: files ending _B are a second temporal window of the same source.
-        stem=Path(p).stem
-        return re.sub(r'_B$','',stem)
     def under_reuse_budget(p):
         # Images are one-shot support assets; videos have a separate reuse budget.
         kind='video' if p in videos else 'image'
@@ -4692,18 +4656,11 @@ if __name__=='__main__': APP.run(host='0.0.0.0',port=int(os.environ.get('PORT',5
         recent=[x[1] for x in chosen[-8:]]
         if p in recent: pen += 420
         if chosen and chosen[-1][1]==p: pen += 1000
-        src=_source_key(p)
-        recent_sources=[_source_key(x[1]) for x in chosen[-6:]]
-        # Do not let two windows from the same source dominate consecutive scenes.
-        if src in recent_sources: pen += 520
-        if chosen and _source_key(chosen[-1][1])==src: pen += 1400
         if beats and bi >= max(0, int(len(beats)*0.80)) and p in [x[1] for x in chosen[:2]]:
             pen += 180
-        # Strongly prefer assets/sources that have not been used yet.
+        # Strongly prefer sources that have not been used yet.
         pen += asset_counts.get(p,0) * 180
-        pen += sum(1 for x in chosen if _source_key(x[1])==src) * 260
         return pen
-
     def under_reuse_budget(p):
         # Images are one-shot support assets; videos have a separate reuse budget.
         kind='video' if p in videos else 'image'
