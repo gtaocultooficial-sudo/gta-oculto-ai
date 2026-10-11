@@ -2323,11 +2323,28 @@ def editor_chief_select(topics):
             type_conf=min(1.0,max(0.0,(samples-1)/4.0))
             type_bonus=round(4*type_conf)
             editorial+=type_bonus
+        # Duration learning stays conservative: it is a tie-breaker, not a hard rule.
+        duration_bonus=0
+        preferred_duration=learning.get('preferred_duration') or {}
+        if learning.get('learned') and preferred_duration:
+            target_bucket=str(preferred_duration.get('bucket',''))
+            # The editor's current default is 30-38s; use metadata only when available.
+            candidate_bucket=str(topic.get('duration_bucket','') or '')
+            if not candidate_bucket:
+                try:
+                    candidate_bucket=TREND_BRAIN._duration_bucket(topic.get('duration_seconds',0)) if TREND_BRAIN else ''
+                except Exception:
+                    candidate_bucket=''
+            if target_bucket and candidate_bucket==target_bucket:
+                dsamples=int(preferred_duration.get('samples',0) or 0)
+                duration_conf=min(1.0,max(0.0,(dsamples-1)/4.0))
+                duration_bonus=round(2*duration_conf)
+                editorial+=duration_bonus
         item['editorial_score']=int(max(0,min(100,round(editorial))))
         item['editorial_angle']=angle
         item['editorial_hook']=hook
         item['editorial_learning']=learning
-        item['editorial_learning_bonus']=learning_bonus+type_bonus
+        item['editorial_learning_bonus']=learning_bonus+type_bonus+duration_bonus
         item['editorial_decision']='PRODUZIR' if item['editorial_score']>=62 else 'OBSERVAR'
         if item['editorial_score']>=78 and conf>=65:
             item['editorial_decision']='PRODUZIR AGORA'
