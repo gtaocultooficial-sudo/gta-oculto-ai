@@ -84,7 +84,8 @@ class TrendBrain:
             d=self._read()
             k=self._key(topic or {})
             old=d["videos"].get(str(video_id),{})
-            d["videos"][str(video_id)]={"topic_key":k,"title":str((topic or {}).get("title","")),"hook":str((topic or {}).get("editorial_hook","")),"angle":str((topic or {}).get("editorial_angle","")),"performance_score":old.get("performance_score",0),"publish_slot":str(publish_slot or old.get("publish_slot","")),"updated":time.time()}
+            hook=str((metadata or {}).get("hook",(topic or {}).get("editorial_hook","")) or "")
+            d["videos"][str(video_id)]={"topic_key":k,"title":str((topic or {}).get("title","")),"hook":hook,"hook_type":self._hook_type(hook),"angle":str((metadata or {}).get("editorial_angle",(topic or {}).get("editorial_angle","")) or ""),"performance_score":old.get("performance_score",0),"publish_slot":str(publish_slot or old.get("publish_slot","")),"updated":time.time()}
             self._write(d)
 
     def learn(self,result,publications=None):
@@ -125,6 +126,29 @@ class TrendBrain:
             d["videos"]=dict(list(d["videos"].items())[-500:])
             self._write(d)
         return {"ok":True,"videos_learned":len(rows)}
+
+    @staticmethod
+    def _hook_type(hook):
+        h=str(hook or "").lower()
+        if "confirm" in h or "revelou" in h: return "CONFIRMACAO"
+        if "rumor" in h or "não foi confirmado" in h: return "RUMOR"
+        if "detalhe" in h or "pista" in h: return "DETALHE"
+        if "percebeu" in h or "vale a pena ver" in h: return "CURIOSIDADE"
+        return "OUTRO"
+
+    def recommend_editorial_profile(self):
+        d=self._read()
+        rows=[v for v in d.get("videos",{}).values() if float(v.get("performance_score",0) or 0)>0 and v.get("hook_type")]
+        if len(rows)<3: return {"learned":False,"sample_size":len(rows)}
+        stats={}
+        for v in rows:
+            k=str(v.get("hook_type"))
+            if k=="OUTRO": continue
+            x=stats.setdefault(k,{"sum":0.0,"n":0}); x["sum"]+=float(v.get("performance_score",0) or 0); x["n"]+=1
+        eligible={k:v for k,v in stats.items() if v["n"]>=2}
+        if not eligible: return {"learned":False,"sample_size":len(rows)}
+        k,v=max(eligible.items(),key=lambda kv:kv[1]["sum"]/kv[1]["n"])
+        return {"learned":True,"preferred_hook_type":k,"score":round(v["sum"]/v["n"],2),"sample_size":len(rows),"by_style":{a:round(b["sum"]/b["n"],2) for a,b in stats.items()}}
 
     def record_production(self, topic, metadata=None, quality=0):
         """Store editorial quality before publication so the brain can learn even without platform APIs."""
@@ -167,4 +191,4 @@ class TrendBrain:
 
     def status(self):
         d=self._read()
-        return {"version":"V58","topics_seen":len(d["topics"]),"videos_tracked":len(d["videos"])}
+        return {"version":"V59","topics_seen":len(d["topics"]),"videos_tracked":len(d["videos"]),"editorial_learning":self.recommend_editorial_profile()}
