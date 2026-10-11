@@ -2637,18 +2637,20 @@ def download_official_video_clips(outdir, jid=None):
             cached.append(p)
         except Exception:
             continue
-    # Six distinct clips are enough for the video-first timeline; the renderer
-    # can reuse them, avoiding repeated multi-megabyte downloads on the Free tier.
-    if len(cached) >= 6:
-        return cached[:6]
+    # V60: keep a larger pool of distinct official clips. Six clips were
+    # technically stable, but caused visible repetition in 24-scene Shorts.
+    # Eight clips gives the editor enough visual diversity while staying bounded
+    # for the Render Free memory/download budget.
+    if len(cached) >= 8:
+        return cached[:8]
 
     try:
         if jid:
             update_job(jid,log='Lendo catálogo oficial da Rockstar e filtrando telas ESRB/disclaimers...')
         total,entries=_remote_zip_entries(ROCKSTAR_VIDEO_ZIP)
         media=[e for e in entries if e['name'].lower().endswith(('.mp4','.mov','.m4v'))]
-        if len(media) < 6:
-            raise RuntimeError(f'O pacote oficial possui apenas {len(media)} vídeos utilizáveis; são necessários pelo menos 6.')
+        if len(media) < 8:
+            raise RuntimeError(f'O pacote oficial possui apenas {len(media)} vídeos utilizáveis; são necessários pelo menos 8.')
 
         preferred=[]
         for key in ('Jason','Lucia','Cal','Boobie','Raul','Brian','Real','Dre'):
@@ -2665,7 +2667,7 @@ def download_official_video_clips(outdir, jid=None):
                 next_index=max(next_index,int(m.group(1))+1)
 
         for entry in candidates:
-            if len(safe) >= 6:
+            if len(safe) >= 8:
                 break
             idx=next_index
             next_index += 1
@@ -2711,7 +2713,7 @@ def download_official_video_clips(outdir, jid=None):
         safe=[p for p in safe if p.exists() and p.stat().st_size>20000]
         if len(safe) < 6:
             raise RuntimeError(f'Apenas {len(safe)} clipes reais e seguros foram preparados; são necessários pelo menos 6.')
-        return safe[:6]
+        return safe[:8]
     except Exception as e:
         raise RuntimeError('Não foi possível obter os vídeos oficiais da Rockstar: '+str(e)[:1800])
 
