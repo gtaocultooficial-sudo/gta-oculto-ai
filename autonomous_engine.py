@@ -120,13 +120,14 @@ class AutonomousEngine:
         print('[AUTONOMY] analytics collection start', flush=True)
         r=self.analytics.collect(7)
         print(f'[AUTONOMY] analytics collection result ok={r.get("ok")} reason={str(r.get("reason",""))[:400]}', flush=True)
-        self.last_analytics_result={'ok':bool(r.get('ok')),'reason':str(r.get('reason',''))[:400],'videos_learned':int(r.get('videos_learned',0) or 0),'checked_at':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())}
-        self.memory.event('analytics','weekly_collection',r,r.get('ok'))
+        learned={'videos_learned':0}
         if r.get('ok'):
             self.memory.metric('latest_analytics',r)
             if self.trend_brain:
-                try: self.trend_brain.learn(r)
+                try: learned=self.trend_brain.learn(r) or learned
                 except Exception as e: self.memory.event('trend_brain_error',str(e))
+        self.last_analytics_result={'ok':bool(r.get('ok')),'reason':str(r.get('reason',''))[:400],'rows_received':len(r.get('rows',[]) or []),'videos_learned':int(learned.get('videos_learned',0) or 0),'checked_at':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())}
+        self.memory.event('analytics','weekly_collection',r,r.get('ok'))
         return r
     def status(self):
         return {'mode':'AUTONOMOUS','max_recoveries':self.max_recoveries,'deploy':self.deploy.status(),'youtube_publish':self.publisher.enabled,'youtube_analytics':self.analytics.enabled,'social_publish':self.social.status() if self.social else {},'trend_brain':self.trend_brain.status() if self.trend_brain else {'enabled':False},'analytics_last_result':self.last_analytics_result,'memory':self.memory.summary()}
