@@ -3261,7 +3261,10 @@ def _choose_timeline_assets(video_clips, image_paths, beats, topic_title, varian
     # at most once in a Short. Video sources can repeat only because each proxy
     # is now 8.5s long and the renderer seeks to a materially different offset.
     image_max_reuse=1
-    video_max_reuse=max(2,int(math.ceil(max(1,len(beats)-min(len(images),len(beats))) / max(1,len(videos))))) if beats and videos else 2
+    # V65: uma mesma fonte de vídeo nunca aparece mais de 2 vezes no Short.
+    # O objetivo é obrigar a timeline a esgotar as fontes inéditas antes de
+    # voltar a qualquer plano já exibido.
+    video_max_reuse=2 if videos else 2
     max_reuse=max(image_max_reuse,video_max_reuse)
     # V62: quando existem pelo menos 4 vídeos reais, não use imagens repetidas
     # para preencher a timeline. Movimento real é preferível a slideshow reciclado.
@@ -3298,17 +3301,26 @@ def _choose_timeline_assets(video_clips, image_paths, beats, topic_title, varian
         image_slots={int(round((i+1)*len(beats)/(target_image_count+1)))-1 for i in range(target_image_count)} if target_image_count else set()
         image_due=(bi in image_slots) and bool(images)
 
-        # Prefer fresh assets first; once every asset has appeared once, allow a
-        # second use, but never a third. This is the key fix for the user's
-        # repeated helicopter/character shots.
+        # V65: FRESH-FIRST é uma regra dura. Se ainda existe uma fonte de vídeo
+        # que nunca apareceu, ela vence qualquer fonte já exibida. A penalidade
+        # numérica anterior podia ser superada pela relevância semântica (Jason/
+        # Lucia), causando o carrossel dos mesmos 4-5 planos.
+        fresh_videos=[x for x in remaining_videos if under_reuse_budget(x[2])]
+        fresh_images=[x for x in remaining if x[1]=='image' and under_reuse_budget(x[2])]
         remaining_slots=len(beats)-bi-1
         remaining_video_capacity=sum(1 for _idx,_kind,p in reusable_videos)
-        can_use_image=image_due and (video_used + remaining_slots >= target_video) and bool(reusable_images)
+        can_use_image=image_due and (video_used + remaining_slots >= target_video) and bool(fresh_images or reusable_images)
         force_video=bool(videos) and video_used < target_video and not can_use_image and bool(reusable_videos)
+
         if can_use_image:
-            candidates=reusable_images
+            candidates=fresh_images or reusable_images
         elif force_video:
-            candidates=reusable_videos
+            # Enquanto houver vídeo inédito, não aceite um vídeo reciclado.
+            candidates=fresh_videos or reusable_videos
+        elif fresh_videos:
+            candidates=fresh_videos
+        elif fresh_images:
+            candidates=fresh_images
         elif reusable_videos:
             candidates=reusable_videos
         elif reusable_images:
@@ -3444,8 +3456,11 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
             # V62: use six distinct windows across the 8.5s proxy. The previous
             # 6.4s cap caused the 5th/6th reuse to collapse onto nearly the same
             # opening, which is exactly the "same video came back" problem.
-            offset=min(7.0,max(0.0,reuse_n*1.4))
-            zoom_variant=reuse_n % 4
+            # V65: em uma segunda aparição, desloca o trecho de forma clara.
+            # O limite de 2 usos torna este offset determinístico e evita que
+            # a mesma abertura do proxy volte praticamente igual.
+            offset=0.0 if reuse_n==0 else 3.6
+            zoom_variant=reuse_n % 2
             crop_w=540 + zoom_variant*10
             crop_h=960 + zoom_variant*18
             scale_w=574 + zoom_variant*18
