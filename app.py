@@ -1926,7 +1926,10 @@ def make_script(topic):
 
     # Use only the factual material needed for the story. The narration should
     # not restate the same idea in the hook, context, proof and payoff.
-    selected_evidence=evidence[:1] if focused_story else evidence[:2]
+    learned_duration_bucket=str((learned_profile.get('preferred_duration') or {}).get('bucket') or '')
+    # Closed-loop duration learning: use the learned winner to control factual
+    # density before TTS, not only the number of visual beats.
+    selected_evidence=evidence[:1] if (focused_story or learned_duration_bucket=='20-29s') else evidence[:2]
     fact_parts=[]
     for item in selected_evidence:
         item=_clean_narrative_text(item).rstrip('.!?')
@@ -1960,6 +1963,8 @@ def make_script(topic):
         cta='Você já tinha percebido isso?'
 
 
+    if learned_duration_bucket=='30-39s' and not focused_story:
+        context += ' O contexto adicional ajuda a entender por que esse detalhe está chamando atenção agora.'
     sections={
         'hook':hook,
         'context':_clean_narrative_text(context),
