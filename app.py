@@ -1775,7 +1775,7 @@ def _autonomous_make_script(jid, topic, topics):
 
 
 def _headline_from_specific_evidence(title, evidence):
-    """Replace broad listicle titles when this Short actually covers one specific fact."""
+    """Build a Short headline from the exact evidence used, avoiding unsupported source entities."""
     original=_clean_narrative_text(str(title or '')).strip()
     text=' '.join(str(x or '') for x in (evidence or [])).lower()
     broad=bool(re.search(r'\b\d+\s+(?:novidades|detalhes|segredos|curiosidades|fatos|mistérios|misterios)\b',original,re.I))
@@ -1785,6 +1785,17 @@ def _headline_from_specific_evidence(title, evidence):
     ))
     if broad and pair and work_money:
         return 'GTA 6: Jason e Lucia estão trabalhando para ganhar dinheiro?'
+    named_entities=('jason','lucia','leonida','vice city','rockstar','microsoft','xbox','playstation')
+    unsupported=[name for name in named_entities
+                 if re.search(r'\b'+re.escape(name)+r'\b',original,re.I)
+                 and not re.search(r'\b'+re.escape(name)+r'\b',text,re.I)]
+    if unsupported and evidence:
+        fact=_clean_narrative_text(str(evidence[0])).strip(' .!?')
+        if fact:
+            fact=' '.join(fact.split())
+            if len(fact)>82:
+                fact=fact[:82].rsplit(' ',1)[0]
+            return 'GTA 6 — '+fact
     return original
 
 
