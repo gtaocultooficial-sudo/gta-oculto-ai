@@ -1929,7 +1929,7 @@ def make_script(topic):
     learned_duration_bucket=str((learned_profile.get('preferred_duration') or {}).get('bucket') or '')
     # Closed-loop duration learning: use the learned winner to control factual
     # density before TTS, not only the number of visual beats.
-    selected_evidence=evidence[:1] if (focused_story or learned_duration_bucket=='20-29s') else evidence[:2]
+    selected_evidence=evidence[:1] if (focused_story or learned_duration_bucket=='24-29s') else evidence[:2]
     fact_parts=[]
     for item in selected_evidence:
         item=_clean_narrative_text(item).rstrip('.!?')
@@ -1963,7 +1963,7 @@ def make_script(topic):
         cta='Você já tinha percebido isso?'
 
 
-    if learned_duration_bucket=='30-39s' and not focused_story:
+    if learned_duration_bucket=='30-38s' and not focused_story:
         context += ' O contexto adicional ajuda a entender por que esse detalhe está chamando atenção agora.'
     sections={
         'hook':hook,
@@ -3145,9 +3145,9 @@ def _learned_timeline_count(duration, fallback=10):
         pref=(profile or {}).get('preferred_duration') or {}
         bucket=str(pref.get('bucket') or '')
         s=float(duration or 0)
-        actual='20-29s' if s < 30 else ('30-39s' if s < 40 else ('40-49s' if s < 50 else '50-60s'))
+        actual='24-29s' if 24 <= s < 30 else ('30-38s' if 30 <= s < 39 else 'UNSUPPORTED')
         if bucket != actual: return fallback
-        return {'20-29s':8,'30-39s':10,'40-49s':12,'50-60s':14}.get(bucket,fallback)
+        return {'24-29s':8,'30-38s':10}.get(bucket,fallback)
     except Exception:
         return fallback
 
