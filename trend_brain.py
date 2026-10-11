@@ -106,7 +106,7 @@ class TrendBrain:
             k=self._key(topic or {})
             old=d["videos"].get(str(video_id),{})
             hook=str((metadata or {}).get("hook",(topic or {}).get("editorial_hook","")) or "")
-            d["videos"][str(video_id)]={"topic_key":k,"title":str((topic or {}).get("title","")),"hook":hook,"hook_type":self._hook_type(hook),"content_type":str((topic or {}).get("content_type","CURIOSIDADE") or "CURIOSIDADE").upper(),"angle":str((metadata or {}).get("editorial_angle",(topic or {}).get("editorial_angle","")) or ""),"duration_bucket":self._duration_bucket((metadata or {}).get("duration_seconds",0)),"performance_score":old.get("performance_score",0),"publish_slot":str(publish_slot or old.get("publish_slot","")),"updated":time.time()}
+            d["videos"][str(video_id)]={"topic_key":k,"title":str((topic or {}).get("title","")),"hook":hook,"hook_type":self._hook_type(hook),"content_type":str((topic or {}).get("content_type","CURIOSIDADE") or "CURIOSIDADE").upper(),"angle":str((metadata or {}).get("editorial_angle",(topic or {}).get("editorial_angle","")) or ""),"angle_type":self._angle_type((metadata or {}).get("editorial_angle",(topic or {}).get("editorial_angle","")) or ""),"title_pattern":self._title_pattern((topic or {}).get("title","")),"duration_bucket":self._duration_bucket((metadata or {}).get("duration_seconds",0)),"performance_score":old.get("performance_score",0),"publish_slot":str(publish_slot or old.get("publish_slot","")),"updated":time.time()}
             self._write(d)
 
     def learn(self,result,publications=None):
@@ -150,7 +150,7 @@ class TrendBrain:
                 perf=min(100,view_signal+retention_signal+watch_signal+engagement+comment_signal+subscriber_signal)
                 p=pubs.get(vid,{})
                 existing=d["videos"].get(vid,{})
-                d["videos"][vid]={"topic_key":p.get("topic_key",existing.get("topic_key","")),"title":existing.get("title",p.get("title","")),"hook":existing.get("hook",p.get("hook","")),"angle":existing.get("angle",p.get("angle","")),"fingerprint":existing.get("fingerprint",""),"duration_bucket":existing.get("duration_bucket",p.get("duration_bucket","")),"hook_type":existing.get("hook_type",self._hook_type(existing.get("hook",""))),"content_type":existing.get("content_type",p.get("content_type","CURIOSIDADE")),"publish_slot":existing.get("publish_slot",p.get("publish_slot","")),"performance_score":round(perf,2),"views":views,"likes":likes,"comments":comments,"subscribers":subs,"average_view_duration":avg_duration,"estimated_minutes_watched":watched_minutes,"like_rate":round(like_rate,3),"comment_rate":round(comment_rate,3),"view_velocity":round(view_velocity,2),"updated":time.time()}
+                d["videos"][vid]={"topic_key":p.get("topic_key",existing.get("topic_key","")),"title":existing.get("title",p.get("title","")),"title_pattern":existing.get("title_pattern",self._title_pattern(existing.get("title",p.get("title","")))),"hook":existing.get("hook",p.get("hook","")),"angle":existing.get("angle",p.get("angle","")),"angle_type":existing.get("angle_type",self._angle_type(existing.get("angle",p.get("angle","")))),"fingerprint":existing.get("fingerprint",""),"duration_bucket":existing.get("duration_bucket",p.get("duration_bucket","")),"hook_type":existing.get("hook_type",self._hook_type(existing.get("hook",""))),"content_type":existing.get("content_type",p.get("content_type","CURIOSIDADE")),"publish_slot":existing.get("publish_slot",p.get("publish_slot","")),"performance_score":round(perf,2),"views":views,"likes":likes,"comments":comments,"subscribers":subs,"average_view_duration":avg_duration,"estimated_minutes_watched":watched_minutes,"like_rate":round(like_rate,3),"comment_rate":round(comment_rate,3),"view_velocity":round(view_velocity,2),"updated":time.time()}
                 slot=existing.get("publish_slot",p.get("publish_slot",""))
                 if slot:
                     patterns=d.setdefault("patterns",{})
@@ -164,6 +164,28 @@ class TrendBrain:
             d["videos"]=dict(list(d["videos"].items())[-500:])
             self._write(d)
         return {"ok":True,"videos_learned":len(rows)}
+
+    @staticmethod
+    def _title_pattern(title):
+        """Classifica a embalagem do título para aprender formatos vencedores."""
+        t=str(title or "").lower().strip()
+        if not t: return "OUTRO"
+        if re.search(r"\b\d{1,3}\s+(novidades|detalhes|segredos|curiosidades|fatos|mistérios|misterios)\b",t): return "LISTA_NUMERICA"
+        if "?" in t: return "PERGUNTA"
+        if any(x in t for x in ("o detalhe","o segredo","a pista","detalhe escondido")): return "DETALHE_CURIOSO"
+        if any(x in t for x in ("confirmou","confirmado","oficialmente","revelou","revelado")): return "CONFIRMACAO"
+        if any(x in t for x in ("como","por que","porque","o que significa")): return "EXPLICATIVO"
+        if any(x in t for x in ("pode mudar","vai mudar","pode revelar","pode indicar")): return "IMPACTO"
+        return "DECLARATIVO"
+
+    @staticmethod
+    def _angle_type(angle):
+        a=str(angle or "").lower()
+        if any(x in a for x in ("verdade ou","fato de especulação","rumor")): return "FATO_VS_RUMOR"
+        if any(x in a for x in ("pista","detalhe","escondido")): return "PISTA_DETALHE"
+        if any(x in a for x in ("impacto","mudar","consequ")): return "IMPACTO"
+        if any(x in a for x in ("explicar","por que","significa")): return "EXPLICATIVO"
+        return "INFORMATIVO"
 
     @staticmethod
     def _hook_type(hook):
@@ -210,6 +232,25 @@ class TrendBrain:
         if duration_eligible:
             dk,dv=max(duration_eligible.items(),key=lambda kv:kv[1]["sum"]/kv[1]["n"])
             preferred_duration={"bucket":dk,"score":round(dv["sum"]/dv["n"],2),"samples":dv["n"]}
+        title_stats={}
+        angle_stats={}
+        for row in rows:
+            tp=str(row.get("title_pattern","") or self._title_pattern(row.get("title","")))
+            at=str(row.get("angle_type","") or self._angle_type(row.get("angle","")))
+            if tp:
+                x=title_stats.setdefault(tp,{"sum":0.0,"n":0}); x["sum"]+=float(row.get("performance_score",0) or 0); x["n"]+=1
+            if at:
+                x=angle_stats.setdefault(at,{"sum":0.0,"n":0}); x["sum"]+=float(row.get("performance_score",0) or 0); x["n"]+=1
+        preferred_title=None
+        eligible_titles={a:b for a,b in title_stats.items() if b["n"]>=2}
+        if eligible_titles:
+            tk,tv=max(eligible_titles.items(),key=lambda kv:kv[1]["sum"]/kv[1]["n"])
+            preferred_title={"pattern":tk,"score":round(tv["sum"]/tv["n"],2),"samples":tv["n"]}
+        preferred_angle=None
+        eligible_angles={a:b for a,b in angle_stats.items() if b["n"]>=2}
+        if eligible_angles:
+            ak,av=max(eligible_angles.items(),key=lambda kv:kv[1]["sum"]/kv[1]["n"])
+            preferred_angle={"type":ak,"score":round(av["sum"]/av["n"],2),"samples":av["n"]}
         by_style={a:round(b["sum"]/b["n"],2) for a,b in stats.items()}
         best_score=round(v["sum"]/v["n"],2)
         # Keep the learning signal conservative: it only influences editorial
@@ -223,6 +264,10 @@ class TrendBrain:
                 "preferred_content_type":preferred_content_type,
                 "by_content_type":{a:round(b["sum"]/b["n"],2) for a,b in type_stats.items()},
                 "preferred_duration":preferred_duration,
+                "preferred_title_pattern":preferred_title,
+                "preferred_angle_type":preferred_angle,
+                "by_title_pattern":{a:round(b["sum"]/b["n"],2) for a,b in title_stats.items()},
+                "by_angle_type":{a:round(b["sum"]/b["n"],2) for a,b in angle_stats.items()},
                 "confidence":min(1.0, max(0.0, (v["n"]-1)/4.0))}
 
     def record_production(self, topic, metadata=None, quality=0):
