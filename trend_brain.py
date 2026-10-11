@@ -127,10 +127,14 @@ class TrendBrain:
                 d["videos"][vid]={"topic_key":p.get("topic_key",existing.get("topic_key","")),"title":existing.get("title",p.get("title","")),"hook":existing.get("hook",p.get("hook","")),"angle":existing.get("angle",p.get("angle","")),"fingerprint":existing.get("fingerprint",""),"duration_bucket":existing.get("duration_bucket",p.get("duration_bucket","")),"hook_type":existing.get("hook_type",self._hook_type(existing.get("hook",""))),"content_type":existing.get("content_type",p.get("content_type","CURIOSIDADE")),"publish_slot":existing.get("publish_slot",p.get("publish_slot","")),"performance_score":round(perf,2),"views":views,"likes":likes,"subscribers":subs,"average_view_duration":avg_duration,"estimated_minutes_watched":watched_minutes,"like_rate":round(like_rate,3),"updated":time.time()}
                 slot=existing.get("publish_slot",p.get("publish_slot",""))
                 if slot:
-                    sp=d.setdefault("patterns",{}).setdefault("publish_slots",{})
-                    oldslot=sp.get(slot,{"sum":0,"n":0}) if isinstance(sp.get(slot),dict) else {"sum":0,"n":0}
-                    oldslot["sum"]+=float(perf); oldslot["n"]+=1
-                    sp[slot]=round(oldslot["sum"]/max(1,oldslot["n"]),2)
+                    patterns=d.setdefault("patterns",{})
+                    sp=patterns.setdefault("publish_slots",{})
+                    counts=patterns.setdefault("publish_slot_samples",{})
+                    old_n=int(counts.get(slot,0) or 0)
+                    old_avg=float(sp.get(slot,0) or 0)
+                    new_n=old_n+1
+                    sp[slot]=round((old_avg*old_n+float(perf))/new_n,2)
+                    counts[slot]=new_n
             d["videos"]=dict(list(d["videos"].items())[-500:])
             self._write(d)
         return {"ok":True,"videos_learned":len(rows)}
@@ -241,11 +245,18 @@ class TrendBrain:
                     continue
                 if dt.isoformat() in reserved:
                     continue
-                # Learned score is used when available; otherwise use the GTA-friendly baseline.
+                # Blend learned performance with the baseline until enough real samples exist.
                 learned_score=learned.get(slot)
-                score=float(learned_score) if learned_score is not None else float(baseline)
+                samples=int(d.get("patterns",{}).get("publish_slot_samples",{}).get(slot,0) or 0)
+                if learned_score is not None and samples>0:
+                    confidence=min(1.0,samples/5.0)
+                    score=float(baseline)*(1.0-confidence)+float(learned_score)*confidence
+                    reason="aprendido" if samples>=5 else "misto"
+                else:
+                    score=float(baseline)
+                    reason="baseline"
                 score-=day_offset*12  # favor the strongest available slot without waiting needlessly
-                candidates.append((score,dt,slot,"aprendido" if learned_score is not None else "baseline"))
+                candidates.append((score,dt,slot,reason))
         if not candidates:
             dt=n+timedelta(days=1)
             dt=dt.replace(hour=18,minute=30,second=0,microsecond=0)
@@ -268,9 +279,14 @@ class TrendBrain:
     def record_slot_performance(self, slot, score):
         if not slot: return
         with self.lock:
-            d=self._read(); p=d.setdefault("patterns",{}).setdefault("publish_slots",{})
-            old=p.get(slot,{"sum":0,"n":0}) if isinstance(p.get(slot),dict) else {"sum":0,"n":0}
-            old["sum"]+=float(score or 0); old["n"]+=1; p[slot]=old["sum"]/old["n"]
+            d=self._read()
+            patterns=d.setdefault("patterns",{})
+            averages=patterns.setdefault("publish_slots",{})
+            counts=patterns.setdefault("publish_slot_samples",{})
+            n=int(counts.get(slot,0) or 0)
+            avg=float(averages.get(slot,0) or 0)
+            counts[slot]=n+1
+            averages[slot]=round((avg*n+float(score or 0))/(n+1),2)
             self._write(d)
 
     def status(self):
