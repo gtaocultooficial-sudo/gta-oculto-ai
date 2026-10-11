@@ -2681,7 +2681,7 @@ def download_official_video_clips(outdir, jid=None):
                     update_job(jid,log='Convertendo clipe-fonte para proxy leve 320x568...')
                 run_cmd([
                     ff,'-loglevel','error','-y','-threads:v','1',
-                    '-probesize','1M','-analyzeduration','1M','-i',str(raw),'-t','5',
+                    '-probesize','1M','-analyzeduration','1M','-ss','0.8','-i',str(raw),'-t','4.2',
                     '-vf','scale=320:568:force_original_aspect_ratio=increase,crop=320:568,setsar=1,fps=12',
                     '-an','-c:v','libx264','-preset','ultrafast','-crf','31',
                     '-threads','1','-filter_threads','1','-filter_complex_threads','1',
@@ -3241,39 +3241,52 @@ def _choose_timeline_assets(video_clips, image_paths, beats, topic_title, varian
     images=[p for p in image_paths if p]
     pool=[('video',p) for p in videos]+[('image',p) for p in images]
     chosen=[]; used=set(); asset_counts={}
-    target_video=max(1, int(math.ceil(len(beats)*0.78))) if beats else 1
+    # V61: repetition is now a hard budget, not just a score penalty.
+    # With 8 official clips + 4 image assets, 16 video scenes + 8 image scenes
+    # fill a 24-scene Short with each source used at most twice.
+    target_video=max(1, min(len(beats), int(math.floor(len(beats)*0.67)))) if beats else 1
+    target_images=min(len(images)*2, max(1, len(beats)-target_video)) if beats and images else 0
     video_used=0
 
     def recent_penalty(p, bi):
         pen=0
-        # V60: a visual must have a meaningful separation before returning.
-        # With the larger official pool this prevents obvious back-to-back and
-        # near-back-to-back repeats such as the same helicopter shot.
-        recent=[x[1] for x in chosen[-6:]]
-        if p in recent: pen += 220
-        if chosen and chosen[-1][1]==p: pen += 300
+        recent=[x[1] for x in chosen[-8:]]
+        if p in recent: pen += 420
+        if chosen and chosen[-1][1]==p: pen += 1000
         if beats and bi >= max(0, int(len(beats)*0.80)) and p in [x[1] for x in chosen[:2]]:
-            pen += 140
-        # Balance reuse across the pool instead of repeatedly selecting the
-        # same high-scoring source.
-        pen += asset_counts.get(p,0) * 75
+            pen += 180
+        # Strongly prefer sources that have not been used yet.
+        pen += asset_counts.get(p,0) * 180
         return pen
+
+    def under_reuse_budget(p):
+        # Never let one source appear three times in the same Short.
+        return asset_counts.get(p,0) < 2
 
     for bi,beat in enumerate(beats):
         remaining=[(idx,kind,p) for idx,(kind,p) in enumerate(pool) if idx not in used]
         remaining_videos=[x for x in remaining if x[1]=='video']
-        target_images=min(len(images), max(1, int(round(len(beats)*0.17)))) if beats and images else 0
-        image_slots={int(round((i+1)*len(beats)/(target_images+1)))-1 for i in range(target_images)} if target_images else set()
+        reusable_videos=[(idx,kind,p) for idx,kind,p in pool if kind=='video' and under_reuse_budget(p)]
+        reusable_images=[(idx,kind,p) for idx,kind,p in pool if kind=='image' and under_reuse_budget(p)]
+        target_image_count=max(0, len(beats)-target_video)
+        image_slots={int(round((i+1)*len(beats)/(target_image_count+1)))-1 for i in range(target_image_count)} if target_image_count else set()
         image_due=(bi in image_slots) and bool(images)
 
-        # Intercala imagens de apoio sem deixar de cumprir a proporção mínima de vídeo.
+        # Prefer fresh assets first; once every asset has appeared once, allow a
+        # second use, but never a third. This is the key fix for the user's
+        # repeated helicopter/character shots.
         remaining_slots=len(beats)-bi-1
-        can_use_image=image_due and (video_used + remaining_slots >= target_video)
-        force_video=bool(videos) and video_used < target_video and not can_use_image
+        remaining_video_capacity=sum(1 for _idx,_kind,p in reusable_videos)
+        can_use_image=image_due and (video_used + remaining_slots >= target_video) and bool(reusable_images)
+        force_video=bool(videos) and video_used < target_video and not can_use_image and bool(reusable_videos)
         if can_use_image:
-            candidates=[x for x in remaining if x[1]=='image'] or [(len(videos)+idx,'image',p) for idx,p in enumerate(images)]
-        elif bool(videos) and video_used < target_video:
-            candidates=remaining_videos or [(idx,'video',p) for idx,p in enumerate(videos)]
+            candidates=reusable_images
+        elif force_video:
+            candidates=reusable_videos
+        elif reusable_videos:
+            candidates=reusable_videos
+        elif reusable_images:
+            candidates=reusable_images
         else:
             candidates=remaining or [(idx,kind,p) for idx,(kind,p) in enumerate(pool)]
 
