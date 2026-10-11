@@ -2640,11 +2640,11 @@ def download_official_video_clips(outdir, jid=None):
             if p.stat().st_size <= 20000:
                 p.unlink(missing_ok=True)
                 continue
-            if _video_contains_rating_disclaimer(p):
-                if jid:
-                    update_job(jid,log=f'Filtro visual: removendo clipe oficial contaminado por tela ESRB/disclaimer — {p.name}')
-                p.unlink(missing_ok=True)
-                continue
+            # V65.1: os proxies só entram no cache depois de passar pelo filtro
+            # ESRB/disclaimer durante a extração. Reexecutar FFmpeg sobre todos
+            # os arquivos em cada Short podia consumir até 25s por clipe e
+            # deixar a produção aparentemente parada na etapa VISUAIS.
+            # O filtro completo continua ativo para cada clipe recém-extraído.
             cached.append(p)
         except Exception:
             continue
