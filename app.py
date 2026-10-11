@@ -4170,7 +4170,8 @@ def produce_job(jid):
 # V64.13: disparo de produção de teste controlado pelo servidor.
 # Útil para validar uma versão recém-publicada sem depender de POST externo.
 BOOT_PRODUCE_ONCE = os.getenv('GTA_BOOT_PRODUCE_ONCE','0').strip().lower() in ('1','true','yes','on')
-BOOT_PRODUCE_MARKER = WORK / '.boot_produce_once_done'
+BOOT_PRODUCE_TAG = os.getenv('GTA_BOOT_PRODUCE_TAG','legacy').strip() or 'legacy'
+BOOT_PRODUCE_MARKER = WORK / ('.boot_produce_once_done' if BOOT_PRODUCE_TAG == 'legacy' else '.boot_produce_once_done_' + BOOT_PRODUCE_TAG.replace('/','_').replace('\\\\','_').replace(' ','_'))
 
 def boot_produce_once():
     if not BOOT_PRODUCE_ONCE or BOOT_PRODUCE_MARKER.exists():
