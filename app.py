@@ -3269,8 +3269,8 @@ def _choose_timeline_assets(video_clips, image_paths, beats, topic_title, varian
     for bi,beat in enumerate(beats):
         remaining=[(idx,kind,p) for idx,(kind,p) in enumerate(pool) if idx not in used]
         remaining_videos=[x for x in remaining if x[1]=='video']
-        reusable_videos=[(idx,kind,p) for idx,kind,p in pool if kind=='video' and under_reuse_budget(p)]
-        reusable_images=[(idx,kind,p) for idx,kind,p in pool if kind=='image' and under_reuse_budget(p)]
+        reusable_videos=[(idx,kind,p) for idx,(kind,p) in enumerate(pool) if kind=='video' and under_reuse_budget(p)]
+        reusable_images=[(idx,kind,p) for idx,(kind,p) in enumerate(pool) if kind=='image' and under_reuse_budget(p)]
         target_image_count=max(0, len(beats)-target_video)
         image_slots={int(round((i+1)*len(beats)/(target_image_count+1)))-1 for i in range(target_image_count)} if target_image_count else set()
         image_due=(bi in image_slots) and bool(images)
