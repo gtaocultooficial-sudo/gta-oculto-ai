@@ -3478,8 +3478,8 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
     """
     ff=_ffmpeg_executable()
     work=out.parent/'timeline'; work.mkdir(exist_ok=True)
-    if len(video_clips)<3:
-        raise RuntimeError('A edição precisa de pelo menos 3 vídeos reais.')
+    if len(video_clips)<3 and len(image_paths)<8:
+        raise RuntimeError('A edição precisa de 3 vídeos reais ou pelo menos 8 visuais únicos de fallback.')
     if script is None:
         script={'narration':' '.join(captions)}
     beats=beats or build_short_timeline(script, {'title':topic_title}, duration, count=10)
@@ -4281,6 +4281,11 @@ def produce_job(jid):
         source_video_count=len(selected_videos)
         if len(selected_videos)<8:
             image_scenes=_augment_scenes_with_real_video_frames(selected_videos,image_scenes,jobdir,target=18)
+        if len(selected_videos)<3 and len(image_scenes)>=8:
+            # A source pool of only one or two clips is not enough for video-first
+            # rendering. Prefer unique researched frames over recycling those clips.
+            selected_videos=[]
+            update_job(jid,log='Menos de 3 vídeos oficiais válidos; priorizando visuais únicos para evitar repetição de planos.')
         update_job(jid,log=f'{source_video_count} vídeos oficiais + {len(image_scenes)} cenas/imagens reais distintas disponíveis. Editando em 9:16 / {duration:.1f}s...')
         # Hard gate: available unique video windows (2 uses/source) plus one-use
         # real-frame supports must cover the timeline; never recycle on fallback.
