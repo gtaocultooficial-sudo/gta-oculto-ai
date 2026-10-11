@@ -4605,6 +4605,11 @@ def boot_produce_once():
 
 def processor_loop():
     global PROCESSING
+    # A Render deploy/restart can terminate the production thread without giving
+    # it a chance to mark the job as finished. Recover RUNNING jobs immediately
+    # on the first queue scan after boot; never do this again while this process
+    # is alive, otherwise the watchdog could requeue its own active job.
+    startup_recovery_pending=True
     while True:
         try:
             pending_files=[]
@@ -4622,8 +4627,16 @@ def processor_loop():
                 for pending_job in pending_jobs:
                     jobs.setdefault(str(pending_job['id']),pending_job)
                 # If Render restarts after a long encode, a previous RUNNING job
-                # is recovered instead of disappearing from the queue.
+                # is recovered instead of disappearing from the queue. Startup
+                # recovery is safe because it only runs once per process lifetime.
                 now=time.time()
+                if startup_recovery_pending:
+                    for j in jobs.values():
+                        if j.get('status')=='RUNNING':
+                            j['status']='QUEUED'; j['stage']='FILA'; j['progress']=0
+                            j['log']='Watchdog de inicialização: Render reiniciou durante a produção. Job recuperado automaticamente para nova execução.'
+                            j['recovered_at']=now_iso()
+                    startup_recovery_pending=False
                 for j in jobs.values():
                     if j.get('status')=='RUNNING':
                         try:
