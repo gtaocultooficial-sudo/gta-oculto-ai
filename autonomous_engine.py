@@ -83,6 +83,8 @@ class AutonomousEngine:
             if self.trend_brain:
                 try:
                     quality=float(job.get('score',0) or job.get('audit_score',0) or 0)
+                    if isinstance(job.get('media_validation'),dict):
+                        meta['duration_seconds']=float(job['media_validation'].get('duration',0) or 0)
                     self.trend_brain.record_production(job.get('opportunity') or {}, meta, quality)
                     job['recommended_publish_slot']=self.trend_brain.recommend_publish_slot()
                     app_module.update_job(jid,recommended_publish_slot=job['recommended_publish_slot'])
