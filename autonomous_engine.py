@@ -95,7 +95,9 @@ class AutonomousEngine:
                 self.memory.event('publish',f'job {jid}',pub,pub.get('ok'))
                 if pub.get('ok'):
                     if self.trend_brain:
-                        try: self.trend_brain.record_publication(job.get('opportunity') or {}, meta, pub.get('video_id'))
+                        try:
+                            slot=(job.get('recommended_publish_slot') or {}).get('time','') if isinstance(job.get('recommended_publish_slot'),dict) else ''
+                            self.trend_brain.record_publication(job.get('opportunity') or {}, meta, pub.get('video_id'), slot)
                         except Exception: pass
                     app_module.update_job(jid,stage='PUBLICAÇÃO',log=f'▶️ YouTube: vídeo enviado ({pub.get("video_id")}).',youtube=pub)
                 else:
