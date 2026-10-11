@@ -27,6 +27,7 @@ class AutonomousEngine:
         self.max_recoveries=int(os.getenv('GTA_MAX_AUTONOMOUS_RECOVERIES','4'))
         self.code_repair=SafeCodeRepair(self.root/'app.py')
         self.trend_brain=TrendBrain(self.root/'workspace') if TrendBrain else None
+        self.last_analytics_result=None
     def on_error(self, jid, error, app_module):
         """Return action: RETRY, SWITCH_TOPIC, QUARANTINE or CODE_REPAIR_PENDING."""
         plan=self.repair.plan(error); self.memory.event('production_error',error,plan)
@@ -119,6 +120,7 @@ class AutonomousEngine:
         print('[AUTONOMY] analytics collection start', flush=True)
         r=self.analytics.collect(7)
         print(f'[AUTONOMY] analytics collection result ok={r.get("ok")} reason={str(r.get("reason",""))[:400]}', flush=True)
+        self.last_analytics_result={'ok':bool(r.get('ok')),'reason':str(r.get('reason',''))[:400],'videos_learned':int(r.get('videos_learned',0) or 0),'checked_at':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())}
         self.memory.event('analytics','weekly_collection',r,r.get('ok'))
         if r.get('ok'):
             self.memory.metric('latest_analytics',r)
@@ -127,4 +129,4 @@ class AutonomousEngine:
                 except Exception as e: self.memory.event('trend_brain_error',str(e))
         return r
     def status(self):
-        return {'mode':'AUTONOMOUS','max_recoveries':self.max_recoveries,'deploy':self.deploy.status(),'youtube_publish':self.publisher.enabled,'youtube_analytics':self.analytics.enabled,'social_publish':self.social.status() if self.social else {},'trend_brain':self.trend_brain.status() if self.trend_brain else {'enabled':False},'memory':self.memory.summary()}
+        return {'mode':'AUTONOMOUS','max_recoveries':self.max_recoveries,'deploy':self.deploy.status(),'youtube_publish':self.publisher.enabled,'youtube_analytics':self.analytics.enabled,'social_publish':self.social.status() if self.social else {},'trend_brain':self.trend_brain.status() if self.trend_brain else {'enabled':False},'analytics_last_result':self.last_analytics_result,'memory':self.memory.summary()}
