@@ -4453,10 +4453,14 @@ def radar_loop():
 
 def autonomy_loop():
     if not AUTONOMOUS_ENGINE: return
+    # Run one early diagnostic after boot, then retain the six-hour cadence.
+    # This confirms whether the configured OAuth token really has Analytics scope.
+    time.sleep(45)
     while True:
         try:
             AUTONOMOUS_ENGINE.collect_analytics()
-        except Exception: pass
+        except Exception as e:
+            print(f'[AUTONOMY] analytics loop error: {type(e).__name__}: {str(e)[:300]}', flush=True)
         time.sleep(6*60*60)
 
 threading.Thread(target=processor_loop,daemon=True).start()
