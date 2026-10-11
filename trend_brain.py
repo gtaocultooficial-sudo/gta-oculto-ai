@@ -103,7 +103,7 @@ class TrendBrain:
         def ix(n):
             try:return headers.index(n)
             except ValueError:return -1
-        vi,vw,vl,vs,vd,vm=ix("video"),ix("views"),ix("likes"),ix("subscribersgained"),ix("averageviewduration"),ix("estimatedminuteswatched")
+        vi,vw,vl,vc,vs,vd,vm,vp=ix("video"),ix("views"),ix("likes"),ix("comments"),ix("subscribersgained"),ix("averageviewduration"),ix("estimatedminuteswatched"),ix("publishedat")
         with self.lock:
             d=self._read()
             pubs=publications or {}
@@ -111,20 +111,33 @@ class TrendBrain:
                 if vi<0 or vi>=len(row): continue
                 vid=str(row[vi]); views=float(row[vw] or 0) if 0<=vw<len(row) else 0
                 likes=float(row[vl] or 0) if 0<=vl<len(row) else 0
+                comments=float(row[vc] or 0) if 0<=vc<len(row) else 0
                 subs=float(row[vs] or 0) if 0<=vs<len(row) else 0
                 avg_duration=float(row[vd] or 0) if 0<=vd<len(row) else 0
+                published_at=str(row[vp] or "") if 0<=vp<len(row) else ""
                 watched_minutes=float(row[vm] or 0) if 0<=vm<len(row) else 0
                 like_rate=(likes/views*100) if views else 0
                 # Retention matters more than raw views for Shorts. Use bounded Analytics signals.
                 retention_signal=min(30,avg_duration*2.0)
                 watch_signal=min(15,math.log10(max(1,watched_minutes+1))*5)
+                comment_rate=(comments/views*100) if views else 0
                 engagement=min(20,like_rate*4)
+                comment_signal=min(5,comment_rate*10)
                 subscriber_signal=min(15,subs*3)
-                view_signal=min(40,math.log10(max(1,views))*10)
-                perf=min(100,view_signal+retention_signal+watch_signal+engagement+subscriber_signal)
+                age_days=1.0
+                if published_at:
+                    try:
+                        from datetime import datetime, timezone
+                        dt=datetime.fromisoformat(published_at.replace("Z","+00:00"))
+                        age_days=max(1/24, (datetime.now(timezone.utc)-dt).total_seconds()/86400)
+                    except Exception:
+                        age_days=1.0
+                view_velocity=views/age_days
+                view_signal=min(40,math.log10(max(1,view_velocity))*10)
+                perf=min(100,view_signal+retention_signal+watch_signal+engagement+comment_signal+subscriber_signal)
                 p=pubs.get(vid,{})
                 existing=d["videos"].get(vid,{})
-                d["videos"][vid]={"topic_key":p.get("topic_key",existing.get("topic_key","")),"title":existing.get("title",p.get("title","")),"hook":existing.get("hook",p.get("hook","")),"angle":existing.get("angle",p.get("angle","")),"fingerprint":existing.get("fingerprint",""),"duration_bucket":existing.get("duration_bucket",p.get("duration_bucket","")),"hook_type":existing.get("hook_type",self._hook_type(existing.get("hook",""))),"content_type":existing.get("content_type",p.get("content_type","CURIOSIDADE")),"publish_slot":existing.get("publish_slot",p.get("publish_slot","")),"performance_score":round(perf,2),"views":views,"likes":likes,"subscribers":subs,"average_view_duration":avg_duration,"estimated_minutes_watched":watched_minutes,"like_rate":round(like_rate,3),"updated":time.time()}
+                d["videos"][vid]={"topic_key":p.get("topic_key",existing.get("topic_key","")),"title":existing.get("title",p.get("title","")),"hook":existing.get("hook",p.get("hook","")),"angle":existing.get("angle",p.get("angle","")),"fingerprint":existing.get("fingerprint",""),"duration_bucket":existing.get("duration_bucket",p.get("duration_bucket","")),"hook_type":existing.get("hook_type",self._hook_type(existing.get("hook",""))),"content_type":existing.get("content_type",p.get("content_type","CURIOSIDADE")),"publish_slot":existing.get("publish_slot",p.get("publish_slot","")),"performance_score":round(perf,2),"views":views,"likes":likes,"comments":comments,"subscribers":subs,"average_view_duration":avg_duration,"estimated_minutes_watched":watched_minutes,"like_rate":round(like_rate,3),"comment_rate":round(comment_rate,3),"view_velocity":round(view_velocity,2),"updated":time.time()}
                 slot=existing.get("publish_slot",p.get("publish_slot",""))
                 if slot:
                     patterns=d.setdefault("patterns",{})
