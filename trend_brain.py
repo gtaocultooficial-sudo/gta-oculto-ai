@@ -116,7 +116,7 @@ class TrendBrain:
                 perf=min(100,view_signal+retention_signal+watch_signal+engagement+subscriber_signal)
                 p=pubs.get(vid,{})
                 existing=d["videos"].get(vid,{})
-                d["videos"][vid]={"topic_key":p.get("topic_key",existing.get("topic_key","")),"title":existing.get("title",p.get("title","")),"hook":existing.get("hook",p.get("hook","")),"angle":existing.get("angle",p.get("angle","")),"fingerprint":existing.get("fingerprint",""),"publish_slot":existing.get("publish_slot",p.get("publish_slot","")),"performance_score":round(perf,2),"views":views,"likes":likes,"subscribers":subs,"average_view_duration":avg_duration,"estimated_minutes_watched":watched_minutes,"like_rate":round(like_rate,3),"updated":time.time()}
+                d["videos"][vid]={"topic_key":p.get("topic_key",existing.get("topic_key","")),"title":existing.get("title",p.get("title","")),"hook":existing.get("hook",p.get("hook","")),"angle":existing.get("angle",p.get("angle","")),"fingerprint":existing.get("fingerprint",""),"duration_bucket":existing.get("duration_bucket",p.get("duration_bucket","")),"hook_type":existing.get("hook_type",self._hook_type(existing.get("hook",""))),"publish_slot":existing.get("publish_slot",p.get("publish_slot","")),"performance_score":round(perf,2),"views":views,"likes":likes,"subscribers":subs,"average_view_duration":avg_duration,"estimated_minutes_watched":watched_minutes,"like_rate":round(like_rate,3),"updated":time.time()}
                 slot=existing.get("publish_slot",p.get("publish_slot",""))
                 if slot:
                     sp=d.setdefault("patterns",{}).setdefault("publish_slots",{})
@@ -157,7 +157,17 @@ class TrendBrain:
         eligible={k:v for k,v in stats.items() if v["n"]>=2}
         if not eligible: return {"learned":False,"sample_size":len(rows)}
         k,v=max(eligible.items(),key=lambda kv:kv[1]["sum"]/kv[1]["n"])
-        return {"learned":True,"preferred_hook_type":k,"score":round(v["sum"]/v["n"],2),"sample_size":len(rows),"by_style":{a:round(b["sum"]/b["n"],2) for a,b in stats.items()}}
+        duration_stats={}
+        for row in rows:
+            b=str(row.get("duration_bucket",""))
+            if not b or b=="UNKNOWN": continue
+            x=duration_stats.setdefault(b,{"sum":0.0,"n":0}); x["sum"]+=float(row.get("performance_score",0) or 0); x["n"]+=1
+        duration_eligible={a:b for a,b in duration_stats.items() if b["n"]>=2}
+        preferred_duration=None
+        if duration_eligible:
+            dk,dv=max(duration_eligible.items(),key=lambda kv:kv[1]["sum"]/kv[1]["n"])
+            preferred_duration={"bucket":dk,"score":round(dv["sum"]/dv["n"],2),"samples":dv["n"]}
+        return {"learned":True,"preferred_hook_type":k,"score":round(v["sum"]/v["n"],2),"sample_size":len(rows),"by_style":{a:round(b["sum"]/b["n"],2) for a,b in stats.items()},"preferred_duration":preferred_duration}
 
     def record_production(self, topic, metadata=None, quality=0):
         """Store editorial quality before publication so the brain can learn even without platform APIs."""
