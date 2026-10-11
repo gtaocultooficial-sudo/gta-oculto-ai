@@ -2497,8 +2497,7 @@ def _remote_zip_entries(url):
         nameb=cd[p+46:p+46+fn]
         try: name=nameb.decode('utf-8')
         except Exception: name=nameb.decode('cp437','replace')
-        entries.append({'name':name,'compression':comp,'compressed':csize,'size':usize,'local':local})
-        p += 46+fn+extra+comm
+        entries.append({'name':name,'compression':comp,'compressed':csize,'size':usize,'local':local})        p += 46+fn+extra+comm
     if len(entries)<3: raise RuntimeError(f'ZIP oficial expôs apenas {len(entries)} arquivos.')
     return total,entries
 
@@ -2681,7 +2680,7 @@ def download_official_video_clips(outdir, jid=None):
                     update_job(jid,log='Convertendo clipe-fonte para proxy leve 320x568...')
                 run_cmd([
                     ff,'-loglevel','error','-y','-threads:v','1',
-                    '-probesize','1M','-analyzeduration','1M','-ss','0.8','-i',str(raw),'-t','4.2',
+                    '-probesize','1M','-analyzeduration','1M','-ss','0.8','-i',str(raw),'-t','8.5',
                     '-vf','scale=320:568:force_original_aspect_ratio=increase,crop=320:568,setsar=1,fps=12',
                     '-an','-c:v','libx264','-preset','ultrafast','-crf','31',
                     '-threads','1','-filter_threads','1','-filter_complex_threads','1',
@@ -3246,9 +3245,14 @@ def _choose_timeline_assets(video_clips, image_paths, beats, topic_title, varian
     # calculated from the assets actually available. With 8 videos + 4 images
     # this yields 16 video + 8 image scenes; with 4 + 4 it yields 12 + 12.
     asset_total=max(1,len(videos)+len(images))
-    max_reuse=max(2,int(math.ceil(len(beats)/asset_total))) if beats else 2
-    target_video=max(1, min(len(beats), len(videos)*max_reuse, int(math.ceil(len(beats)*0.67)))) if beats and videos else 0
-    target_images=min(len(images)*max_reuse, max(0, len(beats)-target_video)) if beats and images else 0
+    # Images are supporting assets, not loopable footage: each still may appear
+    # at most once in a Short. Video sources can repeat only because each proxy
+    # is now 8.5s long and the renderer seeks to a materially different offset.
+    image_max_reuse=1
+    video_max_reuse=max(2,int(math.ceil(max(1,len(beats)-min(len(images),len(beats))) / max(1,len(videos))))) if beats and videos else 2
+    max_reuse=max(image_max_reuse,video_max_reuse)
+    target_video=max(1, min(len(beats), len(videos)*video_max_reuse, int(math.ceil(len(beats)*0.92)))) if beats and videos else 0
+    target_images=min(len(images), max(0, len(beats)-target_video)) if beats and images else 0
     video_used=0
 
     def recent_penalty(p, bi):
@@ -3263,8 +3267,10 @@ def _choose_timeline_assets(video_clips, image_paths, beats, topic_title, varian
         return pen
 
     def under_reuse_budget(p):
-        # Never exceed the dynamically calculated reuse budget for this pool.
-        return asset_counts.get(p,0) < max_reuse
+        # Images are one-shot support assets; videos have a separate reuse budget.
+        kind='video' if p in videos else 'image'
+        budget=video_max_reuse if kind=='video' else image_max_reuse
+        return asset_counts.get(p,0) < budget
 
     for bi,beat in enumerate(beats):
         remaining=[(idx,kind,p) for idx,(kind,p) in enumerate(pool) if idx not in used]
@@ -3412,7 +3418,9 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
             # Reused clips start at different offsets so the same source is
             # not perceived as the exact same shot on every occurrence.
             reuse_n=render_use_counts.get(str(src),0)
-            offset=min(2.4,max(0.0,reuse_n*0.75))
+            # The source proxy is 8.5s long. Jump much farther on each reuse so
+            # the same character/camera shot is not visibly recycled.
+            offset=min(7.2,max(0.0,reuse_n*1.8))
             inp=['-stream_loop','-1','-threads:v','1','-probesize','1M','-analyzeduration','1M','-ss',f'{offset:.2f}','-i',str(src)]
         else:
             zoom='0.008' if motion_boost else '0.003'
@@ -4629,4 +4637,3 @@ threading.Thread(target=boot_produce_once,daemon=True).start()
 threading.Thread(target=radar_loop,daemon=True).start()
 threading.Thread(target=autonomy_loop,daemon=True).start()
 if __name__=='__main__': APP.run(host='0.0.0.0',port=int(os.environ.get('PORT',5000)))
-
