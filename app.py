@@ -2653,11 +2653,6 @@ def download_official_video_clips(outdir, jid=None):
     # downloads when the visual slot gate can be satisfied safely.
     if len(cached) >= 2:
         return cached[:2]
-    if not cached:
-        if jid:
-            update_job(jid,log='CDN oficial indisponível nesta execução; usando o conjunto de visuais pesquisados sem travar a produção.')
-        return []
-
     try:
         if jid:
             update_job(jid,log='Lendo catálogo oficial da Rockstar e filtrando telas ESRB/disclaimers...')
@@ -3487,7 +3482,8 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
     # image-only fallback, preserve one unique image per beat instead of splitting
     # each 2.5s beat into duplicates that would recycle the same stills.
     if video_clips:
-        beats=_normalize_visual_beats(beats,duration,max_scene=1.8)
+        max_scene=2.0 if len(video_clips)<3 and len(image_paths)>=8 else 1.8
+        beats=_normalize_visual_beats(beats,duration,max_scene=max_scene)
     else:
         n=max(1,len(beats))
         beats=[dict(b, start=i*duration/n, end=(i+1)*duration/n, duration=duration/n) for i,b in enumerate(beats)]
@@ -4286,23 +4282,15 @@ def produce_job(jid):
         source_video_count=len(selected_videos)
         if len(selected_videos)<8:
             image_scenes=_augment_scenes_with_real_video_frames(selected_videos,image_scenes,jobdir,target=18)
-        if len(selected_videos)<3 and len(image_scenes)>=8:
-            # A source pool of only one or two clips is not enough for video-first
-            # rendering. Prefer unique researched frames over recycling those clips.
-            selected_videos=[]
-            update_job(jid,log='Menos de 3 vídeos oficiais válidos; priorizando visuais únicos para evitar repetição de planos.')
         update_job(jid,log=f'{source_video_count} vídeos oficiais + {len(image_scenes)} cenas/imagens reais distintas disponíveis. Editando em 9:16 / {duration:.1f}s...')
         # Hard gate: available unique video windows (2 uses/source) plus one-use
         # real-frame supports must cover the timeline; never recycle on fallback.
         available_slots=len(selected_videos)*2+len(image_scenes)
         if len(image_scenes)>=8 and available_slots<len(beats):
-            # When the available pool cannot cover every beat, switch to a one-use
-            # visual timeline instead of failing or recycling the same shot.
-            selected_videos=[]
-            fallback_count=min(len(image_scenes),12)
+            # Fit the timeline to the real asset budget: use up to two distinct
+            # windows per official clip plus each unique image once.
+            fallback_count=min(available_slots,16 if selected_videos else 12)
             beats=build_short_timeline(script,topic,duration,fallback_count,word_cues=None)
-            # Force the fallback splitter to honor the unique-visual count; the
-            # partial/real WordBoundary list can otherwise expand back to 17 beats.
             if len(beats)>fallback_count:
                 narration_words=re.sub(r'\s+',' ',str(script.get('narration','')).strip()).split()
                 chunks=[]
@@ -4312,9 +4300,9 @@ def produce_job(jid):
                     chunks.append({'text':' '.join(narration_words[a:b]),'duration':duration/fallback_count,'start':bi*duration/fallback_count,'end':(bi+1)*duration/fallback_count})
                 beats=chunks
             caps=[b['text'] for b in beats]
-            available_slots=len(image_scenes)
-            print(f'[JOB {jid}] visual fallback scenes={len(beats)} images={len(image_scenes)}',flush=True)
-            update_job(jid,log=f'Fallback controlado: {len(image_scenes)} visuais únicos, timeline reduzida para {len(beats)} cenas sem reciclagem.')
+            available_slots=len(image_scenes)+len(selected_videos)*2
+            print(f'[JOB {jid}] visual fallback scenes={len(beats)} images={len(image_scenes)} videos={len(selected_videos)}',flush=True)
+            update_job(jid,log=f'Fallback controlado: {len(selected_videos)} vídeos + {len(image_scenes)} visuais únicos; timeline reduzida para {len(beats)} cenas sem reciclagem.')
         if available_slots<len(beats):
             raise RuntimeError(f'GATE VISUAL: só {available_slots} slots visuais distintos para {len(beats)} cenas; não vou reciclar planos.')
         video=jobdir/'GTA_OCULTO_SHORT.mp4'
