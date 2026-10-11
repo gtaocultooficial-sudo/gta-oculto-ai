@@ -64,7 +64,7 @@ UA = 'GTA-Oculto-AI/Cloud-Final/V55-SOURCE-RECOVERY-3'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
-BUILD_VERSION = 'V59-VIDEO-FIRST-INTERLEAVED-20261011'
+BUILD_VERSION = 'V66.9-AUTO-VISUAL-QA-REPAIR-20261011'
 
 FALLBACK_TOPICS = [
     {'id':'leonida','score':96,'priority':'ALTA','title':'GTA 6: o detalhe de Leonida que pode mudar a história','source':'Rockstar Games','url':ROCKSTAR_VI,
@@ -4188,7 +4188,7 @@ def audit_short(script, video, duration, beats, selected_videos, image_scenes):
     # 1080p MP4. Keep the real MP4/codec/audio/duration and caption audits below;
     # use the known timeline structure for the fast visual check by default.
     # Full frame sampling remains opt-in via GTA_DEEP_VISUAL_AUDIT=1.
-    deep_visual=os.getenv('GTA_DEEP_VISUAL_AUDIT','0').strip().lower() in {'1','true','yes','on'}
+    deep_visual=os.getenv('GTA_DEEP_VISUAL_AUDIT','1').strip().lower() in {'1','true','yes','on'}
     if media.get('ok') and deep_visual:
         motion=_visual_motion_audit(video)
         repetition=_visual_repetition_audit(video)
@@ -4225,20 +4225,70 @@ def self_heal(jid, script, video, duration, beats, selected_videos, image_scenes
     repaired=False
     codes={x['code'] for x in audit['issues']}
     if 'VISUAL_STAGNATION' in codes or 'HIGH_FROZEN_RATIO' in codes or 'VISUAL_REPETITION' in codes:
-        # V62.1 Render Free: QA visual continua obrigatório, mas autocorreção visual
-        # não dispara uma segunda/terceira renderização completa.
+        # V66.9: o vídeo final é o objeto de QA. Se a auditoria real encontrar
+        # repetição/congelamento, refazemos UMA única vez com outra combinação
+        # de assets e movimento. Isso elimina a necessidade de o proprietário
+        # baixar/enviar o MP4 para inspeção manual a cada produção.
         _learn_event(
             'VISUAL_REPETITION',
             'auditor detectou repetição/congelamento visual',
-            'QA visual bounded; bloquear apenas falhas extremas, sem re-render automático no Free',
+            're-render automático único com variante visual + motion boost',
             None
         )
-        update_job(
-            jid,
-            stage='AVALIAÇÃO',
-            progress=95,
-            log='🧠 AUDITOR IA: QA visual concluído. Sem re-render automático no Render Free.'
-        )
+        repair_path=Path(str(video)+'.visual_repair.mp4')
+        try:
+            update_job(
+                jid,
+                stage='AVALIAÇÃO',
+                progress=95,
+                log='🧠 AUDITOR IA: repetição/congelamento detectado. Refazendo a edição automaticamente (1/1)...'
+            )
+            make_multimedia_video(
+                selected_videos,
+                image_scenes,
+                audio,
+                repair_path,
+                duration,
+                [b.get('text','') for b in beats],
+                script=script,
+                topic_title=topic.get('title','GTA 6'),
+                beats=beats,
+                motion_boost=True,
+                asset_variant=1
+            )
+            repaired_probe=_probe_media(repair_path)
+            if not repaired_probe.get('ok'):
+                raise RuntimeError('reparo visual gerou MP4 inválido')
+            os.replace(repair_path,video)
+            repaired_audit=audit_short(script,video,duration,beats,selected_videos,image_scenes)
+            if any(x.get('code') in {'VISUAL_REPETITION','VISUAL_STAGNATION','HIGH_FROZEN_RATIO'} for x in repaired_audit.get('issues',[])):
+                raise RuntimeError('a reedição ainda apresenta repetição/congelamento visual')
+            audit=repaired_audit
+            repaired=True
+            update_job(
+                jid,
+                stage='AVALIAÇÃO',
+                progress=95,
+                log=f'🧠 AUDITOR IA: reedição automática concluída e aprovada ({audit.get("score",0)}/100).'
+            )
+        except Exception as visual_repair_error:
+            try:
+                if repair_path.exists():
+                    repair_path.unlink()
+            except Exception:
+                pass
+            _learn_event(
+                'VISUAL_REPAIR_FAILED',
+                'reparo visual automático não conseguiu eliminar o problema',
+                str(visual_repair_error)[:500],
+                False
+            )
+            update_job(
+                jid,
+                stage='AVALIAÇÃO',
+                progress=95,
+                log='🛑 AUDITOR IA: repetição visual permaneceu após a única reedição automática. Produção será bloqueada.'
+            )
     if any(x['code'] in {'CAPTIONS_BAD_BOUNDARY','CAPTIONS_REPEATED','CAPTIONS_NOT_FROM_NARRATION','CAPTIONS_LOW_QUALITY','CAPTIONS_INCOMPLETE'} for x in audit['issues']):
         _learn_event(
             'CAPTIONS_BAD_BOUNDARY',
