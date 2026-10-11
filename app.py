@@ -3265,8 +3265,11 @@ def _choose_timeline_assets(video_clips, image_paths, beats, topic_title, varian
     max_reuse=max(image_max_reuse,video_max_reuse)
     # V62: quando existem pelo menos 4 vídeos reais, não use imagens repetidas
     # para preencher a timeline. Movimento real é preferível a slideshow reciclado.
-    target_video=len(beats) if beats and len(videos)>=4 else (max(1, min(len(beats), len(videos)*video_max_reuse, int(math.ceil(len(beats)*0.92)))) if beats and videos else 0)
-    target_images=0 if len(videos)>=4 else (min(len(images), max(0, len(beats)-target_video)) if beats and images else 0)
+    # V64-safe: even with 4+ source clips, cap video usage at the computed reuse
+    # budget. Fill the remaining slots with unique supporting images instead of
+    # forcing every beat to recycle footage and creating obvious visual loops.
+    target_video=min(len(beats), len(videos)*video_max_reuse) if beats and videos else 0
+    target_images=min(len(images), max(0, len(beats)-target_video)) if beats and images else 0
     video_used=0
 
     def recent_penalty(p, bi):
