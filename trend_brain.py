@@ -176,7 +176,14 @@ class TrendBrain:
         if duration_eligible:
             dk,dv=max(duration_eligible.items(),key=lambda kv:kv[1]["sum"]/kv[1]["n"])
             preferred_duration={"bucket":dk,"score":round(dv["sum"]/dv["n"],2),"samples":dv["n"]}
-        return {"learned":True,"preferred_hook_type":k,"score":round(v["sum"]/v["n"],2),"sample_size":len(rows),"by_style":{a:round(b["sum"]/b["n"],2) for a,b in stats.items()},"preferred_duration":preferred_duration}
+        by_style={a:round(b["sum"]/b["n"],2) for a,b in stats.items()}
+        best_score=round(v["sum"]/v["n"],2)
+        # Keep the learning signal conservative: it only influences editorial
+        # ranking after at least two videos of the same hook style exist.
+        return {"learned":True,"preferred_hook_type":k,"score":best_score,
+                "sample_size":len(rows),"by_style":by_style,
+                "preferred_duration":preferred_duration,
+                "confidence":min(1.0, max(0.0, (v["n"]-1)/4.0))}
 
     def record_production(self, topic, metadata=None, quality=0):
         """Store editorial quality before publication so the brain can learn even without platform APIs."""
