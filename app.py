@@ -4154,6 +4154,54 @@ def produce():
     print(f'[PRODUCE_API] queued job={jid} via pending file',flush=True)
     return jsonify(ok=True,job_id=jid,title=topic['title'])
 
+@APP.get('/api/youtube/status')
+def youtube_status():
+    if not AUTONOMOUS_ENGINE:
+        return jsonify(enabled=False, configured=False, reason='AUTONOMOUS_ENGINE_UNAVAILABLE')
+    pub=getattr(AUTONOMOUS_ENGINE,'publisher',None)
+    if not pub:
+        return jsonify(enabled=False, configured=False, reason='YOUTUBE_PUBLISHER_UNAVAILABLE')
+    return jsonify(
+        enabled=bool(getattr(pub,'enabled',False)),
+        configured=bool(getattr(pub,'token_json','')),
+        privacy=os.getenv('YOUTUBE_PRIVACY','private'),
+        analytics_enabled=bool(getattr(getattr(AUTONOMOUS_ENGINE,'analytics',None),'enabled',False)),
+    )
+
+@APP.post('/api/publish/<jid>')
+def publish_existing(jid):
+    """Manually publish one validated DONE job; useful for the first private test."""
+    if not AUTONOMOUS_ENGINE:
+        return jsonify(ok=False,error='AUTONOMOUS_ENGINE indisponível.'),503
+    job=load_jobs().get(jid)
+    if not job:
+        return jsonify(ok=False,error='job não encontrado'),404
+    if job.get('status')!='DONE':
+        return jsonify(ok=False,error='O job precisa estar DONE antes da publicação.'),409
+    rel=str(job.get('video') or '').strip()
+    if not rel:
+        return jsonify(ok=False,error='Este job não possui vídeo final.'),409
+    try:
+        video=(WORK/rel).resolve()
+        if WORK.resolve() not in video.parents:
+            return jsonify(ok=False,error='caminho de vídeo inválido'),400
+    except Exception:
+        return jsonify(ok=False,error='caminho de vídeo inválido'),400
+    if not video.exists() or video.stat().st_size < 50000:
+        return jsonify(ok=False,error='MP4 final não encontrado ou inválido no workspace.'),409
+    meta=job.get('metadata') or {}
+    pub=AUTONOMOUS_ENGINE.publisher.upload(video,meta)
+    if pub.get('ok'):
+        try:
+            if AUTONOMOUS_ENGINE.trend_brain:
+                AUTONOMOUS_ENGINE.trend_brain.record_publication(job.get('opportunity') or {},meta,pub.get('video_id'))
+        except Exception:
+            pass
+        update_job(jid,stage='PUBLICAÇÃO',log=f'▶️ YouTube: publicação manual concluída ({pub.get("video_id")}).',youtube=pub)
+        return jsonify(ok=True,youtube=pub)
+    update_job(jid,log=f'⚠️ YouTube: publicação não concluída — {pub.get("reason","erro desconhecido")}',youtube=pub)
+    return jsonify(ok=False,youtube=pub),502
+
 @APP.get('/api/job/<jid>')
 def one(jid):
     j=load_jobs().get(jid)
