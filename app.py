@@ -2724,7 +2724,36 @@ def download_official_video_clips(outdir, jid=None):
         safe=[p for p in safe if p.exists() and p.stat().st_size>20000]
         if len(safe) < 4:
             raise RuntimeError(f'Apenas {len(safe)} clipes reais e seguros foram preparados; são necessários pelo menos 4.')
-        return safe[:8]
+
+        # V64: uma fonte oficial pode conter vários planos. O editor anterior
+        # contava a fonte inteira como um único asset e apenas mudava o offset,
+        # permitindo que o mesmo plano/personagem voltasse várias vezes.
+        # Criamos duas janelas independentes por fonte para aumentar a diversidade
+        # real sem baixar novamente o pacote da Rockstar.
+        expanded=[]
+        for src in safe[:8]:
+            expanded.append(src)
+            try:
+                stem=src.stem
+                part=cache/f'{stem}_B.mp4'
+                if not part.exists() or part.stat().st_size<=20000:
+                    run_cmd([
+                        ff,'-loglevel','error','-y','-ss','4.1','-i',str(src),'-t','4.0',
+                        '-vf','scale=320:568:force_original_aspect_ratio=increase,crop=320:568,setsar=1,fps=12',
+                        '-an','-c:v','libx264','-preset','ultrafast','-crf','31','-threads','1',
+                        '-filter_threads','1','-filter_complex_threads','1',
+                        '-x264-params','threads=1:lookahead-threads=1:rc-lookahead=0:sync-lookahead=0',
+                        '-pix_fmt','yuv420p','-movflags','+faststart',str(part)
+                    ],60)
+                if part.exists() and part.stat().st_size>20000 and not _video_contains_rating_disclaimer(part):
+                    expanded.append(part)
+            except Exception as e:
+                if jid:
+                    update_job(jid,log=f'Janela visual secundária ignorada: {src.name} — {str(e)[:140]}')
+        safe=[p for p in expanded if p.exists() and p.stat().st_size>20000]
+        if jid:
+            update_job(jid,log=f'Pool visual V64: {len(safe)} janelas independentes derivadas de {len(expanded)//2 if expanded else 0} fontes oficiais.')
+        return safe[:10]
     except Exception as e:
         raise RuntimeError('Não foi possível obter os vídeos oficiais da Rockstar: '+str(e)[:1800])
 
