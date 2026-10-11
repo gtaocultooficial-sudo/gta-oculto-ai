@@ -77,6 +77,14 @@ class TrendBrain:
             ranked.append(t)
         return sorted(ranked,key=lambda x:(x.get("trend_score",0),x.get("score",0)),reverse=True)
 
+    def tracked_video_ids(self):
+        """Return published YouTube IDs already associated with the editorial memory."""
+        with self.lock:
+            d=self._read()
+            return [str(k) for k,v in d.get("videos",{}).items()
+                    if not str(k).startswith("production:") and str(k).strip() and
+                    str(v.get("title","") or "").strip()]
+
     def record_publication(self, topic, metadata=None, video_id=None, publish_slot=None):
         if not video_id:
             return
