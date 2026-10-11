@@ -2721,8 +2721,8 @@ def download_official_video_clips(outdir, jid=None):
                     pass
 
         safe=[p for p in safe if p.exists() and p.stat().st_size>20000]
-        if len(safe) < 4:
-            raise RuntimeError(f'Apenas {len(safe)} clipes reais e seguros foram preparados; são necessários pelo menos 4.')
+        if len(safe) < 2:
+            raise RuntimeError(f'Apenas {len(safe)} clipes reais e seguros foram preparados; são necessários pelo menos 2.')
         return safe[:2]
     except Exception as e:
         raise RuntimeError('Não foi possível obter os vídeos oficiais da Rockstar: '+str(e)[:1800])
