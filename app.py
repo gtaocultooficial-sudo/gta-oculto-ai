@@ -1929,6 +1929,7 @@ def make_script(topic):
     learned_duration_bucket=str((learned_profile.get('preferred_duration') or {}).get('bucket') or '')
     # Closed-loop duration learning: use the learned winner to control factual
     # density before TTS, not only the number of visual beats.
+    # Keep a compact learned-duration draft first; if it is too short, the verified next evidence sentence is added below.
     selected_evidence=evidence[:1] if (focused_story or learned_duration_bucket=='24-29s') else evidence[:2]
     fact_parts=[]
     for item in selected_evidence:
@@ -1983,6 +1984,16 @@ def make_script(topic):
     if _editorial_noise_score(narration)>=3:
         raise ValueError('GATE EDITORIAL: roteiro contaminado por manchete/metadado detectado antes da narração.')
     word_count=len(re.findall(r"[A-Za-zÀ-ÿ0-9']+",narration))
+
+    # V65: use verified evidence, never synthetic padding, to reach the 70-word floor.
+    if word_count < 70 and not focused_story and len(evidence) > len(selected_evidence):
+        extra=_clean_narrative_text(evidence[len(selected_evidence)]).rstrip('.!?')
+        if extra and extra not in fact_parts:
+            fact_parts.append(extra)
+            sections['proof']=_clean_narrative_text('. '.join(fact_parts)+'.')
+            narration=_clean_narrative_text(' '.join(sections[k] for k in ('hook','context','proof','payoff','cta')))
+            word_count=len(re.findall(r"[A-Za-zÀ-ÿ0-9']+",narration))
+
     estimated_seconds=max(20,min(60,round(word_count/2.55)))
     return {
         'title':headline,'narration':narration,'source':resolved_url or url,
