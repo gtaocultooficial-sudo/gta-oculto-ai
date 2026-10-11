@@ -85,7 +85,7 @@ class TrendBrain:
             k=self._key(topic or {})
             old=d["videos"].get(str(video_id),{})
             hook=str((metadata or {}).get("hook",(topic or {}).get("editorial_hook","")) or "")
-            d["videos"][str(video_id)]={"topic_key":k,"title":str((topic or {}).get("title","")),"hook":hook,"hook_type":self._hook_type(hook),"angle":str((metadata or {}).get("editorial_angle",(topic or {}).get("editorial_angle","")) or ""),"performance_score":old.get("performance_score",0),"publish_slot":str(publish_slot or old.get("publish_slot","")),"updated":time.time()}
+            d["videos"][str(video_id)]={"topic_key":k,"title":str((topic or {}).get("title","")),"hook":hook,"hook_type":self._hook_type(hook),"angle":str((metadata or {}).get("editorial_angle",(topic or {}).get("editorial_angle","")) or ""),"duration_bucket":self._duration_bucket((metadata or {}).get("duration_seconds",0)),"performance_score":old.get("performance_score",0),"publish_slot":str(publish_slot or old.get("publish_slot","")),"updated":time.time()}
             self._write(d)
 
     def learn(self,result,publications=None):
@@ -135,6 +135,15 @@ class TrendBrain:
         if "detalhe" in h or "pista" in h: return "DETALHE"
         if "percebeu" in h or "vale a pena ver" in h: return "CURIOSIDADE"
         return "OUTRO"
+
+    @staticmethod
+    def _duration_bucket(seconds):
+        s=float(seconds or 0)
+        if s <= 0: return "UNKNOWN"
+        if s < 30: return "20-29s"
+        if s < 40: return "30-39s"
+        if s < 50: return "40-49s"
+        return "50-60s"
 
     def recommend_editorial_profile(self):
         d=self._read()
