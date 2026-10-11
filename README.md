@@ -28,6 +28,26 @@ Nunca coloque tokens no código ou no chat. Configure no Environment do Render:
 
 Ative `GTA_AUTO_DEPLOY=1` apenas depois de validar os testes e o fluxo de rollback.
 
+## YouTube — publicação automática de Shorts
+
+O pipeline já chama o publicador automaticamente quando um job termina com MP4 validado. Para ativar:
+
+1. No Google Cloud, crie um OAuth Client do tipo **Desktop app** para o projeto do canal.
+2. Baixe o JSON e salve localmente como `client_secret.json` na raiz do projeto.
+3. No seu PC, instale as dependências e rode:
+   `python oauth_youtube.py`
+4. Faça login com a conta do canal e autorize **upload** + **YouTube Analytics**.
+5. O script cria `youtube_token.json`. **Não envie esse arquivo ao GitHub.**
+6. No Render, configure:
+   - `YOUTUBE_AUTO_PUBLISH=1`
+   - `YOUTUBE_ANALYTICS_ENABLED=1`
+   - `YOUTUBE_PRIVACY=private` para o primeiro teste.
+   - `YOUTUBE_TOKEN_JSON=<conteúdo de youtube_token.json em uma linha>`
+7. Produza um Short. O GTA Oculto publica automaticamente depois do gate final de MP4/QA.
+8. Depois de validar o primeiro vídeo privado, troque `YOUTUBE_PRIVACY` para `public` quando quiser publicação direta.
+
+Para testar um job já concluído sem esperar uma nova produção, existe `POST /api/publish/<job_id>`.
+
 ## YouTube
 
 Faça primeiro um OAuth local e coloque o JSON autorizado em `YOUTUBE_TOKEN_JSON` (ou prefixe com `base64:`). Comece com `YOUTUBE_PRIVACY=private`. Depois de validar o pipeline, mude para `public` ou agendamento conforme sua estratégia.
