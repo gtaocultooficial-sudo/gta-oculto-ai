@@ -64,7 +64,7 @@ UA = 'GTA-Oculto-AI/Cloud-Final/V55-SOURCE-RECOVERY-3'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
-BUILD_VERSION = 'V57-VIDEO-FIRST-RETENTION-20261011'
+BUILD_VERSION = 'V58-VIDEO-FIRST-REUSE-VIDEO-20261011'
 
 FALLBACK_TOPICS = [
     {'id':'leonida','score':96,'priority':'ALTA','title':'GTA 6: o detalhe de Leonida que pode mudar a história','source':'Rockstar Games','url':ROCKSTAR_VI,
@@ -3185,11 +3185,14 @@ def _choose_timeline_assets(video_clips, image_paths, beats, topic_title, varian
 
     for bi,beat in enumerate(beats):
         remaining=[(idx,kind,p) for idx,(kind,p) in enumerate(pool) if idx not in used]
-        candidates=remaining or [(idx,kind,p) for idx,(kind,p) in enumerate(pool)]
+        remaining_videos=[x for x in remaining if x[1]=='video']
 
-        # Enquanto houver vídeos inéditos, força a cota video-first.
-        remaining_videos=[x for x in candidates if x[1]=='video']
-        force_video = bool(remaining_videos) and video_used < target_video
+        # Mantém a cota de vídeo mesmo depois de consumir todos os arquivos únicos.
+        force_video = bool(videos) and video_used < target_video
+        if force_video:
+            candidates=remaining_videos or [(idx,'video',p) for idx,p in enumerate(videos)]
+        else:
+            candidates=remaining or [(idx,kind,p) for idx,(kind,p) in enumerate(pool)]
 
         ranked=[]
         for idx,kind,p in candidates:
