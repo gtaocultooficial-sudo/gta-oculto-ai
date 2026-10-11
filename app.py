@@ -2584,8 +2584,10 @@ def download_official_video_clips(outdir, jid=None):
             cached.append(p)
         except Exception:
             continue
-    if len(cached) >= 9:
-        return cached[:9]
+    # Six distinct clips are enough for the video-first timeline; the renderer
+    # can reuse them, avoiding repeated multi-megabyte downloads on the Free tier.
+    if len(cached) >= 6:
+        return cached[:6]
 
     try:
         if jid:
@@ -2610,7 +2612,7 @@ def download_official_video_clips(outdir, jid=None):
                 next_index=max(next_index,int(m.group(1))+1)
 
         for entry in candidates:
-            if len(safe) >= 9:
+            if len(safe) >= 6:
                 break
             idx=next_index
             next_index += 1
@@ -2656,7 +2658,7 @@ def download_official_video_clips(outdir, jid=None):
         safe=[p for p in safe if p.exists() and p.stat().st_size>20000]
         if len(safe) < 6:
             raise RuntimeError(f'Apenas {len(safe)} clipes reais e seguros foram preparados; são necessários pelo menos 6.')
-        return safe[:9]
+        return safe[:6]
     except Exception as e:
         raise RuntimeError('Não foi possível obter os vídeos oficiais da Rockstar: '+str(e)[:1800])
 
