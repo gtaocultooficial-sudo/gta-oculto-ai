@@ -13,7 +13,7 @@ except Exception:
 import requests
 import xml.etree.ElementTree as ET
 from bs4 import BeautifulSoup
-from flask import Flask, request, jsonify, render_template_string, send_from_directory
+from flask import Flask, request, jsonify, render_template_string, send_from_directory, redirect
 from PIL import Image, ImageDraw, ImageFont, ImageEnhance, ImageChops, ImageStat
 try:
     from live_clipper import LiveClipper
@@ -4487,8 +4487,23 @@ def live_job(jid):
 @APP.get('/output/<path:p>')
 def output(p):
     full=(WORK/p).resolve(); base=WORK.resolve()
-    if not str(full).startswith(str(base)) or not full.exists(): return 'Not found',404
-    return send_from_directory(full.parent,full.name,as_attachment=False)
+    if not str(full).startswith(str(base)):
+        return 'Not found',404
+    if full.exists():
+        return send_from_directory(full.parent,full.name,as_attachment=False)
+    # Render Free has ephemeral local storage. If a published MP4 was removed
+    # after a restart/redeploy, recover transparently through the durable YouTube copy.
+    parts=Path(p).parts
+    jid=parts[0] if parts else ''
+    try:
+        job=load_jobs().get(jid,{})
+        yt=job.get('youtube') or {}
+        vid=str(yt.get('video_id') or '').strip()
+        if vid:
+            return redirect(f'https://www.youtube.com/watch?v={quote(vid)}',code=302)
+    except Exception:
+        pass
+    return 'Not found',404
 
 def radar_loop():
     time.sleep(8)
