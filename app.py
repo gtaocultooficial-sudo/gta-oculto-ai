@@ -2497,8 +2497,7 @@ def _remote_zip_entries(url):
         nameb=cd[p+46:p+46+fn]
         try: name=nameb.decode('utf-8')
         except Exception: name=nameb.decode('cp437','replace')
-        entries.append({'name':name,'compression':comp,'compressed':csize,'size':usize,'local':local})        p += 46+fn+extra+comm
-    if len(entries)<3: raise RuntimeError(f'ZIP oficial expôs apenas {len(entries)} arquivos.')
+        entries.append({'name':name,'compression':comp,'compressed':csize,'size':usize,'local':local})        p += 46+fn+extra+comm    if len(entries)<3: raise RuntimeError(f'ZIP oficial expôs apenas {len(entries)} arquivos.')
     return total,entries
 
 
@@ -3420,7 +3419,7 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
             reuse_n=render_use_counts.get(str(src),0)
             # The source proxy is 8.5s long. Jump much farther on each reuse so
             # the same character/camera shot is not visibly recycled.
-            offset=min(7.2,max(0.0,reuse_n*1.8))
+            offset=min(6.4,max(0.0,reuse_n*1.6))
             inp=['-stream_loop','-1','-threads:v','1','-probesize','1M','-analyzeduration','1M','-ss',f'{offset:.2f}','-i',str(src)]
         else:
             zoom='0.008' if motion_boost else '0.003'
