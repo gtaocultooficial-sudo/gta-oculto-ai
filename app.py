@@ -3609,8 +3609,8 @@ def _normalize_visual_beats(beats, duration, max_scene=3.2):
 
 
 def make_multimedia_video(video_clips, image_paths, audio, out, duration, captions, script=None, topic_title='GTA 6', beats=None, motion_boost=False, asset_variant=0):
-    # FFmpeg/yuv420p requires even width/height. Keep the Render Free
-    # intermediate at an even 540x960 and render the final master at native 540x960 to avoid an upscale and stay within Render Free memory.
+    # FFmpeg/yuv420p requires even width/height. Keep per-scene intermediates at 540x960 for Render Free memory,
+    # then upscale only the final concatenated master to the required 1080x1920 delivery dimensions.
     INTER_W, INTER_H = 540, 960
     if INTER_W % 2 or INTER_H % 2:
         raise RuntimeError(f'Dimensões intermediárias inválidas: {INTER_W}x{INTER_H}.')
@@ -3685,7 +3685,7 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
         for sf in scene_files: f.write(f"file '{sf.as_posix()}'\n")
     print(f'[RENDER] concat start scenes={len(scene_files)} audio_bytes={Path(audio).stat().st_size if Path(audio).exists() else 0}', flush=True)
     run_cmd([ff,'-loglevel','error','-y','-f','concat','-safe','0','-i',str(listfile),'-i',str(audio),
-             '-t',f'{duration:.2f}','-vf','format=yuv420p','-r','30',
+             '-t',f'{duration:.2f}','-vf','scale=1080:1920:flags=lanczos,setsar=1,format=yuv420p','-r','30',
              '-c:v','libx264','-preset','ultrafast','-crf','20','-threads','1','-filter_threads','1','-filter_complex_threads','1',
              '-x264-params','threads=1:lookahead-threads=1:rc-lookahead=0:sync-lookahead=0','-force_key_frames','expr:gte(t,n_forced*2)','-c:a','aac','-b:a','160k',
              '-movflags','+faststart','-shortest',str(out)],300)
