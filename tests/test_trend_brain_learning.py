@@ -35,7 +35,6 @@ class PublishSlotLearningTests(unittest.TestCase):
         )
 
         self.brain.learn(self.analytics("video-1", 100))
-        first = self.brain.status()
         self.brain.learn(self.analytics("video-1", 300))
         data = self.brain._read()
 
