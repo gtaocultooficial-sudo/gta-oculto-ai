@@ -111,6 +111,12 @@ class AutonomousEngine:
                     else:
                         app_module.update_job(jid,stage='PUBLICAÇÃO',log=f'▶️ YouTube: vídeo enviado ({pub.get("video_id")}).',youtube=pub)
                 else:
+                    if self.trend_brain:
+                        try:
+                            reserved=(job.get('recommended_publish_slot') or {}).get('publish_at','') if isinstance(job.get('recommended_publish_slot'),dict) else ''
+                            self.trend_brain.release_publish_slot(jid, reserved)
+                        except Exception as e:
+                            self.memory.event('publish_slot_release_error',str(e))
                     reason=str(pub.get("reason","erro desconhecido"))
                     if 'YOUTUBE_DAILY_UPLOAD_LIMIT' in reason:
                         log=f'⏸️ Limite diário de envio do YouTube atingido. O MP4 continua salvo no servidor; não será feito loop de tentativas. Aguarde até 24 horas e tente novamente.'
@@ -118,6 +124,12 @@ class AutonomousEngine:
                         log=f'⚠️ Vídeo pronto, mas o envio ao YouTube falhou: {reason[:500]}'
                     app_module.update_job(jid,stage='PUBLICAÇÃO PENDENTE',log=log,youtube=pub)
             else:
+                if self.trend_brain:
+                    try:
+                        reserved=(job.get('recommended_publish_slot') or {}).get('publish_at','') if isinstance(job.get('recommended_publish_slot'),dict) else ''
+                        self.trend_brain.release_publish_slot(jid, reserved)
+                    except Exception as e:
+                        self.memory.event('publish_slot_release_error',str(e))
                 pub={'ok':False,'reason':'FINAL_MP4_MISSING','path':str(path)}
                 print(f'[AUTONOMY {jid}] YouTube upload skipped: final MP4 missing path={path}', flush=True)
                 app_module.update_job(jid,stage='PUBLICAÇÃO PENDENTE',log='⚠️ Vídeo pronto, mas o MP4 final não foi encontrado para envio.',youtube=pub)
