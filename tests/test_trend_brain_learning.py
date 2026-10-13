@@ -57,6 +57,18 @@ class PublishSlotLearningTests(unittest.TestCase):
         data = self.brain._read()
         self.assertEqual(data["patterns"]["publish_slot_samples"]["20:30"], 2)
 
+    def test_reservations_are_future_and_do_not_collide(self):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        now = datetime(2026, 10, 13, 8, 0, tzinfo=ZoneInfo("America/Sao_Paulo"))
+        first = self.brain.reserve_publish_slot("job-1", now=now)
+        second = self.brain.reserve_publish_slot("job-2", now=now)
+
+        self.assertNotEqual(first["publish_at"], second["publish_at"])
+        self.assertGreater(datetime.fromisoformat(first["publish_at"]), now)
+        self.assertEqual(first["timezone"], "America/Sao_Paulo")
+
 
 if __name__ == "__main__":
     unittest.main()
