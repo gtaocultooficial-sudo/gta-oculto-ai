@@ -1,4 +1,4 @@
-"""GTA OCULTO AI V42 - bounded editorial/technical auditor.
+""""GTA OCULTO AI V42 - bounded editorial/technical auditor.
 No external AI/API is required. It uses deterministic checks and bounded repair strategies.
 """
 from __future__ import annotations
@@ -7,6 +7,16 @@ from pathlib import Path
 
 STOP = {'a','o','e','de','do','da','em','no','na','os','as','um','uma','que','isso','para','com','por','mais','mas','como','esse','essa','se','é','ser','já','ou','dos','das','ao','à','às'}
 BAD = {'radar','score','confiança','editor-chefe','fontes','matérias','pesquisa editorial','sistema','metadados'}
+# Captions ending on these words are usually cut off mid-thought. They are
+# intentionally checked separately from length because a short caption can
+# look technically valid while still being grammatically incomplete.
+FRAGMENT_ENDINGS = {
+    'A','O','AS','OS','UM','UMA','DE','DO','DA','DOS','DAS','EM','NO','NA','NOS','NAS',
+    'PARA','COM','POR','E','OU','QUE','MAS','SE','ENTRE','ATÉ','PELO','PELA',
+    'ESSE','ESSA','ESSES','ESSAS','ESTE','ESTA','ESTES','ESTAS','ISSO','AQUILO',
+    'AQUELE','AQUELA','AQUELES','AQUELAS','MEU','MINHA','MEUS','MINHAS','SEU','SUA',
+    'SEUS','SUAS','NOSSO','NOSSA','NOSSOS','NOSSAS','VOCÊ','VOCÊS','ELE','ELA','ELES','ELAS'
+}
 
 
 def _words(s):
@@ -26,7 +36,8 @@ def caption_audit(captions, narration=''):
         if u in seen:
             score-=5; issues.append('caption_repeated')
         seen.add(u)
-        n=len(_words(c))
+        words=_words(c)
+        n=len(words)
         if n < 3:
             score-=4; issues.append('caption_too_short')
         if n > 8:
@@ -35,8 +46,8 @@ def caption_audit(captions, narration=''):
             score-=4; issues.append('caption_too_wide')
         if any(b in u.lower() for b in BAD):
             score-=15; issues.append('internal_metadata')
-        if c.endswith((' DE',' DA',' DO',' PARA',' COM',' E',' OU',' QUE',' A',' O')):
-            score-=7; issues.append('dangling_function_word')
+        if words and words[-1].upper() in FRAGMENT_ENDINGS:
+            score-=18; issues.append('caption_fragment')
     if narration:
         nwords=set(w.lower() for w in _words(narration) if len(w)>3)
         if caps:
@@ -65,8 +76,16 @@ def repair_captions(captions, narration='', target=9):
         while end < len(words) and words[end-1].lower() in STOP and end < len(words):
             end += 1
         chunk=' '.join(words[i:end]).upper()
-        if 3 <= len(_words(chunk)) <= 8 and len(chunk) <= 38:
-            chunks.append(chunk)
+        chunk_words=_words(chunk)
+        if 3 <= len(chunk_words) <= 8 and len(chunk) <= 38:
+            # Do not emit a known dangling ending when there are words left;
+            # pull the next word into this caption instead.
+            while end < len(words) and chunk_words and chunk_words[-1].upper() in FRAGMENT_ENDINGS:
+                end += 1
+                chunk=' '.join(words[i:end]).upper()
+                chunk_words=_words(chunk)
+            if 3 <= len(chunk_words) <= 8 and len(chunk) <= 38:
+                chunks.append(chunk)
         i=end
     # If the first pass produced too many chunks, merge adjacent chunks only
     # when the merged caption still fits the strict width/word limits.
@@ -83,12 +102,11 @@ def repair_captions(captions, narration='', target=9):
     return chunks[:target]
 
 
-
 def hook_audit(narration=''):
     """Score the opening of a Short for immediate curiosity and clarity."""
     text=_norm(narration)
     if not text: return {'score':0,'issues':['hook_missing']}
-    first=re.split(r'(?<=[.!?])\\s+',text,maxsplit=1)[0].strip()
+    first=re.split(r'(?<=[.!?])\s+',text,maxsplit=1)[0].strip()
     words=_words(first)
     score=100; issues=[]
     if len(words)<5:
@@ -103,15 +121,13 @@ def hook_audit(narration=''):
         score-=30; issues.append('hook_internal_metadata')
     return {'score':max(0,min(100,score)),'issues':sorted(set(issues)),'text':first}
 
+
 def technical_video_audit(video_path):
     p=Path(video_path)
     if not p.exists(): return {'score':0,'issues':['video_missing']}
     try:
         ffprobe=shutil.which('ffprobe')
         if not ffprobe:
-            # Some imageio-ffmpeg versions no longer expose get_ffprobe_exe.
-            # Render normally provides ffprobe system-wide; if unavailable,
-            # report a bounded diagnostic instead of crashing the audit.
             return {'score':70,'issues':['ffprobe_unavailable'], 'error':'ffprobe executable not found'}
         cmd=[ffprobe,'-v','error','-show_streams','-show_format','-of','json',str(p)]
         data=json.loads(subprocess.check_output(cmd,stderr=subprocess.STDOUT,text=True,timeout=20))
@@ -133,4 +149,6 @@ def technical_video_audit(video_path):
 def full_audit(video_path, captions, narration=''):
     ca=caption_audit(captions,narration); ha=hook_audit(narration); va=technical_video_audit(video_path)
     score=round(ca['score']*0.40 + ha['score']*0.20 + va['score']*0.40)
-    return {'score':score,'caption':ca,'hook':ha,'technical':va,'ok':score>=78}
+    # Fragmented captions are a release blocker even if technical quality
+    # pushes the weighted score above the normal threshold.
+    return {'score':score,'caption':ca,'hook':ha,'technical':va,'ok':score>=78 and 'caption_fragment' not in ca['issues']}
