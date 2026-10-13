@@ -39,13 +39,16 @@ class OfficialVideoPoolTests(unittest.TestCase):
             def write_frame(command, timeout=240):
                 Path(command[-1]).write_bytes(b"f" * 5001)
 
+            frame_dir = root / "frames"
+            frame_dir.mkdir()
+
             with (
                 patch.object(app, "_probe_media", return_value={"duration": 8.5}),
                 patch.object(app, "_ffmpeg_executable", return_value="ffmpeg"),
                 patch.object(app, "run_cmd", side_effect=write_frame),
             ):
                 actual = app._augment_scenes_with_real_video_frames(
-                    clips, [], root / "frames", target=18
+                    clips, [], frame_dir, target=18
                 )
 
             self.assertEqual(len(actual), 18)
