@@ -150,17 +150,21 @@ class TrendBrain:
                 perf=min(100,view_signal+retention_signal+watch_signal+engagement+comment_signal+subscriber_signal)
                 p=pubs.get(vid,{})
                 existing=d["videos"].get(vid,{})
-                d["videos"][vid]={"topic_key":p.get("topic_key",existing.get("topic_key","")),"title":existing.get("title",p.get("title","")),"title_pattern":existing.get("title_pattern",self._title_pattern(existing.get("title",p.get("title","")))),"hook":existing.get("hook",p.get("hook","")),"angle":existing.get("angle",p.get("angle","")),"angle_type":existing.get("angle_type",self._angle_type(existing.get("angle",p.get("angle","")))),"fingerprint":existing.get("fingerprint",""),"duration_bucket":existing.get("duration_bucket",p.get("duration_bucket","")),"hook_type":existing.get("hook_type",self._hook_type(existing.get("hook",""))),"content_type":existing.get("content_type",p.get("content_type","CURIOSIDADE")),"publish_slot":existing.get("publish_slot",p.get("publish_slot","")),"performance_score":round(perf,2),"views":views,"likes":likes,"comments":comments,"subscribers":subs,"average_view_duration":avg_duration,"estimated_minutes_watched":watched_minutes,"like_rate":round(like_rate,3),"comment_rate":round(comment_rate,3),"view_velocity":round(view_velocity,2),"updated":time.time()}
-                slot=existing.get("publish_slot",p.get("publish_slot",""))
-                if slot:
-                    patterns=d.setdefault("patterns",{})
-                    sp=patterns.setdefault("publish_slots",{})
-                    counts=patterns.setdefault("publish_slot_samples",{})
-                    old_n=int(counts.get(slot,0) or 0)
-                    old_avg=float(sp.get(slot,0) or 0)
-                    new_n=old_n+1
-                    sp[slot]=round((old_avg*old_n+float(perf))/new_n,2)
-                    counts[slot]=new_n
+                d["videos"][vid]={"topic_key":p.get("topic_key",existing.get("topic_key","")),"title":existing.get("title",p.get("title","")),"title_pattern":existing.get("title_pattern",self._title_pattern(existing.get("title",p.get("title","")))),"hook":existing.get("hook",p.get("hook","")),"angle":existing.get("angle",p.get("angle","")),"angle_type":existing.get("angle_type",self._angle_type(existing.get("angle",p.get("angle","")))),"fingerprint":existing.get("fingerprint",""),"duration_bucket":existing.get("duration_bucket",p.get("duration_bucket","")),"hook_type":existing.get("hook_type",self._hook_type(existing.get("hook",""))),"content_type":existing.get("content_type",p.get("content_type","CURIOSIDADE")),"publish_slot":existing.get("publish_slot",p.get("publish_slot","")),"performance_score":round(perf,2),"views":views,"likes":likes,"comments":comments,"subscribers":subs,"average_view_duration":avg_duration,"estimated_minutes_watched":watched_minutes,"like_rate":round(like_rate,3),"comment_rate":round(comment_rate,3),"view_velocity":round(view_velocity,2),"analytics_observed":True,"updated":time.time()}
+            # Recompute slot averages from one latest record per video. Analytics
+            # can return the same video every day; counting each poll as a new sample
+            # would artificially inflate sample sizes and overweight older results.
+            slot_totals={}
+            for video in d["videos"].values():
+                slot=str(video.get("publish_slot","") or "")
+                if not slot or not video.get("analytics_observed"):
+                    continue
+                bucket=slot_totals.setdefault(slot,{"sum":0.0,"n":0})
+                bucket["sum"]+=float(video.get("performance_score",0) or 0)
+                bucket["n"]+=1
+            patterns=d.setdefault("patterns",{})
+            patterns["publish_slots"]={slot:round(v["sum"]/v["n"],2) for slot,v in slot_totals.items() if v["n"]}
+            patterns["publish_slot_samples"]={slot:v["n"] for slot,v in slot_totals.items() if v["n"]}
             d["videos"]=dict(list(d["videos"].items())[-500:])
             self._write(d)
         return {"ok":True,"videos_learned":len(rows)}
