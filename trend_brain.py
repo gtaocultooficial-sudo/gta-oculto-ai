@@ -351,6 +351,22 @@ class TrendBrain:
                 self._write(d)
             return slot
 
+    def release_publish_slot(self, job_id, publish_at=None):
+        """Release a reservation when upload fails so another job can use that time."""
+        with self.lock:
+            d=self._read()
+            reserved=d.setdefault("scheduled_slots",{})
+            target=str(job_id)
+            removed=[]
+            for when, owner in list(reserved.items()):
+                if str(owner)==target and (not publish_at or when==str(publish_at)):
+                    removed.append(when)
+                    reserved.pop(when,None)
+            if removed:
+                d["scheduled_slots"]=reserved
+                self._write(d)
+            return {"ok":True,"released":removed}
+
     def record_slot_performance(self, slot, score):
         if not slot: return
         with self.lock:
