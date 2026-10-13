@@ -2791,11 +2791,12 @@ def download_official_video_clips(outdir, jid=None):
             cached.append(p)
         except Exception:
             continue
-    # V65.7: two cached official proxies are already enough when combined with
-    # distinct real-frame supports. Never block a production on additional CDN
-    # downloads when the visual slot gate can be satisfied safely.
-    if len(cached) >= 2:
-        return cached[:2]
+    # Prefer four independent motion sources for Shorts. Once cached, this adds
+    # no repeated CDN cost; if the catalogue has fewer safe clips, the editor
+    # falls back to genuine frames rather than recycling the same shot.
+    target_clips = 4
+    if len(cached) >= target_clips:
+        return cached[:target_clips]
     try:
         if jid:
             update_job(jid,log='Lendo catálogo oficial da Rockstar e filtrando telas ESRB/disclaimers...')
@@ -2819,7 +2820,7 @@ def download_official_video_clips(outdir, jid=None):
                 next_index=max(next_index,int(m.group(1))+1)
 
         for entry in candidates:
-            if len(safe) >= 2:
+            if len(safe) >= target_clips:
                 break
             idx=next_index
             next_index += 1
