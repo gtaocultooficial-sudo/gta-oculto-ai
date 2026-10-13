@@ -2938,12 +2938,12 @@ def _augment_scenes_with_real_video_frames(video_clips, image_scenes, jobdir, ta
             duration=max(0.8,float(probe.get('duration') or 8.5))
         except Exception:
             duration=8.5
-        # Four samples spread across each source. This is a fallback only when
-        # Rockstar exposes too few usable video clips; all frames remain genuine.
-        for fi in range(4):
+        # Five samples spread across each source. These are genuine frames from
+        # the official video itself, never merchandise/product art scraped from pages.
+        for fi in range(5):
             if len(out)>=target:
                 break
-            timestamp=min(max(0.05,duration*0.12 + fi*(duration*0.24)),max(0.05,duration-0.08))
+            timestamp=min(max(0.05,duration*0.12 + fi*(duration*0.19)),max(0.05,duration-0.08))
             dst=Path(jobdir)/f'official_frame_{idx:02d}_{fi:02d}.jpg'
             try:
                 run_cmd([ff,'-loglevel','error','-y','-ss',f'{timestamp:.2f}','-i',str(clip),
@@ -4434,14 +4434,12 @@ def produce_job(jid):
         jobdir=WORK/jid; jobdir.mkdir(parents=True,exist_ok=True)
         update_job(jid,script=script,stage='VISUAIS',progress=40,log='Baixando visuais oficiais e montando cenas verticais...')
         print(f'[JOB {jid}] stage=VISUALS download start',flush=True)
-        paths=download_visuals(urls,jobdir/'visuals',topic['title'])
-        print(f'[JOB {jid}] stage=VISUALS download done count={len(paths)}',flush=True)
-        image_order=select_visuals(paths,topic['title'],18)
+        # V67: não usar imagens raspadas de páginas gerais da Rockstar como cenas.
+        # O site pode retornar camisetas, bolsas, artes promocionais e outros assets
+        # oficiais, porém irrelevantes para a pauta. O pool visual final será formado
+        # exclusivamente por trechos e quadros extraídos dos vídeos oficiais validados.
         image_scenes=[]
-        # A preparação visual não queima a legenda; o overlay final é desenhado
-        # somente depois que temos a duração real da narração.
-        for i,src in enumerate(image_order):
-            dst=jobdir/f'image_{i}.jpg'; prepare_scene(src,dst,'',i,10); image_scenes.append(dst)
+        update_job(jid,progress=44,log='Filtro editorial V67: imagens genéricas do site excluídas; usando somente footage oficial de GTA VI.')
         update_job(jid,stage='NARRAÇÃO',progress=60,log='Gerando narração PT-BR e capturando timestamps reais da fala...')
         print(f'[JOB {jid}] stage=TTS start',flush=True)
         audio=jobdir/'narracao.mp3'; word_cues=asyncio.run(make_tts(script['narration'],audio)); duration=duration_of_audio(audio)

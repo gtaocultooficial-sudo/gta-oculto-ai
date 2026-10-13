@@ -27,6 +27,35 @@ class OfficialVideoPoolTests(unittest.TestCase):
             self.assertEqual(len(set(map(str, actual))), 4)
 
 
+    def test_extracts_unique_frames_from_official_footage_only(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            clips = []
+            for index in range(4):
+                clip = root / f"official_{index}.mp4"
+                clip.write_bytes(b"source")
+                clips.append(clip)
+
+            def write_frame(command, timeout=240):
+                Path(command[-1]).write_bytes(b"f" * 5001)
+
+            frame_dir = root / "frames"
+            frame_dir.mkdir()
+
+            with (
+                patch.object(app, "_probe_media", return_value={"duration": 8.5}),
+                patch.object(app, "_ffmpeg_executable", return_value="ffmpeg"),
+                patch.object(app, "run_cmd", side_effect=write_frame),
+            ):
+                actual = app._augment_scenes_with_real_video_frames(
+                    clips, [], frame_dir, target=18
+                )
+
+            self.assertEqual(len(actual), 18)
+            self.assertEqual(len({Path(p).name for p in actual}), 18)
+            self.assertTrue(all(Path(p).stat().st_size > 4000 for p in actual))
+            self.assertTrue(all(Path(p).name.startswith("official_frame_") for p in actual))
+
     def test_downloads_four_safe_official_clips_when_cache_is_short(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
