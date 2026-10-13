@@ -3446,7 +3446,7 @@ def _choose_timeline_assets(video_clips, image_paths, beats, topic_title, varian
         # Expanded 1.4s windows are distinct files, but still come from the
         # same original trailer/clip. Count them against the original source.
         name=Path(path).stem
-        return re.sub(r'_window_\\d+$','',name,flags=re.IGNORECASE)
+        return re.sub(r'_window_\d+$','',name,flags=re.IGNORECASE)
     video_sources={source_group(p) for p in videos}
     # V61: repetition is now a hard budget, not just a score penalty.
     # The pool can shrink on Render Free after a restart, so the reuse budget is
