@@ -2546,41 +2546,58 @@ def duration_of_audio(path):
     except Exception: return 30.0
 
 async def make_tts(text,path):
-    """V32.0: gera áudio PT-BR e tenta capturar WordBoundary; se a versão do
-    edge-tts instalada no Render não expuser esses eventos, a produção continua
-    usando o fallback editorial sincronizado pela duração real do áudio."""
-    if edge_tts is None:
-        raise RuntimeError('edge-tts não disponível no servidor')
+    """Gera narração PT-BR: tenta Edge-TTS e usa gTTS como fallback gratuito."""
     last=None
-    for voice in ['pt-BR-AntonioNeural','pt-BR-FranciscaNeural']:
+    if edge_tts is not None:
+        for voice in ['pt-BR-AntonioNeural','pt-BR-FranciscaNeural']:
+            try:
+                comm=edge_tts.Communicate(text,voice,rate='+3%',pitch='-2Hz')
+                cues=[]
+                with open(path,'wb') as fh:
+                    async for chunk in comm.stream():
+                        typ=str(chunk.get('type',''))
+                        low=typ.lower().replace('_','')
+                        if typ=='audio':
+                            fh.write(chunk.get('data',b''))
+                            continue
+                        if 'wordboundary' in low or low in ('word','wordbound'):
+                            try:
+                                word=str(chunk.get('text') or chunk.get('word') or '').strip()
+                                offset=chunk.get('offset',chunk.get('start',0))
+                                dur=chunk.get('duration',chunk.get('length',0))
+                                cue_start=float(offset)/10_000_000.0
+                                cue_duration=float(dur)/10_000_000.0
+                                if word:
+                                    cues.append({'word':word,'start':cue_start,'duration':cue_duration})
+                            except Exception:
+                                pass
+                if path.exists() and path.stat().st_size>1000:
+                    return cues
+                last=RuntimeError('Edge-TTS terminou sem gerar áudio válido')
+            except Exception as e:
+                last=e
+                try:
+                    if path.exists(): path.unlink()
+                except Exception:
+                    pass
+    else:
+        last=RuntimeError('edge-tts não disponível no servidor')
+
+    # Fallback gratuito em português brasileiro. Sem WordBoundary, o pipeline
+    # usa a duração real do áudio para sincronizar as legendas.
+    try:
+        from gtts import gTTS
         try:
-            comm=edge_tts.Communicate(text,voice,rate='+3%',pitch='-2Hz')
-            cues=[]
-            with open(path,'wb') as fh:
-                async for chunk in comm.stream():
-                    typ=str(chunk.get('type',''))
-                    low=typ.lower().replace('_','')
-                    if typ=='audio':
-                        fh.write(chunk.get('data',b''))
-                        continue
-                    # Edge-TTS já mudou a forma/nome desses eventos em algumas
-                    # versões. Aceitamos variações sem quebrar a produção.
-                    if 'wordboundary' in low or low in ('word','wordbound'):
-                        try:
-                            word=str(chunk.get('text') or chunk.get('word') or '').strip()
-                            offset=chunk.get('offset',chunk.get('start',0))
-                            dur=chunk.get('duration',chunk.get('length',0))
-                            start=float(offset)/10_000_000.0
-                            duration=float(dur)/10_000_000.0
-                            if word:
-                                cues.append({'word':word,'start':start,'duration':duration})
-                        except Exception:
-                            pass
-            if path.exists() and path.stat().st_size>1000:
-                return cues
-        except Exception as e:
-            last=e
-    raise RuntimeError(f'falha na narração: {last}')
+            if path.exists(): path.unlink()
+        except Exception:
+            pass
+        gTTS(text=str(text), lang='pt', tld='com.br', slow=False).save(str(path))
+        if path.exists() and path.stat().st_size>1000:
+            print('[TTS] fallback=gTTS lang=pt tld=com.br', flush=True)
+            return []
+        raise RuntimeError('gTTS terminou sem gerar áudio válido')
+    except Exception as fallback_error:
+        raise RuntimeError(f'falha na narração Edge-TTS={last}; fallback gTTS={fallback_error}') from fallback_error
 
 def _safe_filename(name):
     return re.sub(r'[^a-zA-Z0-9._-]+','_',name).strip('_')[:100]
