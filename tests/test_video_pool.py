@@ -27,5 +27,35 @@ class OfficialVideoPoolTests(unittest.TestCase):
             self.assertEqual(len(set(map(str, actual))), 4)
 
 
+    def test_downloads_four_safe_official_clips_when_cache_is_short(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            entries = [
+                {"name": f"Jason_official_{index}.mp4", "compression": 0,
+                 "compressed": 30000, "size": 30000, "local": index}
+                for index in range(4)
+            ]
+
+            def write_raw(_url, _entry, target):
+                target.write_bytes(b"r" * 30000)
+
+            def write_proxy(command, timeout=240):
+                Path(command[-1]).write_bytes(b"p" * 30000)
+
+            with (
+                patch.object(app, "WORK", root),
+                patch.object(app, "_remote_zip_entries", return_value=(120000, entries)),
+                patch.object(app, "_remote_zip_extract", side_effect=write_raw),
+                patch.object(app, "_ffmpeg_executable", return_value="ffmpeg"),
+                patch.object(app, "run_cmd", side_effect=write_proxy),
+                patch.object(app, "_video_contains_rating_disclaimer", return_value=False),
+            ):
+                actual = app.download_official_video_clips(root / "job")
+
+            self.assertEqual(len(actual), 4)
+            self.assertEqual(len({Path(p).name for p in actual}), 4)
+            self.assertTrue(all(Path(p).stat().st_size > 20000 for p in actual))
+
+
 if __name__ == "__main__":
     unittest.main()
