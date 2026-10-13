@@ -69,6 +69,17 @@ class PublishSlotLearningTests(unittest.TestCase):
         self.assertGreater(datetime.fromisoformat(first["publish_at"]), now)
         self.assertEqual(first["timezone"], "America/Sao_Paulo")
 
+    def test_failed_job_releases_only_its_own_reservation(self):
+        first = self.brain.reserve_publish_slot("job-1")
+        second = self.brain.reserve_publish_slot("job-2")
+
+        released = self.brain.release_publish_slot("job-1", first["publish_at"])
+        reserved = self.brain._read()["scheduled_slots"]
+
+        self.assertEqual(released["released"], [first["publish_at"]])
+        self.assertNotIn(first["publish_at"], reserved)
+        self.assertEqual(reserved[second["publish_at"]], "job-2")
+
 
 if __name__ == "__main__":
     unittest.main()
