@@ -1,4 +1,5 @@
 import os, json, base64
+from datetime import datetime, timezone
 from pathlib import Path
 
 class YouTubePublisher:
@@ -17,15 +18,31 @@ class YouTubePublisher:
         if not self.enabled: return {'ok':False,'reason':'YOUTUBE_AUTO_PUBLISH_DISABLED'}
         if not self.token_json: return {'ok':False,'reason':'YOUTUBE_TOKEN_JSON_MISSING'}
         try:
+            path=Path(video_path)
+            if not path.is_file() or path.stat().st_size <= 0:
+                return {'ok':False,'reason':'VIDEO_FILE_MISSING_OR_EMPTY'}
+            publish_at=str(metadata.get('publish_at') or '').strip()
+            if publish_at:
+                try:
+                    scheduled_dt=datetime.fromisoformat(publish_at.replace('Z','+00:00'))
+                except ValueError:
+                    return {'ok':False,'reason':'INVALID_PUBLISH_AT: informe data ISO 8601 válida com fuso horário'}
+                if scheduled_dt.tzinfo is None or scheduled_dt.utcoffset() is None:
+                    return {'ok':False,'reason':'INVALID_PUBLISH_AT: o agendamento precisa incluir fuso horário'}
+                if scheduled_dt.astimezone(timezone.utc) <= datetime.now(timezone.utc):
+                    return {'ok':False,'reason':'PUBLISH_AT_NOT_IN_FUTURE: horário agendado já passou'}
             from googleapiclient.http import MediaFileUpload
             service=self._service()
-            publish_at=str(metadata.get('publish_at') or '').strip()
-            # YouTube requires scheduled videos to be private until the scheduled time.
-            status={'privacyStatus':'private' if publish_at else os.getenv('YOUTUBE_PRIVACY','private'),'selfDeclaredMadeForKids':False}
+            # Fail-safe: uploads stay private unless YouTube receives a valid future publishAt.
+            # Scheduled videos remain private until YouTube publishes them at that time.
+            status={'privacyStatus':'private','selfDeclaredMadeForKids':False}
             if publish_at:
-                status['publishAt']=publish_at
-            body={'snippet':{'title':metadata.get('title','GTA 6'),'description':metadata.get('description',''),'tags':metadata.get('tags',[]),'categoryId':'20'},'status':status}
-            req=service.videos().insert(part='snippet,status',body=body,media_body=MediaFileUpload(str(video_path),mimetype='video/mp4',resumable=True))
+                status['publishAt']=scheduled_dt.isoformat()
+            title=str(metadata.get('title') or '').strip()
+            if not title:
+                return {'ok':False,'reason':'VIDEO_TITLE_MISSING'}
+            body={'snippet':{'title':title,'description':metadata.get('description',''),'tags':metadata.get('tags',[]),'categoryId':'20'},'status':status}
+            req=service.videos().insert(part='snippet,status',body=body,media_body=MediaFileUpload(str(path),mimetype='video/mp4',resumable=True))
             resp=req.execute()
             return {'ok':True,'video_id':resp.get('id'),'privacy':body['status']['privacyStatus'],'scheduled_at':publish_at or None,'scheduled':bool(publish_at)}
         except Exception as e:
