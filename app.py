@@ -2190,7 +2190,16 @@ def select_visuals(paths, topic_title, count=10):
             if fp and _is_near_duplicate(fp,selected_fps):
                 continue
             txt=_asset_text(item)
+            # Reject store/catalog imagery when the story is about characters or plot.
+            # A high-quality image is not automatically a relevant image.
+            label_url=(str(item.get('label',''))+' '+str(item.get('url',''))).lower() if isinstance(item,dict) else ''
+            merchandise_terms=('shop','store','merch','t-shirt','tshirt','hoodie','hat','cap','mug','keychain','apparel','clothing','shirt','poster','backpack','jacket','sock')
+            if any(term in label_url for term in merchandise_terms):
+                continue
             hits=sum(1 for k in kws if k in txt)
+            # Never fill the story with unrelated official assets merely to reach a count.
+            if hits <= 0:
+                continue
             ranked.append((hits, _image_quality(p), idx))
         if ranked:
             ranked.sort(key=lambda x:(x[0],x[1]),reverse=True)
@@ -2204,6 +2213,14 @@ def select_visuals(paths, topic_title, count=10):
             if idx in used: continue
             fp=fingerprints.get(idx)
             if fp and _is_near_duplicate(fp,selected_fps):
+                continue
+            item=paths[idx]
+            label_url=(str(item.get('label',''))+' '+str(item.get('url',''))).lower() if isinstance(item,dict) else ''
+            merchandise_terms=('shop','store','merch','t-shirt','tshirt','hoodie','hat','cap','mug','keychain','apparel','clothing','shirt','poster','backpack','jacket','sock')
+            if any(term in label_url for term in merchandise_terms):
+                continue
+            txt=_asset_text(item)
+            if not any(k in txt for plan in plans for k in plan):
                 continue
             remaining.append(idx)
         remaining.sort(key=lambda idx:_image_quality(paths[idx]['path'] if isinstance(paths[idx],dict) else paths[idx]),reverse=True)
