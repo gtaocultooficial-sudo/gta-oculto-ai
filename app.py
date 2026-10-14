@@ -4790,12 +4790,12 @@ def produce_job(jid):
         jobdir=WORK/jid; jobdir.mkdir(parents=True,exist_ok=True)
         update_job(jid,script=script,stage='VISUAIS',progress=40,log='Baixando visuais oficiais e montando cenas verticais...')
         print(f'[JOB {jid}] stage=VISUALS download start',flush=True)
-        # V67: não usar imagens raspadas de páginas gerais da Rockstar como cenas.
-        # O site pode retornar camisetas, bolsas, artes promocionais e outros assets
-        # oficiais, porém irrelevantes para a pauta. O pool visual final será formado
-        # exclusivamente por trechos e quadros extraídos dos vídeos oficiais validados.
-        image_scenes=[]
-        update_job(jid,progress=44,log='Filtro editorial V67: imagens genéricas do site excluídas; usando somente footage oficial de GTA VI.')
+        # Prefer real official motion clips, but prepare a bounded image fallback up front.
+        # Rockstar's own VI pages provide permitted visual references; selecting them
+        # semantically lets a Short finish when the remote ZIP clip extraction is broken.
+        image_candidates=download_visuals(urls,jobdir/'official_images',topic.get('title','GTA 6'))
+        image_scenes=select_visuals(image_candidates,topic.get('title','GTA 6'),count=12)
+        update_job(jid,progress=44,log=f'Plano visual de contingência: {len(image_scenes)} imagens oficiais únicas preparadas; tentando priorizar vídeo real.')
         update_job(jid,stage='NARRAÇÃO',progress=60,log='Gerando narração PT-BR e capturando timestamps reais da fala...')
         print(f'[JOB {jid}] stage=TTS start',flush=True)
         audio=jobdir/'narracao.mp3'; word_cues=asyncio.run(make_tts(script['narration'],audio)); duration=duration_of_audio(audio)
@@ -4841,16 +4841,23 @@ def produce_job(jid):
         update_job(jid,progress=66,log=f'Narração pronta: {script.get("word_count",0)} palavras / {duration:.1f}s. Legendas em {len(beats)} blocos — {sync_mode}.')
         update_job(jid,stage='EDIÇÃO',progress=74,log=f'Obtendo vídeos oficiais da Rockstar e montando timeline com movimento real / {duration:.1f}s...')
         print(f'[JOB {jid}] stage=OFFICIAL_VIDEO_DOWNLOAD start',flush=True)
-        official_videos=download_official_video_clips(jobdir/'official_videos', jid)
+        try:
+            official_videos=download_official_video_clips(jobdir/'official_videos', jid)
+        except Exception as _video_source_error:
+            if len(image_scenes)<6:
+                raise RuntimeError(f'Vídeos oficiais indisponíveis e imagens de contingência insuficientes ({len(image_scenes)}): {str(_video_source_error)[:500]}')
+            official_videos=[]
+            update_job(jid,log=f'Vídeo oficial indisponível; usando {len(image_scenes)} imagens oficiais distintas com movimento de câmera e narração sincronizada. Detalhe: {str(_video_source_error)[:180]}')
+            print(f'[VIDEO_SOURCE_FALLBACK] images={len(image_scenes)} reason={str(_video_source_error)[:300]}',flush=True)
         print(f'[JOB {jid}] stage=OFFICIAL_VIDEO_DOWNLOAD done count={len(official_videos)}',flush=True)
         # Do not mix stills extracted from the same clips with their moving footage.
         selected_videos=_expand_video_clips_into_distinct_windows(
             official_videos,jobdir,windows_per_clip=3
-        )
+        ) if official_videos else []
         # Fallback seguro: se o recorte em janelas falhar, usar as fontes de vídeo
         # originais que passaram no probe. Cada fonte continua sendo movimento real;
         # a montagem recorta a duração de cada cena sem inventar quadros repetidos.
-        if len(selected_videos)<4:
+        if official_videos and len(selected_videos)<4:
             valid_sources=[]
             for _clip in official_videos or []:
                 try:
@@ -4862,12 +4869,14 @@ def produce_job(jid):
             if len(valid_sources)>=4:
                 print(f'[VIDEO_WINDOWS_FALLBACK] using {len(valid_sources)} validated original motion sources; segmented_windows={len(selected_videos)}',flush=True)
                 selected_videos=valid_sources
+            elif len(image_scenes)>=6:
+                print(f'[VIDEO_WINDOWS_FALLBACK] switching to {len(image_scenes)} unique official stills',flush=True)
+                selected_videos=[]
             else:
                 raise RuntimeError(
                     f'GATE VISUAL: recorte gerou {len(selected_videos)} segmentos e só {len(valid_sources)} fontes válidas; '
-                    'não há material em movimento suficiente para montar um Short confiável.'
+                    f'contingência possui apenas {len(image_scenes)} imagens únicas.'
                 )
-        image_scenes=[]
         source_video_count=len(selected_videos)
         update_job(
             jid,
