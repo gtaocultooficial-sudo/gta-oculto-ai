@@ -2926,8 +2926,8 @@ def _expand_video_clips_into_distinct_windows(video_clips, jobdir, windows_per_c
     return expanded
 
 
-def _augment_scenes_with_real_video_frames(video_clips, image_scenes, jobdir, target=18):
-    """Extract multiple distinct real frames from each official clip as moving stills."""
+def _augment_scenes_with_real_video_frames(video_clips, image_scenes, jobdir, target=24):
+    """Extract a wider set of genuine official-video frames as moving stills."""
     out=list(image_scenes or [])
     if len(out)>=target:
         return out[:target]
@@ -2938,12 +2938,13 @@ def _augment_scenes_with_real_video_frames(video_clips, image_scenes, jobdir, ta
             duration=max(0.8,float(probe.get('duration') or 8.5))
         except Exception:
             duration=8.5
-        # Five samples spread across each source. These are genuine frames from
-        # the official video itself, never merchandise/product art scraped from pages.
-        for fi in range(5):
+        # Twelve evenly-spaced samples per official clip provide a larger unique
+        # pool when Render's cache only has four source videos.
+        sample_count=12
+        for fi in range(sample_count):
             if len(out)>=target:
                 break
-            timestamp=min(max(0.05,duration*0.12 + fi*(duration*0.19)),max(0.05,duration-0.08))
+            timestamp=min(max(0.05,0.05 + fi*max(0.0,duration-0.10)/(sample_count-1)),max(0.05,duration-0.05))
             dst=Path(jobdir)/f'official_frame_{idx:02d}_{fi:02d}.jpg'
             try:
                 run_cmd([ff,'-loglevel','error','-y','-ss',f'{timestamp:.2f}','-i',str(clip),
@@ -2953,6 +2954,7 @@ def _augment_scenes_with_real_video_frames(video_clips, image_scenes, jobdir, ta
                     out.append(dst)
             except Exception:
                 continue
+    print(f'[VISUAL_POOL] official_video_sources={len(video_clips or [])} unique_frames={max(0,len(out)-len(image_scenes or []))} total_images={len(out)} target={target}',flush=True)
     return out[:target]
 
 
@@ -4503,7 +4505,7 @@ def produce_job(jid):
         selected_videos=select_video_clips(official_videos,topic['title'],9)
         source_video_count=len(selected_videos)
         if len(selected_videos)<8:
-            image_scenes=_augment_scenes_with_real_video_frames(selected_videos,image_scenes,jobdir,target=18)
+            image_scenes=_augment_scenes_with_real_video_frames(selected_videos,image_scenes,jobdir,target=24)
         update_job(jid,log=f'{source_video_count} vídeos oficiais + {len(image_scenes)} cenas/imagens reais distintas disponíveis. Editando em 9:16 / {duration:.1f}s...')
         # Hard gate: available unique video windows (2 uses/source) plus one-use
         # real-frame supports must cover the timeline; never recycle on fallback.
