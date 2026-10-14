@@ -2821,6 +2821,7 @@ def download_official_video_clips(outdir, jid=None):
         ff=_ffmpeg_executable()
         safe=list(cached)
         used_names={p.name for p in safe}
+        candidate_failures=[]
         next_index=0
         for p in cache.glob('rockstar_real_v251_*.mp4'):
             m=re.search(r'_(\d+)\.mp4$',p.name)
@@ -2876,8 +2877,11 @@ def download_official_video_clips(outdir, jid=None):
                 safe.append(target)
                 used_names.add(target.name)
             except Exception as e:
+                reason=f'{Path(entry["name"]).stem}: {str(e)[:260]}'
+                candidate_failures.append(reason)
+                print(f'[OFFICIAL_CLIP_REJECTED] {reason}',flush=True)
                 if jid:
-                    update_job(jid,log=f'Clipe oficial ignorado: {Path(entry["name"]).stem} — {str(e)[:180]}')
+                    update_job(jid,log=f'Clipe oficial ignorado: {reason[:300]}')
                 try:
                     target.unlink(missing_ok=True)
                 except Exception:
@@ -2890,7 +2894,8 @@ def download_official_video_clips(outdir, jid=None):
 
         safe=[p for p in safe if p.exists() and p.stat().st_size>20000]
         if len(safe) < 2:
-            raise RuntimeError(f'Apenas {len(safe)} clipes reais e seguros foram preparados; são necessários pelo menos 2.')
+            details=' | '.join(candidate_failures[-6:]) or 'nenhum detalhe de rejeição registrado'
+            raise RuntimeError(f'Apenas {len(safe)} clipes reais e seguros foram preparados; são necessários pelo menos 2. Últimas falhas: {details}')
         return safe[:target_clips]
     except Exception as e:
         raise RuntimeError('Não foi possível obter os vídeos oficiais da Rockstar: '+str(e)[:1800])
