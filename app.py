@@ -3699,11 +3699,16 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
     # image-only fallback, preserve one unique image per beat instead of splitting
     # each 2.5s beat into duplicates that would recycle the same stills.
     if video_clips:
-        # Preserve a reduced timeline when it already fits the unique visual pool.
-        # Do not split it back into 20+ beats after the visual-budget fallback.
-        unique_pool=len(video_clips)+len(set(map(str,image_paths)))
-        max_scene=max(1.8, float(duration)/max(1,len(beats))) if len(beats)<=unique_pool else (2.0 if len(video_clips)<3 and len(image_paths)>=8 else 1.8)
-        beats=_normalize_visual_beats(beats,duration,max_scene=max_scene)
+        # Preserve the capped timeline exactly when it fits the unique visual pool.
+        # Calling the normalizer here can split long beats and recreate the same
+        # visual-capacity failure we just avoided.
+        unique_pool=len({Path(p).stem.split('_window_')[0] for p in video_clips if p})+len(set(map(str,image_paths)))
+        if len(beats) <= unique_pool:
+            n=max(1,len(beats))
+            beats=[dict(b, start=i*duration/n, end=(i+1)*duration/n, duration=duration/n) for i,b in enumerate(beats)]
+        else:
+            max_scene=2.0 if len(video_clips)<3 and len(image_paths)>=8 else 1.8
+            beats=_normalize_visual_beats(beats,duration,max_scene=max_scene)
     else:
         n=max(1,len(beats))
         beats=[dict(b, start=i*duration/n, end=(i+1)*duration/n, duration=duration/n) for i,b in enumerate(beats)]
