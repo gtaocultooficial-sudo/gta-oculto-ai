@@ -4057,13 +4057,44 @@ MEDIA_VALIDATION_CACHE={}
 MEDIA_VALIDATION_LOCK=threading.RLock()
 
 def _probe_media(path):
-    ff=shutil.which('ffprobe') or 'ffprobe'
+    """Probe media with ffprobe when available, falling back to FFmpeg itself.
+
+    Render images sometimes expose the FFmpeg binary without a sibling ffprobe.
+    Treating that environment difference as invalid media silently discarded
+    every official source and produced the misleading '0 valid segments' gate.
+    """
+    p=Path(path)
     try:
-        cmd=[ff,'-v','error','-show_entries','format=duration,size:stream=index,codec_type,width,height,codec_name','-of','json',str(path)]
-        out=subprocess.check_output(cmd,stderr=subprocess.DEVNULL,text=True,timeout=30)
-        d=json.loads(out); streams=d.get('streams',[]); fmt=d.get('format',{})
-        video=[x for x in streams if x.get('codec_type')=='video']; audio=[x for x in streams if x.get('codec_type')=='audio']
-        return {'ok':True,'duration':float(fmt.get('duration') or 0),'size':int(fmt.get('size') or 0),'video':video,'audio':audio}
+        ffprobe=shutil.which('ffprobe')
+        if ffprobe:
+            cmd=[ffprobe,'-v','error','-show_entries','format=duration,size:stream=index,codec_type,width,height,codec_name','-of','json',str(p)]
+            out=subprocess.check_output(cmd,stderr=subprocess.DEVNULL,text=True,timeout=30)
+            d=json.loads(out); streams=d.get('streams',[]); fmt=d.get('format',{})
+            video=[x for x in streams if x.get('codec_type')=='video']; audio=[x for x in streams if x.get('codec_type')=='audio']
+            return {'ok':True,'duration':float(fmt.get('duration') or 0),'size':int(fmt.get('size') or (p.stat().st_size if p.exists() else 0)),'video':video,'audio':audio}
+        # FFmpeg prints stream metadata and duration to stderr even when ffprobe
+        # is not installed. -i intentionally exits non-zero without an output;
+        # that is expected and the diagnostic is what we parse.
+        ff=_ffmpeg_executable()
+        proc=subprocess.run([ff,'-hide_banner','-i',str(p)],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,text=True,timeout=30)
+        diagnostic=proc.stderr or ''
+        dm=re.search(r'Duration:\\s*(\\d+):(\\d+):(\\d+(?:\\.\\d+)?)',diagnostic)
+        if not dm:
+            raise RuntimeError('FFmpeg não encontrou duração legível: '+diagnostic[-250:])
+        duration=int(dm.group(1))*3600+int(dm.group(2))*60+float(dm.group(3))
+        video=[]; audio=[]
+        for line in diagnostic.splitlines():
+            if 'Video:' in line:
+                cm=re.search(r'Video:\\s*([^,\\s]+)',line)
+                sm=re.search(r'(\\d{2,5})x(\\d{2,5})',line)
+                video.append({'index':len(video),'codec_type':'video','codec_name':cm.group(1) if cm else 'unknown',
+                              'width':int(sm.group(1)) if sm else 0,'height':int(sm.group(2)) if sm else 0})
+            if 'Audio:' in line:
+                cm=re.search(r'Audio:\\s*([^,\\s]+)',line)
+                audio.append({'index':len(audio),'codec_type':'audio','codec_name':cm.group(1) if cm else 'unknown'})
+        if not video:
+            raise RuntimeError('FFmpeg não detectou stream de vídeo: '+diagnostic[-250:])
+        return {'ok':True,'duration':duration,'size':p.stat().st_size if p.exists() else 0,'video':video,'audio':audio}
     except Exception as e:
         return {'ok':False,'error':str(e)[:500]}
 
