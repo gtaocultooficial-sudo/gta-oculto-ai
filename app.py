@@ -2623,10 +2623,20 @@ def _http_total_size(url):
 
 def _http_range(url,start,end):
     if end < start: return b''
+    expected=end-start+1
     headers={'User-Agent':UA,'Accept-Encoding':'identity','Range':f'bytes={start}-{end}'}
-    r=requests.get(url,headers=headers,timeout=(5,10))
+    r=requests.get(url,headers=headers,timeout=(5,20),stream=False)
     if r.status_code != 206:
         raise RuntimeError(f'CDN não aceitou Range HTTP (status {r.status_code}).')
+    content_range=r.headers.get('Content-Range','')
+    match=re.fullmatch(r'bytes\s+(\d+)-(\d+)/(\d+|\*)',content_range.strip(),re.I)
+    if not match:
+        raise RuntimeError(f'CDN retornou Content-Range inválido: {content_range!r}')
+    got_start,got_end=int(match.group(1)),int(match.group(2))
+    if got_start!=start or got_end!=end:
+        raise RuntimeError(f'CDN retornou faixa errada: pediu {start}-{end}, recebeu {got_start}-{got_end}.')
+    if len(r.content)!=expected:
+        raise RuntimeError(f'Faixa HTTP truncada: pediu {expected} bytes, recebeu {len(r.content)}.')
     return r.content
 
 
