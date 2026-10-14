@@ -3457,21 +3457,22 @@ def _choose_timeline_assets(video_clips, image_paths, beats, topic_title, varian
     # at most once in a Short. Video sources can repeat only because each proxy
     # is now 8.5s long and the renderer seeks to a materially different offset.
     image_max_reuse=1
-    # V66.8: não reciclar a mesma fonte de vídeo quando já existe um pool
-    # suficiente de imagens únicas. O problema observado no V66.7 era que,
-    # com apenas 2 vídeos oficiais, cada fonte podia voltar 2 vezes e reapresentar
-    # exatamente o mesmo personagem/plano em outra parte do Short.
-    #
-    # Regra dura:
-    # - >= 8 imagens únicas: cada vídeo oficial entra no máximo 1 vez.
-    # - pool visual curto: ainda permitimos até 2 usos por vídeo para não travar
-    #   a produção, mas a auditoria deve continuar sinalizando repetição.
-    # Reuse budget applies to original source clips, not each extracted window.
-    video_max_reuse=1 if len(images)>=8 else 2
+    # V68: a amostra de QA (14/10) mostrou repetição perceptível mesmo com
+    # janelas tecnicamente diferentes do mesmo trailer. Não contar _window_N como
+    # nova cena editorial: limitar cada fonte original a UMA aparição por Short.
+    # Se o pool de fontes oficiais for insuficiente, o gate deve bloquear em vez
+    # de publicar um vídeo com o mesmo personagem/plano reciclado.
+    video_max_reuse=1
     max_reuse=max(image_max_reuse,video_max_reuse)
     target_video=min(len(beats), len(video_sources)*video_max_reuse) if beats and videos else 0
     target_images=min(len(images), max(0, len(beats)-target_video)) if beats and images else 0
     print(f'[TIMELINE_VARIETY] videos={len(videos)} images={len(images)} video_max_reuse={video_max_reuse} target_video={target_video} target_images={target_images}',flush=True)
+    if len(beats or []) > len(video_sources) + len(images):
+        raise RuntimeError(
+            f'GATE VISUAL: pool insuficiente para evitar repetição '
+            f'({len(video_sources)} fontes oficiais + {len(images)} imagens únicas '
+            f'para {len(beats)} cenas). Buscar mais material oficial antes de renderizar.'
+        )
     video_used=0
 
     def recent_penalty(p, bi):
