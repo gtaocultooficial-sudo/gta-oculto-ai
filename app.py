@@ -2887,43 +2887,55 @@ def select_video_clips(videos,title,count=5):
     return ranked[:count]
 
 
-def _expand_video_clips_into_distinct_windows(video_clips, jobdir, windows_per_clip=6):
-    """Create distinct short windows from each validated official proxy.
+def _expand_video_clips_into_distinct_windows(video_clips, jobdir, windows_per_clip=3):
+    """Split official proxies into longer, non-overlapping motion segments.
 
-    The editor works in ~1.1–1.8s beats. Splitting each 8.5s proxy into six
-    independent windows gives it enough distinct timeline assets even when the
-    Rockstar CDN only yields four usable source videos.
+    The fallback used to combine full clips with still frames extracted from the
+    exact same clips. That mixed pool made the same characters/shots reappear as
+    both moving footage and static images. Use video segments only, each about
+    2.8s long, and interleave sources by time position for better visual variety.
     """
     ff=_ffmpeg_executable()
     outdir=Path(jobdir)/'video_windows'
     outdir.mkdir(parents=True,exist_ok=True)
+    clips=[Path(p) for p in (video_clips or []) if p]
+    durations=[]
+    for clip in clips:
+        try:
+            probe=_probe_media(clip)
+            durations.append(max(0.0,float(probe.get('duration') or 8.4)))
+        except Exception:
+            durations.append(8.4)
     expanded=[]
-    for clip in video_clips or []:
-        clip=Path(clip)
-        for wi in range(windows_per_clip):
-            start=wi*1.4
+    for wi in range(max(1,int(windows_per_clip))):
+        for ci,clip in enumerate(clips):
+            window_seconds=durations[ci]/max(1,int(windows_per_clip))
+            if window_seconds < 2.25:
+                continue
+            start=wi*window_seconds
             dst=outdir/f'{clip.stem}_window_{wi+1:02d}.mp4'
             try:
                 if not dst.exists() or dst.stat().st_size<8000:
                     dst.unlink(missing_ok=True)
                     run_cmd([
                         ff,'-loglevel','error','-y','-i',str(clip),
-                        '-ss',f'{start:.2f}','-t','1.4',
+                        '-ss',f'{start:.2f}','-t',f'{window_seconds:.2f}',
                         '-vf','scale=320:568:force_original_aspect_ratio=increase,crop=320:568,setsar=1,fps=12',
                         '-an','-c:v','libx264','-preset','ultrafast','-crf','28',
                         '-threads','1','-filter_threads','1','-filter_complex_threads','1',
                         '-x264-params','threads=1:lookahead-threads=1:rc-lookahead=0:sync-lookahead=0',
                         '-pix_fmt','yuv420p','-movflags','+faststart',str(dst)
-                    ],30)
+                    ],45)
                 if dst.exists() and dst.stat().st_size>=5000:
-                    expanded.append(dst)
+                    probe=_probe_media(dst)
+                    if probe.get('ok') and float(probe.get('duration') or 0) >= 2.0:
+                        expanded.append(dst)
+                    else:
+                        dst.unlink(missing_ok=True)
             except Exception as e:
                 print(f'[VIDEO_WINDOWS] skip source={clip.name} window={wi+1} error={type(e).__name__}:{str(e)[:180]}',flush=True)
                 continue
-    print(f'[VIDEO_WINDOWS] expanded {len(video_clips or [])} source clips into {len(expanded)} valid windows',flush=True)
-    # Do not silently fall back to recycling whole source videos if segmentation
-    # failed; callers can see the actual count and the render gate will stop if
-    # the distinct pool is too small.
+    print(f'[VIDEO_WINDOWS] expanded {len(clips)} source clips into {len(expanded)} valid windows',flush=True)
     return expanded
 
 
@@ -3486,10 +3498,8 @@ def _choose_timeline_assets(video_clips, image_paths, beats, topic_title, varian
     pool=[('video',p) for p in videos]+[('image',p) for p in images]
     chosen=[]; used=set(); asset_counts={}; source_counts={}
     def source_group(path):
-        # Expanded 1.4s windows are distinct files, but still come from the
-        # same original trailer/clip. Count them against the original source.
-        name=Path(path).stem
-        return re.sub(r'_window_\d+$','',name,flags=re.IGNORECASE)
+        # Every 2.8s window is a one-use motion segment.
+        return Path(path).stem
     video_sources={source_group(p) for p in videos}
     # V61: repetition is now a hard budget, not just a score penalty.
     # The pool can shrink on Render Free after a restart, so the reuse budget is
@@ -3683,7 +3693,7 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
     # Cap scene count before normalization so the renderer cannot recreate more
     # scenes than the unique visual pool can support.
     if video_clips:
-        source_keys={Path(p).stem.split('_window_')[0] for p in video_clips if p}
+        source_keys={Path(p).stem if re.search(r'_window_\d+$',Path(p).stem,flags=re.I) else Path(p).stem.split('_window_')[0] for p in video_clips if p}
         visual_capacity=len(source_keys)+len(set(map(str,image_paths)))
         if 6 <= visual_capacity < len(beats):
             narration_words=re.sub(r'\\s+',' ',str(script.get('narration','')).strip()).split()
@@ -3702,7 +3712,7 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
         # Preserve the capped timeline exactly when it fits the unique visual pool.
         # Calling the normalizer here can split long beats and recreate the same
         # visual-capacity failure we just avoided.
-        unique_pool=len({Path(p).stem.split('_window_')[0] for p in video_clips if p})+len(set(map(str,image_paths)))
+        unique_pool=len({Path(p).stem if re.search(r'_window_\d+$',Path(p).stem,flags=re.I) else Path(p).stem.split('_window_')[0] for p in video_clips if p})+len(set(map(str,image_paths)))
         if len(beats) <= unique_pool:
             n=max(1,len(beats))
             beats=[dict(b, start=i*duration/n, end=(i+1)*duration/n, duration=duration/n) for i,b in enumerate(beats)]
@@ -4712,11 +4722,23 @@ def produce_job(jid):
         print(f'[JOB {jid}] stage=OFFICIAL_VIDEO_DOWNLOAD start',flush=True)
         official_videos=download_official_video_clips(jobdir/'official_videos', jid)
         print(f'[JOB {jid}] stage=OFFICIAL_VIDEO_DOWNLOAD done count={len(official_videos)}',flush=True)
-        selected_videos=select_video_clips(official_videos,topic['title'],9)
-        source_video_count=len(selected_videos)
+        # Do not mix stills extracted from the same clips with their moving footage.
+        selected_videos=_expand_video_clips_into_distinct_windows(
+            official_videos,jobdir,windows_per_clip=3
+        )
         if len(selected_videos)<8:
-            image_scenes=_augment_scenes_with_real_video_frames(selected_videos,image_scenes,jobdir,target=24)
-        update_job(jid,log=f'{source_video_count} vídeos oficiais + {len(image_scenes)} cenas/imagens reais distintas disponíveis. Editando em 9:16 / {duration:.1f}s...')
+            raise RuntimeError(
+                f'GATE VISUAL: apenas {len(selected_videos)} segmentos de vídeo foram preparados; '
+                'não vou completar a timeline com frames repetidos das mesmas fontes.'
+            )
+        image_scenes=[]
+        source_video_count=len(selected_videos)
+        update_job(
+            jid,
+            log=f'{len(official_videos)} fontes oficiais divididas em {source_video_count} segmentos com movimento; '
+                'frames estáticos das mesmas fontes excluídos para evitar repetição. '
+                f'Editando em 9:16 / {duration:.1f}s...'
+        )
         # Fit the edit to the actual one-use visual pool before rendering.
         # Timeline selection permits each original official source once and each
         # unique still once; counting two windows per source overstated capacity.
