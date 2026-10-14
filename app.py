@@ -4403,9 +4403,29 @@ def audit_short(script, video, duration, beats, selected_videos, image_scenes):
     # use the known timeline structure for the fast visual check by default.
     # Full frame sampling remains opt-in via GTA_DEEP_VISUAL_AUDIT=1.
     deep_visual=os.getenv('GTA_DEEP_VISUAL_AUDIT','1').strip().lower() in {'1','true','yes','on'}
-    if media.get('ok') and deep_visual:
-        motion=_visual_motion_audit(video)
+    if media.get('ok'):
+        # A auditoria de repetição é obrigatória: deixar essa checagem atrás de
+        # GTA_DEEP_VISUAL_AUDIT permitia que o plano Free aprovasse takes repetidos
+        # com base apenas na contagem de arquivos distintos. A varredura é leve
+        # (quadros pequenos em baixa frequência) e sempre roda no MP4 final.
         repetition=_visual_repetition_audit(video)
+        print(
+            f"[VISUAL_REPEAT_AUDIT] method={repetition.get('method','unknown')} "
+            f"score={repetition.get('score',0)} ratio={repetition.get('repeated_ratio',0)} "
+            f"pairs={len(repetition.get('frame_repeat_pairs',[])) + len(repetition.get('pairs',[]))}",
+            flush=True
+        )
+        if deep_visual:
+            motion=_visual_motion_audit(video)
+        else:
+            unique_visual_assets=len({str(x) for x in selected_videos})
+            scene_assets=unique_visual_assets + len({str(x) for x in image_scenes})
+            motion_score=94 if unique_visual_assets>=4 and scene_assets>=7 else (80 if unique_visual_assets>=3 else 60)
+            motion={
+                'score':motion_score,'frozen_ratio':0.0,'longest_still_seconds':0.0,
+                'sample_count':0,'method':'timeline_structure',
+                'note':'Proxy estrutural; auditoria quadro a quadro de movimento desativada no plano Free'
+            }
     else:
         unique_visual_assets=len({str(x) for x in selected_videos})
         scene_assets=unique_visual_assets + len({str(x) for x in image_scenes})
@@ -4414,12 +4434,12 @@ def audit_short(script, video, duration, beats, selected_videos, image_scenes):
         motion={
             'score':motion_score,'frozen_ratio':0.0,'longest_still_seconds':0.0,
             'sample_count':0,'method':'timeline_structure',
-            'note':'Proxy estrutural; varredura quadro a quadro desativada no plano Free'
+            'note':'Proxy estrutural; mídia inválida; varredura visual não executada'
         }
         repetition={
             'score':repetition_score,'repeated_ratio':0.0,'longest_repeat_s':0.0,
             'pairs':[],'method':'asset_diversity',
-            'note':'Proxy estrutural; varredura quadro a quadro desativada no plano Free'
+            'note':'Proxy estrutural; mídia inválida; varredura visual não executada'
         }
     checks['movimento']=int(motion.get('score',0))
     checks['repeticao_visual']=int(repetition.get('score',0))
