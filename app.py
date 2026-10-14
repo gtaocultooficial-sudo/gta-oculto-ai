@@ -2914,6 +2914,9 @@ def _expand_video_clips_into_distinct_windows(video_clips, jobdir, windows_per_c
             count=min(max(1,int(windows_per_clip)),max(1,int(source_duration//2.5)))
             if count < 2:
                 print(f'[VIDEO_WINDOWS] source_too_short={clip.name} duration={source_duration:.2f}s',flush=True)
+                # Keep this valid source as a motion segment instead of discarding it.
+                # Downstream rendering trims each scene to the requested timeline duration.
+                expanded.append(clip)
                 continue
             window_seconds=source_duration/count
             for wi in range(count):
@@ -4745,11 +4748,26 @@ def produce_job(jid):
         selected_videos=_expand_video_clips_into_distinct_windows(
             official_videos,jobdir,windows_per_clip=3
         )
-        if len(selected_videos)<8:
-            raise RuntimeError(
-                f'GATE VISUAL: apenas {len(selected_videos)} segmentos de vídeo foram preparados; '
-                'não vou completar a timeline com frames repetidos das mesmas fontes.'
-            )
+        # Fallback seguro: se o recorte em janelas falhar, usar as fontes de vídeo
+        # originais que passaram no probe. Cada fonte continua sendo movimento real;
+        # a montagem recorta a duração de cada cena sem inventar quadros repetidos.
+        if len(selected_videos)<4:
+            valid_sources=[]
+            for _clip in official_videos or []:
+                try:
+                    _probe=_probe_media(Path(_clip))
+                    if _probe.get('ok') and _probe.get('video') and float(_probe.get('duration') or 0)>=2.0:
+                        valid_sources.append(Path(_clip))
+                except Exception:
+                    continue
+            if len(valid_sources)>=4:
+                print(f'[VIDEO_WINDOWS_FALLBACK] using {len(valid_sources)} validated original motion sources; segmented_windows={len(selected_videos)}',flush=True)
+                selected_videos=valid_sources
+            else:
+                raise RuntimeError(
+                    f'GATE VISUAL: recorte gerou {len(selected_videos)} segmentos e só {len(valid_sources)} fontes válidas; '
+                    'não há material em movimento suficiente para montar um Short confiável.'
+                )
         image_scenes=[]
         source_video_count=len(selected_videos)
         update_job(
