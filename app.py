@@ -2838,23 +2838,38 @@ def download_official_video_clips(outdir, jid=None):
                 if jid:
                     update_job(jid,log=f'Baixando clipe oficial para revisão visual: {Path(entry["name"]).stem}...')
                 _remote_zip_extract(ROCKSTAR_VIDEO_ZIP,entry,raw)
+                raw_probe=_probe_media(raw)
+                raw_duration=float(raw_probe.get('duration') or 0)
+                if not raw_probe.get('ok') or not raw_probe.get('video') or raw_duration < 4.0:
+                    raise RuntimeError(f'fonte extraída inválida: duration={raw_duration:.2f}s bytes={raw.stat().st_size if raw.exists() else 0}; {raw_probe.get("error","sem stream de vídeo")}')
                 if jid:
-                    update_job(jid,log='Convertendo clipe-fonte para proxy leve 320x568...')
-                run_cmd([
-                    ff,'-loglevel','error','-y','-threads:v','1',
-                    '-probesize','1M','-analyzeduration','1M','-ss','0.8','-i',str(raw),'-t','8.5',
-                    '-vf','scale=320:568:force_original_aspect_ratio=increase,crop=320:568,setsar=1,fps=12',
-                    '-an','-c:v','libx264','-preset','ultrafast','-crf','31',
-                    '-threads','1','-filter_threads','1','-filter_complex_threads','1',
-                    '-x264-params','threads=1:lookahead-threads=1:rc-lookahead=0:sync-lookahead=0',
-                    '-pix_fmt','yuv420p','-movflags','+faststart',str(target)
-                ],90)
-                if not target.exists() or target.stat().st_size <= 20000:
-                    raise RuntimeError('proxy inválido ou vazio')
-                proxy_probe=_probe_media(target)
-                proxy_duration=float(proxy_probe.get('duration') or 0)
-                if not proxy_probe.get('ok') or not proxy_probe.get('video') or proxy_duration < 4.0:
-                    raise RuntimeError(f'proxy truncado/inválido: duration={proxy_duration:.2f}s; {proxy_probe.get("error","sem stream de vídeo")}')
+                    update_job(jid,log=f'Convertendo fonte validada ({raw_duration:.1f}s) para proxy leve 320x568...')
+                # First try accurate output-side seeking. Some MP4 sources in the
+                # official ZIP have edit lists/keyframes that make input-side
+                # -ss return a tiny 0.2–0.7s proxy despite a longer source.
+                proxy_errors=[]
+                for attempt in range(2):
+                    target.unlink(missing_ok=True)
+                    seek_args=(['-ss','0.8'] if attempt==1 else [])
+                    cmd=[
+                        ff,'-hide_banner','-loglevel','error','-y','-threads:v','1',
+                        '-i',str(raw),*seek_args,'-t','8.5',
+                        '-vf','scale=320:568:force_original_aspect_ratio=increase,crop=320:568,setsar=1,fps=12',
+                        '-an','-c:v','libx264','-preset','ultrafast','-crf','31',
+                        '-threads','1','-filter_threads','1','-filter_complex_threads','1',
+                        '-x264-params','threads=1:lookahead-threads=1:rc-lookahead=0:sync-lookahead=0',
+                        '-pix_fmt','yuv420p','-movflags','+faststart',str(target)
+                    ]
+                    if attempt==1:
+                        cmd[cmd.index('-i'):cmd.index('-i')]=['-ss','0.8']
+                    run_cmd(cmd,90)
+                    proxy_probe=_probe_media(target) if target.exists() else {'ok':False,'duration':0,'video':[],'error':'arquivo não criado'}
+                    proxy_duration=float(proxy_probe.get('duration') or 0)
+                    if target.exists() and target.stat().st_size>20000 and proxy_probe.get('ok') and proxy_probe.get('video') and proxy_duration>=4.0:
+                        break
+                    proxy_errors.append(f'tentativa {attempt+1}: {proxy_duration:.2f}s; {proxy_probe.get("error","sem stream de vídeo")}')
+                if not target.exists() or target.stat().st_size<=20000 or not proxy_probe.get('ok') or not proxy_probe.get('video') or proxy_duration<4.0:
+                    raise RuntimeError(f'proxy inválido após 2 tentativas; fonte={raw_duration:.2f}s; '+ ' | '.join(proxy_errors))
                 if _video_contains_rating_disclaimer(target):
                     if jid:
                         update_job(jid,log=f'Filtro visual: descartando clipe com tela ESRB/disclaimer — {Path(entry["name"]).stem}')
