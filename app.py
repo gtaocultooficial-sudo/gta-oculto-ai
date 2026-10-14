@@ -2780,17 +2780,24 @@ def download_official_video_clips(outdir, jid=None):
     cached=[]
     for p in sorted(cache.glob('rockstar_real_v251_*.mp4')):
         try:
+            # Size alone is not enough: the cache previously admitted truncated
+            # 0.17s/0.67s proxies which later made every timeline segment invalid.
             if p.stat().st_size <= 20000:
                 p.unlink(missing_ok=True)
                 continue
-            # V65.1: os proxies só entram no cache depois de passar pelo filtro
-            # ESRB/disclaimer durante a extração. Reexecutar FFmpeg sobre todos
-            # os arquivos em cada Short podia consumir até 25s por clipe e
-            # deixar a produção aparentemente parada na etapa VISUAIS.
-            # O filtro completo continua ativo para cada clipe recém-extraído.
+            probe=_probe_media(p)
+            seconds=float(probe.get('duration') or 0)
+            if not probe.get('ok') or not probe.get('video') or seconds < 4.0:
+                print(f'[VIDEO_CACHE] removing_invalid={p.name} duration={seconds:.2f}s error={probe.get("error","no video or too short")}',flush=True)
+                p.unlink(missing_ok=True)
+                continue
+            # Revalidate cached clips cheaply on every run; only complete motion
+            # sources may be reused in a new Short.
             cached.append(p)
-        except Exception:
-            continue
+        except Exception as e:
+            print(f'[VIDEO_CACHE] removing_unreadable={p.name} error={str(e)[:180]}',flush=True)
+            try: p.unlink(missing_ok=True)
+            except Exception: pass
     # Prefer eight independent motion sources for Shorts. Four sources proved
     # insufficient in real renders: extracted frames were technically distinct
     # but kept showing the same characters/shots. Build a broader official pool
@@ -2844,6 +2851,10 @@ def download_official_video_clips(outdir, jid=None):
                 ],90)
                 if not target.exists() or target.stat().st_size <= 20000:
                     raise RuntimeError('proxy inválido ou vazio')
+                proxy_probe=_probe_media(target)
+                proxy_duration=float(proxy_probe.get('duration') or 0)
+                if not proxy_probe.get('ok') or not proxy_probe.get('video') or proxy_duration < 4.0:
+                    raise RuntimeError(f'proxy truncado/inválido: duration={proxy_duration:.2f}s; {proxy_probe.get("error","sem stream de vídeo")}')
                 if _video_contains_rating_disclaimer(target):
                     if jid:
                         update_job(jid,log=f'Filtro visual: descartando clipe com tela ESRB/disclaimer — {Path(entry["name"]).stem}')
