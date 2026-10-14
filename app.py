@@ -4139,7 +4139,16 @@ def _probe_media(path):
                 cm=re.search(r'Audio:\\s*([^,\\s]+)',line)
                 audio.append({'index':len(audio),'codec_type':'audio','codec_name':cm.group(1) if cm else 'unknown'})
         if not video:
-            raise RuntimeError('FFmpeg não detectou stream de vídeo: '+diagnostic[-250:])
+            try:
+                with p.open('rb') as _src:
+                    _head=_src.read(96)
+                _magic=_head[:32].hex()
+                _ascii=''.join(chr(b) if 32<=b<127 else '.' for b in _head[:64])
+            except Exception as _e:
+                _magic='unreadable'; _ascii=str(_e)[:80]
+            raise RuntimeError('FFmpeg não detectou stream de vídeo; '
+                f'bytes={p.stat().st_size if p.exists() else 0}; magic={_magic}; head={_ascii}; '
+                f'diagnostic={diagnostic[-700:]}')
         return {'ok':True,'duration':duration,'size':p.stat().st_size if p.exists() else 0,'video':video,'audio':audio}
     except Exception as e:
         return {'ok':False,'error':str(e)[:500]}
