@@ -2647,11 +2647,11 @@ def _remote_zip_entries(url):
     while p+46<=len(cd):
         if cd[p:p+4] != b'PK\x01\x02': break
         vals=struct.unpack('<4s6H3L5H2L',cd[p:p+46])
-        comp=vals[4]; csize=vals[8]; usize=vals[9]; fn=vals[10]; extra=vals[11]; comm=vals[12]; local=vals[16]
+        comp=vals[4]; crc=vals[7]; csize=vals[8]; usize=vals[9]; fn=vals[10]; extra=vals[11]; comm=vals[12]; local=vals[16]
         nameb=cd[p+46:p+46+fn]
         try: name=nameb.decode('utf-8')
         except Exception: name=nameb.decode('cp437','replace')
-        entries.append({'name':name,'compression':comp,'compressed':csize,'size':usize,'local':local})
+        entries.append({'name':name,'compression':comp,'crc32':crc,'compressed':csize,'size':usize,'local':local})
         p += 46+fn+extra+comm
     if len(entries)<3: raise RuntimeError(f'ZIP oficial expôs apenas {len(entries)} arquivos.')
     return total,entries
@@ -2667,6 +2667,7 @@ def _remote_zip_extract(url,entry,target):
     data_end=data_start+entry['compressed']-1
     chunk_size=2*1024*1024
     written=0
+    crc_actual=0
     dec=zlib.decompressobj(-15) if method==8 else None
     if method not in (0,8):
         raise RuntimeError(f'Compressão ZIP não suportada em {entry["name"]}: {method}')
@@ -2682,6 +2683,7 @@ def _remote_zip_extract(url,entry,target):
                 if method==0:
                     out.write(comp)
                     written+=len(comp)
+                    crc_actual=zlib.crc32(comp,crc_actual)
                     continue
                 pending=comp
                 while pending:
@@ -2690,6 +2692,7 @@ def _remote_zip_extract(url,entry,target):
                     if block:
                         out.write(block)
                         written+=len(block)
+                        crc_actual=zlib.crc32(block,crc_actual)
                     if not block and pending:
                         raise RuntimeError(f'Descompressão ZIP sem progresso em {entry["name"]}')
             if dec is not None:
@@ -2697,8 +2700,12 @@ def _remote_zip_extract(url,entry,target):
                 if tail:
                     out.write(tail)
                     written+=len(tail)
+                    crc_actual=zlib.crc32(tail,crc_actual)
         if entry.get('size') and written!=entry['size']:
             raise RuntimeError(f'Tamanho inesperado em {entry["name"]}: {written} de {entry["size"]} bytes.')
+        expected_crc=entry.get('crc32')
+        if expected_crc is not None and (crc_actual & 0xffffffff)!=expected_crc:
+            raise RuntimeError(f'CRC32 inválido em {entry["name"]}: esperado={expected_crc:08x}, obtido={crc_actual & 0xffffffff:08x}; extração corrompida.')
     except Exception:
         try: target.unlink(missing_ok=True)
         except Exception: pass
