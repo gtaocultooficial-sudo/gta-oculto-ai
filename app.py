@@ -3033,7 +3033,7 @@ def _caption_overlay(path,caption,idx,total,W=320,H=568,highlight=None):
             lines=[test]
     else:
         candidates=[]
-        for cut in range(2,len(words)-1):
+        for cut in range(1,len(words)):
             a=' '.join(words[:cut]); b=' '.join(words[cut:])
             wa=d.textbbox((0,0),a,font=f,stroke_width=1)[2]
             wb2=d.textbbox((0,0),b,font=f,stroke_width=1)[2]
