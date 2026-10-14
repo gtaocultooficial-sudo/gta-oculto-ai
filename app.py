@@ -3680,6 +3680,21 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
     if script is None:
         script={'narration':' '.join(captions)}
     beats=beats or build_short_timeline(script, {'title':topic_title}, duration, count=10)
+    # Cap scene count before normalization so the renderer cannot recreate more
+    # scenes than the unique visual pool can support.
+    if video_clips:
+        source_keys={Path(p).stem.split('_window_')[0] for p in video_clips if p}
+        visual_capacity=len(source_keys)+len(set(map(str,image_paths)))
+        if 6 <= visual_capacity < len(beats):
+            narration_words=re.sub(r'\\s+',' ',str(script.get('narration','')).strip()).split()
+            if narration_words:
+                compact=[]
+                for bi in range(visual_capacity):
+                    a=round(bi*len(narration_words)/visual_capacity)
+                    b=round((bi+1)*len(narration_words)/visual_capacity)
+                    compact.append({'text':' '.join(narration_words[a:b]),'duration':duration/visual_capacity,'start':bi*duration/visual_capacity,'end':(bi+1)*duration/visual_capacity})
+                beats=compact
+                print(f'[VISUAL_POOL] timeline_capped={len(beats)} capacity={visual_capacity}',flush=True)
     # Video-first timelines are normalized to short beats. In the controlled
     # image-only fallback, preserve one unique image per beat instead of splitting
     # each 2.5s beat into duplicates that would recycle the same stills.
