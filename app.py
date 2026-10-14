@@ -4288,15 +4288,19 @@ def _visual_repetition_audit(path):
                     frame_matches.append((i,j,distance))
                     frame_marks.add(i); frame_marks.add(j)
 
-        # Union de posições marcadas pelas duas auditorias.
+        # União para cobertura/repetição geral. Runs consecutivos são medidos
+        # somente nas sequências longas: pares isolados em instantes distantes
+        # não devem ser interpretados como um take contínuo.
         marks=set(frame_marks)
+        sequence_marks=set()
         for i,j,_d in matches:
             for k in range(seq_len):
                 marks.add(i+k); marks.add(j+k)
+                sequence_marks.add(i+k); sequence_marks.add(j+k)
         ratio=len(marks)/max(1,len(imgs))
         longest=0; cur=0
         for k in range(len(imgs)):
-            if k in marks: cur+=1; longest=max(longest,cur)
+            if k in sequence_marks: cur+=1; longest=max(longest,cur)
             else: cur=0
         longest_s=longest*2.0
         score=100
