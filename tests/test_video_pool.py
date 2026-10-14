@@ -7,13 +7,13 @@ import app
 
 
 class OfficialVideoPoolTests(unittest.TestCase):
-    def test_returns_four_distinct_cached_motion_sources_when_available(self):
+    def test_returns_eight_distinct_cached_motion_sources_when_available(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             cache = root / "official_video_cache"
             cache.mkdir()
             expected = []
-            for index in range(4):
+            for index in range(8):
                 clip = cache / f"rockstar_real_v251_{index}.mp4"
                 clip.write_bytes(b"x" * 25001)
                 expected.append(clip)
@@ -21,10 +21,10 @@ class OfficialVideoPoolTests(unittest.TestCase):
             with patch.object(app, "WORK", root):
                 actual = app.download_official_video_clips(root / "job" / "official_videos")
 
-            self.assertEqual(len(actual), 4)
+            self.assertEqual(len(actual), 8)
             self.assertEqual([Path(p).name for p in actual],
                              [p.name for p in expected])
-            self.assertEqual(len(set(map(str, actual))), 4)
+            self.assertEqual(len(set(map(str, actual))), 8)
 
 
     def test_extracts_unique_frames_from_official_footage_only(self):

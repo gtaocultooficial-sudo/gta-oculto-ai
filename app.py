@@ -2791,10 +2791,11 @@ def download_official_video_clips(outdir, jid=None):
             cached.append(p)
         except Exception:
             continue
-    # Prefer four independent motion sources for Shorts. Once cached, this adds
-    # no repeated CDN cost; if the catalogue has fewer safe clips, the editor
-    # falls back to genuine frames rather than recycling the same shot.
-    target_clips = 4
+    # Prefer eight independent motion sources for Shorts. Four sources proved
+    # insufficient in real renders: extracted frames were technically distinct
+    # but kept showing the same characters/shots. Build a broader official pool
+    # before falling back to still frames or blocking the timeline.
+    target_clips = 8
     if len(cached) >= target_clips:
         return cached[:target_clips]
     try:
