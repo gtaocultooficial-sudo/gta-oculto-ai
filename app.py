@@ -4117,7 +4117,20 @@ def _probe_media(path):
             out=subprocess.check_output(cmd,stderr=subprocess.DEVNULL,text=True,timeout=30)
             d=json.loads(out); streams=d.get('streams',[]); fmt=d.get('format',{})
             video=[x for x in streams if x.get('codec_type')=='video']; audio=[x for x in streams if x.get('codec_type')=='audio']
-            return {'ok':True,'duration':float(fmt.get('duration') or 0),'size':int(fmt.get('size') or (p.stat().st_size if p.exists() else 0)),'video':video,'audio':audio}
+            duration=float(fmt.get('duration') or 0)
+            # ffprobe can successfully parse a container that has no video stream.
+            # Do not return ok=True in that case: include its actual signature and
+            # ffprobe's stream listing so the extraction format can be diagnosed.
+            if video and duration>0:
+                return {'ok':True,'duration':duration,'size':int(fmt.get('size') or (p.stat().st_size if p.exists() else 0)),'video':video,'audio':audio}
+            try:
+                with p.open('rb') as _src:
+                    _head=_src.read(96)
+                _magic=_head[:32].hex()
+                _ascii=''.join(chr(b) if 32<=b<127 else '.' for b in _head[:64])
+            except Exception as _e:
+                _magic='unreadable'; _ascii=str(_e)[:80]
+            raise RuntimeError(f'ffprobe não encontrou vídeo válido: duration={duration:.2f}s; streams={streams!r}; bytes={p.stat().st_size if p.exists() else 0}; magic={_magic}; head={_ascii}')
         # FFmpeg prints stream metadata and duration to stderr even when ffprobe
         # is not installed. -i intentionally exits non-zero without an output;
         # that is expected and the diagnostic is what we parse.
