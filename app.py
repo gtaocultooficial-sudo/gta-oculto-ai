@@ -3964,7 +3964,7 @@ def _caption_visual_split_quality(text, W=540):
     # Short captions should be evaluated by actual fit, not word count alone.
     # Permit a balanced two-line split even for phrases of 2-4 words.
     candidates=[]
-    for cut in range(2,len(words)-1):
+    for cut in range(1,len(words)):
         a=' '.join(words[:cut]); b=' '.join(words[cut:])
         wa=d.textbbox((0,0),a,font=f,stroke_width=1)[2]
         wb=d.textbbox((0,0),b,font=f,stroke_width=1)[2]
