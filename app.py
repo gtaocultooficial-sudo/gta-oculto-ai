@@ -3800,7 +3800,7 @@ def _repair_caption_beats(beats, duration, max_words=7):
     chunks=_merge_caption_chunks(fixed,target_count=max(1,min(16,len(fixed))),max_words=max_words)
 
     # Repair semantic boundaries without creating very long captions.
-    bad_end={'e','de','do','da','em','no','na','que','um','uma','o','a','os','as','para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa','sobre','entre','até','sem'}
+    bad_end={'e','de','do','da','em','no','na','que','um','uma','o','a','os','as','para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa','sobre','entre','até','sem','esse','essa','esses','essas','este','esta','estes','estas','aquele','aquela','aqueles','aquelas','meu','minha','meus','minhas','seu','sua','seus','suas','nosso','nossa','nossos','nossas'}
     bad_start={'e','mas','porque','porém','porem','então','entao','quando','enquanto','para','com','de','do','da','em','no','na','que'}
     i=0
     while i < len(chunks)-1:
@@ -3909,7 +3909,7 @@ def _caption_visual_split_quality(text, W=540):
 
 def _audit_caption_quality(beats):
     bad_end=[]; bad_start=[]; long=[]; short=[]; visual_bad=[]
-    bad_end_set={'e','de','do','da','em','no','na','que','um','uma','o','a','os','as','para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa','sobre','entre','até','sem'}
+    bad_end_set={'e','de','do','da','em','no','na','que','um','uma','o','a','os','as','para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa','sobre','entre','até','sem','esse','essa','esses','essas','este','esta','estes','estas','aquele','aquela','aqueles','aquelas','meu','minha','meus','minhas','seu','sua','seus','suas','nosso','nossa','nossos','nossas'}
     bad_start_set={'e','mas','porque','porém','porem','então','entao','quando','enquanto','para','com','de','do','da','em','no','na','que'}
     for bi,b in enumerate(beats or []):
         words=_caption_words(b.get('text',''))
@@ -4478,6 +4478,8 @@ def produce_job(jid):
                 beats=_fixed_beats
         _pre_cap=_audit_caption_quality(beats)
         _pre_align=_caption_narration_alignment(beats,script.get('narration',''))
+        if _pre_cap.get('bad_end') or _pre_cap.get('bad_start'):
+            raise ValueError('GATE CAPTIONS: ainda há legenda com fronteira gramatical incompleta após autocorreção.')
         if _pre_cap.get('score',100)<85:
             raise ValueError(f'GATE CAPTIONS: qualidade das legendas abaixo de 85/100 após autocorreção ({_pre_cap.get("score",0)}/100).')
         if _pre_align.get('foreign_ratio',0)>0.03 or _pre_align.get('narration_coverage',1.0)<0.85:
