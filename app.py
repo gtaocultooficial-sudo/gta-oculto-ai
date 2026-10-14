@@ -2927,6 +2927,31 @@ def _expand_video_clips_into_distinct_windows(video_clips, jobdir, windows_per_c
     return expanded
 
 
+def _frame_visual_hash(path):
+    """Small dependency-light perceptual hash for near-duplicate frame rejection."""
+    try:
+        from PIL import Image, ImageOps
+        with Image.open(path) as im:
+            gray=ImageOps.grayscale(im).resize((8,8))
+            vals=list(gray.getdata())
+        mean=sum(vals)/max(1,len(vals))
+        return tuple(v >= mean for v in vals)
+    except Exception:
+        return None
+
+def _visually_distinct_from_pool(candidate, existing, max_distance=10):
+    """Reject nearly identical frames even when filenames/timestamps differ."""
+    h=_frame_visual_hash(candidate)
+    if h is None:
+        return True
+    for prior in existing:
+        ph=_frame_visual_hash(prior)
+        if ph is None:
+            continue
+        if sum(a != b for a,b in zip(h,ph)) <= max_distance:
+            return False
+    return True
+
 def _augment_scenes_with_real_video_frames(video_clips, image_scenes, jobdir, target=24):
     """Extract a wider set of genuine official-video frames as moving stills."""
     out=list(image_scenes or [])
@@ -2960,7 +2985,12 @@ def _augment_scenes_with_real_video_frames(video_clips, image_scenes, jobdir, ta
                          '-frames:v','1','-vf','scale=540:960:force_original_aspect_ratio=increase,crop=540:960',
                          '-q:v','3',str(dst)],20)
                 if dst.exists() and dst.stat().st_size>4000:
-                    out.append(dst)
+                    # Distinct timestamps can still show the same character/shot.
+                    # Compare image content against the pool before accepting it.
+                    if _visually_distinct_from_pool(dst, out):
+                        out.append(dst)
+                    else:
+                        print(f'[VISUAL_POOL] rejected_near_duplicate={dst.name}',flush=True)
             except Exception:
                 continue
         if len(out)>=target:
