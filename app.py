@@ -3441,7 +3441,13 @@ def _choose_timeline_assets(video_clips, image_paths, beats, topic_title, varian
     videos=[p for p in video_clips if p]
     images=[p for p in image_paths if p]
     pool=[('video',p) for p in videos]+[('image',p) for p in images]
-    chosen=[]; used=set(); asset_counts={}
+    chosen=[]; used=set(); asset_counts={}; source_counts={}
+    def source_group(path):
+        # Expanded 1.4s windows are distinct files, but still come from the
+        # same original trailer/clip. Count them against the original source.
+        name=Path(path).stem
+        return re.sub(r'_window_\d+$','',name,flags=re.IGNORECASE)
+    video_sources={source_group(p) for p in videos}
     # V61: repetition is now a hard budget, not just a score penalty.
     # The pool can shrink on Render Free after a restart, so the reuse budget is
     # calculated from the assets actually available. With 8 videos + 4 images
@@ -3460,9 +3466,10 @@ def _choose_timeline_assets(video_clips, image_paths, beats, topic_title, varian
     # - >= 8 imagens únicas: cada vídeo oficial entra no máximo 1 vez.
     # - pool visual curto: ainda permitimos até 2 usos por vídeo para não travar
     #   a produção, mas a auditoria deve continuar sinalizando repetição.
+    # Reuse budget applies to original source clips, not each extracted window.
     video_max_reuse=1 if len(images)>=8 else 2
     max_reuse=max(image_max_reuse,video_max_reuse)
-    target_video=min(len(beats), len(videos)*video_max_reuse) if beats and videos else 0
+    target_video=min(len(beats), len(video_sources)*video_max_reuse) if beats and videos else 0
     target_images=min(len(images), max(0, len(beats)-target_video)) if beats and images else 0
     print(f'[TIMELINE_VARIETY] videos={len(videos)} images={len(images)} video_max_reuse={video_max_reuse} target_video={target_video} target_images={target_images}',flush=True)
     video_used=0
@@ -3479,10 +3486,12 @@ def _choose_timeline_assets(video_clips, image_paths, beats, topic_title, varian
         return pen
 
     def under_reuse_budget(p):
-        # Images are one-shot support assets; videos have a separate reuse budget.
+        # Images are one-shot support assets; video windows share a budget by
+        # original source so cutting a trailer into windows cannot bypass it.
         kind='video' if p in videos else 'image'
         budget=video_max_reuse if kind=='video' else image_max_reuse
-        return asset_counts.get(p,0) < budget
+        count=source_counts.get(source_group(p),0) if kind=='video' else asset_counts.get(p,0)
+        return count < budget
 
     for bi,beat in enumerate(beats):
         remaining=[(idx,kind,p) for idx,(kind,p) in enumerate(pool) if idx not in used]
@@ -3524,8 +3533,8 @@ def _choose_timeline_assets(video_clips, image_paths, beats, topic_title, varian
         # one character/shot from winning repeatedly just because its filename
         # matches the topic better than the other clips.
         if force_video and candidates:
-            min_count=min(asset_counts.get(p,0) for _idx,_kind,p in candidates)
-            candidates=[x for x in candidates if asset_counts.get(x[2],0)==min_count] or candidates
+            min_count=min(source_counts.get(source_group(p),0) for _idx,_kind,p in candidates)
+            candidates=[x for x in candidates if source_counts.get(source_group(x[2]),0)==min_count] or candidates
         ranked=[]
         for idx,kind,p in candidates:
             if force_video and kind!='video':
@@ -3563,6 +3572,9 @@ def _choose_timeline_assets(video_clips, image_paths, beats, topic_title, varian
         _,kind,p,idx=ranked[0]
         chosen.append((kind,p))
         asset_counts[p]=asset_counts.get(p,0)+1
+        if kind=='video':
+            source=source_group(p)
+            source_counts[source]=source_counts.get(source,0)+1
         used.add(idx)
         if kind=='video':
             video_used += 1
