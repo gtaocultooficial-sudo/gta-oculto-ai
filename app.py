@@ -4247,7 +4247,7 @@ def _visual_repetition_audit(path):
     tmp.mkdir(parents=True,exist_ok=True)
     try:
         ff=_ffmpeg_executable()
-        run_cmd([ff,'-loglevel','error','-y','-i',str(path),'-vf','fps=0.5,scale=40:71:flags=bilinear,format=gray',str(tmp/'f_%04d.jpg')],20)
+        run_cmd([ff,'-loglevel','error','-y','-i',str(path),'-vf','fps=0.5,scale=40:71:flags=bilinear,format=gray',str(tmp/'f_%04d.jpg')],60)
         frames=sorted(tmp.glob('f_*.jpg'))
         if len(frames)<8:
             return {'score':70,'repeated_ratio':0.0,'longest_repeat_s':0.0,'pairs':[],'frame_repeat_pairs':[],'error':'amostras insuficientes'}
@@ -4321,7 +4321,8 @@ def _visual_repetition_audit(path):
             'sequence_window_s':8.0
         }
     except Exception as e:
-        return {'score':65,'repeated_ratio':0.0,'longest_repeat_s':0.0,'pairs':[],'frame_repeat_pairs':[],'error':str(e)[:400]}
+        print(f'[VISUAL_REPEAT_AUDIT_ERROR] {type(e).__name__}: {str(e)[:500]}',flush=True)
+        return {'score':65,'repeated_ratio':0.0,'longest_repeat_s':0.0,'pairs':[],'frame_repeat_pairs':[],'error':f'{type(e).__name__}: {str(e)[:400]}'}
     finally:
         try: shutil.rmtree(tmp,ignore_errors=True)
         except Exception: pass
@@ -4402,7 +4403,7 @@ def audit_short(script, video, duration, beats, selected_videos, image_scenes):
     # 1080p MP4. Keep the real MP4/codec/audio/duration and caption audits below;
     # use the known timeline structure for the fast visual check by default.
     # Full frame sampling remains opt-in via GTA_DEEP_VISUAL_AUDIT=1.
-    deep_visual=os.getenv('GTA_DEEP_VISUAL_AUDIT','1').strip().lower() in {'1','true','yes','on'}
+    deep_visual=os.getenv('GTA_DEEP_VISUAL_AUDIT','0').strip().lower() in {'1','true','yes','on'}
     if media.get('ok'):
         # A auditoria de repetição é obrigatória: deixar essa checagem atrás de
         # GTA_DEEP_VISUAL_AUDIT permitia que o plano Free aprovasse takes repetidos
@@ -4412,7 +4413,8 @@ def audit_short(script, video, duration, beats, selected_videos, image_scenes):
         print(
             f"[VISUAL_REPEAT_AUDIT] method={repetition.get('method','unknown')} "
             f"score={repetition.get('score',0)} ratio={repetition.get('repeated_ratio',0)} "
-            f"pairs={len(repetition.get('frame_repeat_pairs',[])) + len(repetition.get('pairs',[]))}",
+            f"pairs={len(repetition.get('frame_repeat_pairs',[])) + len(repetition.get('pairs',[]))} "
+            f"error={str(repetition.get('error',''))[:180]}",
             flush=True
         )
         if deep_visual:
@@ -4442,12 +4444,16 @@ def audit_short(script, video, duration, beats, selected_videos, image_scenes):
             'note':'Proxy estrutural; mídia inválida; varredura visual não executada'
         }
     checks['movimento']=int(motion.get('score',0))
-    checks['repeticao_visual']=int(repetition.get('score',0))
+    if repetition.get('error'):
+        checks['repeticao_visual']=0
+        issues.append(('VISUAL_AUDIT_FAILED','auditoria de repetição visual não conseguiu inspecionar o MP4: '+str(repetition.get('error'))[:240]))
+    else:
+        checks['repeticao_visual']=int(repetition.get('score',0))
     if motion.get('longest_still_seconds',0)>=4:
         issues.append(('VISUAL_STAGNATION',f'visual praticamente parado por {motion.get("longest_still_seconds",0):.0f}s'))
     if motion.get('frozen_ratio',0)>=0.40:
         issues.append(('HIGH_FROZEN_RATIO',f'{motion.get("frozen_ratio",0)*100:.0f}% das transições amostradas com pouca mudança visual'))
-    if repetition.get('repeated_ratio',0)>=0.28 or repetition.get('longest_repeat_s',0)>=4:
+    if not repetition.get('error') and (repetition.get('repeated_ratio',0)>=0.28 or repetition.get('longest_repeat_s',0)>=4):
         issues.append(('VISUAL_REPETITION',f'repetição visual detectada: {repetition.get("repeated_ratio",0)*100:.0f}% das amostras / trecho repetido até {repetition.get("longest_repeat_s",0):.1f}s'))
     final=max(0,round((checks['roteiro']+checks['alinhamento_pauta']+checks['legendas']+checks['alinhamento_legendas']+checks['mp4']+checks['visuais']+checks['movimento']+checks['repeticao_visual'])/8))
     return {'score':final,'checks':checks,'issues':[{'code':c,'message':m} for c,m in issues],'media':media,'caption_audit':cap,'motion_audit':motion,'repetition_audit':repetition}
@@ -4778,7 +4784,7 @@ def produce_job(jid):
             'HEADLINE_SCRIPT_MISMATCH','LOW_IMAGE_VARIETY','LOW_VIDEO_VARIETY',
             'CAPTIONS_NOT_FROM_NARRATION','CAPTIONS_BAD_BOUNDARY','CAPTIONS_REPEATED',
             'CAPTIONS_LOW_QUALITY','CAPTIONS_INCOMPLETE',
-            'VISUAL_REPETITION','VISUAL_STAGNATION','HIGH_FROZEN_RATIO','MEDIA_UNREADABLE',
+            'VISUAL_REPETITION','VISUAL_STAGNATION','HIGH_FROZEN_RATIO','VISUAL_AUDIT_FAILED','MEDIA_UNREADABLE',
             'NO_VIDEO_STREAM','NO_AUDIO_STREAM','WRONG_ASPECT','VISUAL_CONTAMINATION'
         }
         blocking=[i for i in audit.get('issues',[]) if i.get('code') in hard_issues]
