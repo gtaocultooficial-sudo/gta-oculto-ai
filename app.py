@@ -2932,18 +2932,26 @@ def _augment_scenes_with_real_video_frames(video_clips, image_scenes, jobdir, ta
     if len(out)>=target:
         return out[:target]
     ff=_ffmpeg_executable()
-    for idx,clip in enumerate(video_clips or []):
+    clips=list(video_clips or [])
+    # Round-robin across sources: the previous source-first loop could fill the
+    # target from only the first two clips (12 frames each), concentrating the
+    # entire Short on Lucia or the same armed character despite a larger pool.
+    # Sample each source at one timestamp before taking a second sample from any
+    # source, so the initial pool spans all available official clips.
+    source_durations=[]
+    for clip in clips:
         try:
             probe=_probe_media(Path(clip))
             duration=max(0.8,float(probe.get('duration') or 8.5))
         except Exception:
             duration=8.5
-        # Twelve evenly-spaced samples per official clip provide a larger unique
-        # pool when Render's cache only has four source videos.
-        sample_count=12
-        for fi in range(sample_count):
+        source_durations.append(duration)
+    sample_count=12
+    for fi in range(sample_count):
+        for idx,clip in enumerate(clips):
             if len(out)>=target:
                 break
+            duration=source_durations[idx]
             timestamp=min(max(0.05,0.05 + fi*max(0.0,duration-0.10)/(sample_count-1)),max(0.05,duration-0.05))
             dst=Path(jobdir)/f'official_frame_{idx:02d}_{fi:02d}.jpg'
             try:
@@ -2954,6 +2962,8 @@ def _augment_scenes_with_real_video_frames(video_clips, image_scenes, jobdir, ta
                     out.append(dst)
             except Exception:
                 continue
+        if len(out)>=target:
+            break
     print(f'[VISUAL_POOL] official_video_sources={len(video_clips or [])} unique_frames={max(0,len(out)-len(image_scenes or []))} total_images={len(out)} target={target}',flush=True)
     return out[:target]
 
