@@ -4466,19 +4466,83 @@ def self_heal(jid, script, video, duration, beats, selected_videos, image_scenes
                 progress=95,
                 log='🛑 AUDITOR IA: repetição visual permaneceu após a única reedição automática. Produção será bloqueada.'
             )
-    if any(x['code'] in {'CAPTIONS_BAD_BOUNDARY','CAPTIONS_REPEATED','CAPTIONS_NOT_FROM_NARRATION','CAPTIONS_LOW_QUALITY','CAPTIONS_INCOMPLETE'} for x in audit['issues']):
+    caption_codes={'CAPTIONS_BAD_BOUNDARY','CAPTIONS_REPEATED','CAPTIONS_NOT_FROM_NARRATION','CAPTIONS_LOW_QUALITY','CAPTIONS_INCOMPLETE'}
+    if any(x['code'] in caption_codes for x in audit['issues']):
         _learn_event(
             'CAPTIONS_BAD_BOUNDARY',
             'auditor detectou legenda que exige correção',
-            'correção antecipada antes do encode; manter bloqueio QA sem renderização duplicada',
-            False
+            'resegmentação semântica e uma única renderização corretiva antes do gate final',
+            None
         )
-        update_job(
-            jid,
-            stage='AVALIAÇÃO',
-            progress=95,
-            log='🧠 AUDITOR IA: legenda fora do padrão detectada; sem segundo encode no plano gratuito.'
-        )
+        repair_path=Path(str(video)+'.caption_repair.mp4')
+        try:
+            update_job(
+                jid,
+                stage='AVALIAÇÃO',
+                progress=95,
+                log='🧠 AUDITOR IA: corrigindo a segmentação das legendas e renderizando novamente (1/1)...'
+            )
+            repaired_beats=_repair_caption_beats(beats,duration,max_words=6)
+            if not repaired_beats:
+                raise RuntimeError('resegmentação não produziu blocos de legenda')
+            repaired_captions=[str(b.get('text','')).strip() for b in repaired_beats]
+            if any(not caption for caption in repaired_captions):
+                raise RuntimeError('resegmentação produziu legenda vazia')
+            make_multimedia_video(
+                selected_videos,
+                image_scenes,
+                audio,
+                repair_path,
+                duration,
+                repaired_captions,
+                script=script,
+                topic_title=topic.get('title','GTA 6'),
+                beats=repaired_beats,
+                motion_boost=False,
+                asset_variant=0
+            )
+            repair_probe=_probe_media(repair_path)
+            if not repair_probe.get('ok') or not repair_probe.get('video') or not repair_probe.get('audio'):
+                raise RuntimeError('renderização corretiva gerou mídia inválida')
+            repaired_audit=audit_short(script,repair_path,duration,repaired_beats,selected_videos,image_scenes)
+            remaining_caption_issues=[i.get('code') for i in repaired_audit.get('issues',[]) if i.get('code') in caption_codes]
+            if remaining_caption_issues:
+                raise RuntimeError('auditoria ainda reprova legendas: '+', '.join(remaining_caption_issues))
+            # Preserve the original until the corrected MP4 passes caption QA.
+            os.replace(repair_path,video)
+            audit=repaired_audit
+            beats=repaired_beats
+            repaired=True
+            _learn_event(
+                'CAPTIONS_REPAIR_SUCCEEDED',
+                'resegmentação e renderização corretiva passaram pela auditoria de legendas',
+                'resegmentação semântica max_words=6 + auditoria do MP4 renderizado',
+                True
+            )
+            update_job(
+                jid,
+                stage='AVALIAÇÃO',
+                progress=95,
+                log=f'🧠 AUDITOR IA: legendas corrigidas e revalidadas ({audit.get("checks",{}).get("legendas",0)}/100).'
+            )
+        except Exception as caption_repair_error:
+            try:
+                if repair_path.exists():
+                    repair_path.unlink()
+            except Exception:
+                pass
+            _learn_event(
+                'CAPTIONS_REPAIR_FAILED',
+                'renderização corretiva de legendas não passou na auditoria',
+                str(caption_repair_error)[:500],
+                False
+            )
+            update_job(
+                jid,
+                stage='AVALIAÇÃO',
+                progress=95,
+                log='🛑 AUDITOR IA: legendas continuam reprovadas após uma tentativa de correção; mantendo o bloqueio.'
+            )
     return audit,beats,repaired
 
 def evaluate(script,duration,scene_count,visual_quality,beats=None,video_count=0,image_count=0):
