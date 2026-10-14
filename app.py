@@ -4551,13 +4551,12 @@ def produce_job(jid):
         if len(selected_videos)<8:
             image_scenes=_augment_scenes_with_real_video_frames(selected_videos,image_scenes,jobdir,target=24)
         update_job(jid,log=f'{source_video_count} vídeos oficiais + {len(image_scenes)} cenas/imagens reais distintas disponíveis. Editando em 9:16 / {duration:.1f}s...')
-        # Hard gate: available unique video windows (2 uses/source) plus one-use
-        # real-frame supports must cover the timeline; never recycle on fallback.
-        available_slots=len(selected_videos)*2+len(image_scenes)
-        if len(image_scenes)>=8 and available_slots<len(beats):
-            # Fit the timeline to the real asset budget: use up to two distinct
-            # windows per official clip plus each unique image once.
-            fallback_count=min(available_slots,16 if selected_videos else 12)
+        # Fit the edit to the actual one-use visual pool before rendering.
+        # Timeline selection permits each original official source once and each
+        # unique still once; counting two windows per source overstated capacity.
+        available_slots=len(selected_videos)+len(image_scenes)
+        if available_slots < len(beats) and available_slots >= 6:
+            fallback_count=min(available_slots,16)
             beats=build_short_timeline(script,topic,duration,fallback_count,word_cues=None)
             if len(beats)>fallback_count:
                 narration_words=re.sub(r'\s+',' ',str(script.get('narration','')).strip()).split()
@@ -4568,7 +4567,6 @@ def produce_job(jid):
                     chunks.append({'text':' '.join(narration_words[a:b]),'duration':duration/fallback_count,'start':bi*duration/fallback_count,'end':(bi+1)*duration/fallback_count})
                 beats=chunks
             caps=[b['text'] for b in beats]
-            available_slots=len(image_scenes)+len(selected_videos)*2
             print(f'[JOB {jid}] visual fallback scenes={len(beats)} images={len(image_scenes)} videos={len(selected_videos)}',flush=True)
             update_job(jid,log=f'Fallback controlado: {len(selected_videos)} vídeos + {len(image_scenes)} visuais únicos; timeline reduzida para {len(beats)} cenas sem reciclagem.')
         if available_slots<len(beats):
