@@ -4035,7 +4035,7 @@ def _visual_motion_audit(path):
     try:
         ff=_ffmpeg_executable()
         # 1 frame/s é suficiente para encontrar congelamentos longos sem pesar no Render.
-        run_cmd([ff,'-loglevel','error','-y','-skip_frame','nokey','-i',str(path),'-vf','fps=0.5,scale=48:85:flags=bilinear,format=gray',str(tmp/'frame_%04d.jpg')],10)
+        run_cmd([ff,'-loglevel','error','-y','-i',str(path),'-vf','fps=0.5,scale=48:85:flags=bilinear,format=gray',str(tmp/'frame_%04d.jpg')],20)
         frames=sorted(tmp.glob('frame_*.jpg'))
         if len(frames)<4:
             return {'score':60,'frozen_ratio':0.0,'longest_still_seconds':0.0,'sample_count':len(frames),'stale_runs':[],'error':'amostras insuficientes'}
@@ -4161,7 +4161,7 @@ def _visual_repetition_audit(path):
     tmp.mkdir(parents=True,exist_ok=True)
     try:
         ff=_ffmpeg_executable()
-        run_cmd([ff,'-loglevel','error','-y','-skip_frame','nokey','-i',str(path),'-vf','fps=0.5,scale=40:71:flags=bilinear,format=gray',str(tmp/'f_%04d.jpg')],10)
+        run_cmd([ff,'-loglevel','error','-y','-i',str(path),'-vf','fps=0.5,scale=40:71:flags=bilinear,format=gray',str(tmp/'f_%04d.jpg')],20)
         frames=sorted(tmp.glob('f_*.jpg'))
         if len(frames)<8:
             return {'score':70,'repeated_ratio':0.0,'longest_repeat_s':0.0,'pairs':[],'error':'amostras insuficientes'}
