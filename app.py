@@ -4236,9 +4236,12 @@ def _caption_narration_alignment(beats, narration):
 
 
 def _visual_repetition_audit(path):
-    """V52: detect repeated shots as SEQUENCES, not isolated similar frames.
-    Two-second sampling + multi-frame sequence comparison catches a reused shot
-    even when the camera/person keeps moving inside that shot.
+    """Detecta repetição de takes curtos e sequências quase idênticas no MP4 final.
+
+    A antiga auditoria comparava apenas janelas de quatro amostras (8 segundos).
+    Isso deixava passar um take de 1–2 segundos reutilizado em outro ponto do Short.
+    Agora combinamos comparação de sequência com hash perceptual de quadros isolados,
+    exigindo distância temporal para não penalizar frames vizinhos do mesmo take.
     """
     tmp=Path(str(path)+'.repeat_audit')
     tmp.mkdir(parents=True,exist_ok=True)
@@ -4247,12 +4250,15 @@ def _visual_repetition_audit(path):
         run_cmd([ff,'-loglevel','error','-y','-i',str(path),'-vf','fps=0.5,scale=40:71:flags=bilinear,format=gray',str(tmp/'f_%04d.jpg')],20)
         frames=sorted(tmp.glob('f_*.jpg'))
         if len(frames)<8:
-            return {'score':70,'repeated_ratio':0.0,'longest_repeat_s':0.0,'pairs':[],'error':'amostras insuficientes'}
+            return {'score':70,'repeated_ratio':0.0,'longest_repeat_s':0.0,'pairs':[],'frame_repeat_pairs':[],'error':'amostras insuficientes'}
         imgs=[]
         for fp in frames:
             try: imgs.append(Image.open(fp).convert('L').resize((48,85)))
             except Exception: pass
-        # Compare 3-second windows (6 samples) separated by at least 4 seconds.
+        if len(imgs)<8:
+            return {'score':70,'repeated_ratio':0.0,'longest_repeat_s':0.0,'pairs':[],'frame_repeat_pairs':[],'error':'quadros inválidos'}
+
+        # 1) Repetição de sequências longas (4 quadros, amostrados a cada 2s).
         seq_len=4; min_gap=6; matches=[]
         for i in range(0,min(24,max(1,len(imgs)-seq_len+1))):
             for j in range(i+min_gap, min(len(imgs)-seq_len+1, i+32)):
@@ -4263,15 +4269,38 @@ def _visual_repetition_audit(path):
                 avg=sum(ds)/len(ds)
                 if avg<8.0:
                     matches.append((i,j,avg))
-        # Merge matched windows into approximate repeated time coverage.
-        marks=set()
-        for i,j,d in matches:
-            for k in range(seq_len): marks.add(i+k); marks.add(j+k)
+
+        # 2) Repetição de takes isolados: average-hash numa grelha 8x8 reduz
+        # sensibilidade à cor/compressão, mas preserva composição e silhuetas.
+        # Só compara quadros separados por >=6s; takes vizinhos não contam como loop.
+        hashes=[]
+        for im in imgs:
+            tiny=im.resize((8,8))
+            values=list(tiny.getdata())
+            mean=sum(values)/max(1,len(values))
+            hashes.append(tuple(v>=mean for v in values))
+        frame_matches=[]
+        frame_marks=set()
+        for i in range(len(hashes)):
+            for j in range(i+3,len(hashes)):
+                distance=sum(a!=b for a,b in zip(hashes[i],hashes[j]))
+                if distance<=12:
+                    frame_matches.append((i,j,distance))
+                    frame_marks.add(i); frame_marks.add(j)
+
+        # União para cobertura/repetição geral. Runs consecutivos são medidos
+        # somente nas sequências longas: pares isolados em instantes distantes
+        # não devem ser interpretados como um take contínuo.
+        marks=set(frame_marks)
+        sequence_marks=set()
+        for i,j,_d in matches:
+            for k in range(seq_len):
+                marks.add(i+k); marks.add(j+k)
+                sequence_marks.add(i+k); sequence_marks.add(j+k)
         ratio=len(marks)/max(1,len(imgs))
-        # Longest contiguous marked run, allowing one-sample gap.
         longest=0; cur=0
         for k in range(len(imgs)):
-            if k in marks: cur+=1; longest=max(longest,cur)
+            if k in sequence_marks: cur+=1; longest=max(longest,cur)
             else: cur=0
         longest_s=longest*2.0
         score=100
@@ -4282,9 +4311,17 @@ def _visual_repetition_audit(path):
         if longest_s>=8: score-=40
         elif longest_s>=6: score-=30
         elif longest_s>=4: score-=18
-        return {'score':max(0,min(100,score)),'repeated_ratio':round(ratio,3),'longest_repeat_s':round(longest_s,1),'pairs':[{'a_s':round(i*2.0,1),'b_s':round(j*2.0,1),'diff':round(d,2)} for i,j,d in matches[:12]],'sequence_window_s':4.0}
+        return {
+            'score':max(0,min(100,score)),
+            'repeated_ratio':round(ratio,3),
+            'longest_repeat_s':round(longest_s,1),
+            'pairs':[{'a_s':round(i*2.0,1),'b_s':round(j*2.0,1),'diff':round(d,2),'kind':'sequence'} for i,j,d in matches[:12]],
+            'frame_repeat_pairs':[{'a_s':round(i*2.0,1),'b_s':round(j*2.0,1),'hash_distance':int(d)} for i,j,d in frame_matches[:20]],
+            'method':'sequence+perceptual-frame-hash',
+            'sequence_window_s':8.0
+        }
     except Exception as e:
-        return {'score':65,'repeated_ratio':0.0,'longest_repeat_s':0.0,'pairs':[],'error':str(e)[:400]}
+        return {'score':65,'repeated_ratio':0.0,'longest_repeat_s':0.0,'pairs':[],'frame_repeat_pairs':[],'error':str(e)[:400]}
     finally:
         try: shutil.rmtree(tmp,ignore_errors=True)
         except Exception: pass
