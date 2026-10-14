@@ -3650,7 +3650,10 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
         beats=[dict(b, start=i*duration/n, end=(i+1)*duration/n, duration=duration/n) for i,b in enumerate(beats)]
     # Use todos os assets disponíveis; quando há poucos, o renderer aplica
     # enquadramentos diferentes em cada reutilização em vez de congelar a tela.
-    imgs=list(image_paths)[:18]
+    # Keep all unique frames produced by the official-video extractor. The old [:18]
+    # cap silently discarded frames even when augmentation had built a larger pool,
+    # causing the visual gate to reject otherwise viable timelines.
+    imgs=list(image_paths)[:24]
     assets=_choose_timeline_assets(video_clips,imgs,beats,topic_title,variant=asset_variant)
     scene_files=[]
     render_use_counts={}
