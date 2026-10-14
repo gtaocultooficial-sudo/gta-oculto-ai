@@ -3970,13 +3970,25 @@ def _caption_visual_split_quality(text, W=540):
         wb=d.textbbox((0,0),b,font=f,stroke_width=1)[2]
         if wa<=max_width and wb<=max_width:
             candidates.append((abs(wa-wb)+abs(cut-(len(words)-cut))*18,cut,a,b))
-    if not candidates:
-        return {'score':65,'lines':[str(text).upper()]}
-    _,cut,a,b=min(candidates,key=lambda x:x[0])
-    score=100
-    if len(b.split())==1: score-=30
-    if len(a.split())==1: score-=20
-    return {'score':max(0,score),'lines':[a.upper(),b.upper()]}
+    if candidates:
+        _,cut,a,b=min(candidates,key=lambda x:x[0])
+        return {'score':100,'lines':[a.upper(),b.upper()]}
+    # Retry at smaller but still readable sizes before failing the caption audit.
+    for size in (22,20,18):
+        fs=font(size,True)
+        if d.textbbox((0,0),single,font=fs,stroke_width=1)[2] <= max_width:
+            return {'score':90,'lines':[single.upper()],'font_size':size}
+        smaller=[]
+        for cut in range(1,len(words)):
+            a=' '.join(words[:cut]); b=' '.join(words[cut:])
+            wa=d.textbbox((0,0),a,font=fs,stroke_width=1)[2]
+            wb=d.textbbox((0,0),b,font=fs,stroke_width=1)[2]
+            if wa<=max_width and wb<=max_width:
+                smaller.append((abs(wa-wb)+abs(cut-(len(words)-cut))*18,a,b))
+        if smaller:
+            _,a,b=min(smaller,key=lambda x:x[0])
+            return {'score':90,'lines':[a.upper(),b.upper()],'font_size':size}
+    return {'score':65,'lines':[str(text).upper()]}
 
 def _audit_caption_quality(beats):
     bad_end=[]; bad_start=[]; long=[]; short=[]; visual_bad=[]
