@@ -2850,18 +2850,16 @@ def download_official_video_clips(outdir, jid=None):
                 proxy_errors=[]
                 for attempt in range(2):
                     target.unlink(missing_ok=True)
-                    seek_args=(['-ss','0.8'] if attempt==1 else [])
+                    seek_args=(['-ss','0.8'] if attempt==0 else [])
                     cmd=[
                         ff,'-hide_banner','-loglevel','error','-y','-threads:v','1',
-                        '-i',str(raw),*seek_args,'-t','8.5',
+                        *seek_args,'-i',str(raw),'-t','8.5',
                         '-vf','scale=320:568:force_original_aspect_ratio=increase,crop=320:568,setsar=1,fps=12',
                         '-an','-c:v','libx264','-preset','ultrafast','-crf','31',
                         '-threads','1','-filter_threads','1','-filter_complex_threads','1',
                         '-x264-params','threads=1:lookahead-threads=1:rc-lookahead=0:sync-lookahead=0',
                         '-pix_fmt','yuv420p','-movflags','+faststart',str(target)
                     ]
-                    if attempt==1:
-                        cmd[cmd.index('-i'):cmd.index('-i')]=['-ss','0.8']
                     run_cmd(cmd,90)
                     proxy_probe=_probe_media(target) if target.exists() else {'ok':False,'duration':0,'video':[],'error':'arquivo não criado'}
                     proxy_duration=float(proxy_probe.get('duration') or 0)
