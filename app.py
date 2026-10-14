@@ -2888,56 +2888,75 @@ def select_video_clips(videos,title,count=5):
 
 
 def _expand_video_clips_into_distinct_windows(video_clips, jobdir, windows_per_clip=3):
-    """Split official proxies into longer, non-overlapping motion segments.
+    """Split each source into valid, non-overlapping motion segments.
 
-    The fallback used to combine full clips with still frames extracted from the
-    exact same clips. That mixed pool made the same characters/shots reappear as
-    both moving footage and static images. Use video segments only, each about
-    2.8s long, and interleave sources by time position for better visual variety.
+    Calculate segment count from the actual source duration instead of assuming
+    every downloaded proxy is 8.5s. Seeking is input-side so FFmpeg extracts
+    the intended section, and each segment is probed before it enters the pool.
     """
     ff=_ffmpeg_executable()
     outdir=Path(jobdir)/'video_windows'
     outdir.mkdir(parents=True,exist_ok=True)
     clips=[Path(p) for p in (video_clips or []) if p]
-    durations=[]
-    for clip in clips:
-        try:
-            probe=_probe_media(clip)
-            durations.append(max(0.0,float(probe.get('duration') or 8.4)))
-        except Exception:
-            durations.append(8.4)
     expanded=[]
-    for wi in range(max(1,int(windows_per_clip))):
-        for ci,clip in enumerate(clips):
-            window_seconds=durations[ci]/max(1,int(windows_per_clip))
-            if window_seconds < 2.25:
+    for ci,clip in enumerate(clips):
+        try:
+            source_probe=_probe_media(clip)
+            source_duration=float(source_probe.get('duration') or 0)
+            if not source_probe.get('ok') or not source_probe.get('video') or source_duration < 4.0:
+                print(
+                    f'[VIDEO_WINDOWS] source_rejected={clip.name} duration={source_duration:.2f}s '
+                    f'error={source_probe.get("error","no video or clip too short")}',
+                    flush=True
+                )
                 continue
-            start=wi*window_seconds
-            dst=outdir/f'{clip.stem}_window_{wi+1:02d}.mp4'
-            try:
-                if not dst.exists() or dst.stat().st_size<8000:
+            # Aim for 2.5–4.3s segments; create 2 or 3 unique segments per source.
+            count=min(max(1,int(windows_per_clip)),max(1,int(source_duration//2.5)))
+            if count < 2:
+                print(f'[VIDEO_WINDOWS] source_too_short={clip.name} duration={source_duration:.2f}s',flush=True)
+                continue
+            window_seconds=source_duration/count
+            for wi in range(count):
+                start=wi*window_seconds
+                dst=outdir/f'{clip.stem}_window_{wi+1:02d}.mp4'
+                try:
+                    # Always recreate to avoid stale files from a different segmentation rule.
                     dst.unlink(missing_ok=True)
                     run_cmd([
-                        ff,'-loglevel','error','-y','-i',str(clip),
-                        '-ss',f'{start:.2f}','-t',f'{window_seconds:.2f}',
+                        ff,'-loglevel','error','-y',
+                        '-ss',f'{start:.3f}','-i',str(clip),'-t',f'{window_seconds:.3f}',
                         '-vf','scale=320:568:force_original_aspect_ratio=increase,crop=320:568,setsar=1,fps=12',
                         '-an','-c:v','libx264','-preset','ultrafast','-crf','28',
                         '-threads','1','-filter_threads','1','-filter_complex_threads','1',
                         '-x264-params','threads=1:lookahead-threads=1:rc-lookahead=0:sync-lookahead=0',
                         '-pix_fmt','yuv420p','-movflags','+faststart',str(dst)
                     ],45)
-                if dst.exists() and dst.stat().st_size>=5000:
-                    probe=_probe_media(dst)
-                    if probe.get('ok') and float(probe.get('duration') or 0) >= 2.0:
+                    if not dst.exists() or dst.stat().st_size < 5000:
+                        raise RuntimeError('arquivo do segmento ausente ou pequeno')
+                    segment_probe=_probe_media(dst)
+                    segment_duration=float(segment_probe.get('duration') or 0)
+                    if segment_probe.get('ok') and segment_probe.get('video') and segment_duration >= 2.0:
                         expanded.append(dst)
                     else:
                         dst.unlink(missing_ok=True)
-            except Exception as e:
-                print(f'[VIDEO_WINDOWS] skip source={clip.name} window={wi+1} error={type(e).__name__}:{str(e)[:180]}',flush=True)
-                continue
+                        print(
+                            f'[VIDEO_WINDOWS] segment_rejected={dst.name} duration={segment_duration:.2f}s '
+                            f'error={segment_probe.get("error","invalid or too-short segment")}',
+                            flush=True
+                        )
+                except Exception as e:
+                    print(
+                        f'[VIDEO_WINDOWS] skip source={clip.name} window={wi+1} '
+                        f'error={type(e).__name__}:{str(e)[:180]}',
+                        flush=True
+                    )
+                    dst.unlink(missing_ok=True)
+                    continue
+        except Exception as e:
+            print(f'[VIDEO_WINDOWS] source_probe_failed={clip.name} error={type(e).__name__}:{str(e)[:180]}',flush=True)
+            continue
     print(f'[VIDEO_WINDOWS] expanded {len(clips)} source clips into {len(expanded)} valid windows',flush=True)
     return expanded
-
 
 def _frame_visual_hash(path):
     """Small dependency-light perceptual hash for near-duplicate frame rejection."""
