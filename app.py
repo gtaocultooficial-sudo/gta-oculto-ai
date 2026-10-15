@@ -5418,7 +5418,6 @@ threading.Thread(target=boot_produce_once,daemon=True).start()
 threading.Thread(target=radar_loop,daemon=True).start()
 threading.Thread(target=autonomy_loop,daemon=True).start()
 
-        stem=re.sub(r'_(?:clip|proxy|segment)_\d+
     video_sources={source_group(p) for p in videos}
     # V61: repetition is now a hard budget, not just a score penalty.
     # The pool can shrink on Render Free after a restart, so the reuse budget is
