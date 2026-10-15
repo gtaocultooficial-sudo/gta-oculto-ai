@@ -44,25 +44,32 @@ class EditorialVisualGuardTests(unittest.TestCase):
             "Thumbnail-style white borders/logos must not remain at either frame edge.",
         )
 
-    def test_actual_image_preparation_uses_edge_safe_crop(self):
+    def test_actual_image_preparation_removes_jpeg_compressed_clipped_source_text(self):
         source = Image.new("RGB", (270, 480), (88, 68, 145))
         draw = ImageDraw.Draw(source)
-        draw.rectangle((0, 35, 8, 210), fill=(255, 255, 255))
-        draw.text((0, 220), "LOOK", fill=(255, 255, 255))
-        draw.rectangle((261, 35, 269, 210), fill=(255, 255, 255))
+        # Reproduce the narrow antialiased white edge and source text visible in
+        # the real Short; wide, pure-white borders alone did not catch this case.
+        draw.line((0, 35, 0, 210), fill=(255, 255, 255), width=2)
+        draw.text((-18, 220), "LOOK", fill=(255, 255, 255))
         draw.rectangle((110, 80, 215, 445), fill=(220, 80, 55))
 
         with tempfile.TemporaryDirectory() as td:
             original = Path(td) / "source.jpg"
             prepared = Path(td) / "prepared.jpg"
-            source.save(original, quality=95)
+            source.save(original, quality=65)
+            with Image.open(original) as compressed:
+                self.assertGreaterEqual(
+                    app._edge_white_ratio(compressed),
+                    0.035,
+                    "The detector must recognize compressed edge text before cropping.",
+                )
             app.prepare_scene(original, prepared, "TEST CAPTION", 0, 1)
             with Image.open(prepared) as result:
                 self.assertEqual(result.size, (360, 640))
                 self.assertLess(
                     app._edge_white_ratio(result),
                     0.035,
-                    "The production image-preparation path must remove frame-edge artifacts.",
+                    "The production image-preparation path must remove compressed frame-edge artifacts.",
                 )
 
 
