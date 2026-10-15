@@ -2490,7 +2490,7 @@ def download_visuals(urls,outdir,title):
     candidates.sort(key=lambda x:x['score'],reverse=True)
     # Never add synthetic fallback graphics to the footage pool. Missing real images
     # should reduce visual variety or fail QA, not become placeholder scenes.
-    return candidates[:12]
+    return candidates[:18]
 
 
 def _smart_crop(im,W,H,variant=0):
