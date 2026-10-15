@@ -2588,8 +2588,8 @@ def _compress_long_tts_pauses(audio_path, word_cues=None, min_silence=0.70, keep
             [ff,'-hide_banner','-i',str(path),'-vn','-af',f'silencedetect=noise={threshold_db}dB:d={min_silence:.3f}','-f','null','-'],
             stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,text=True,timeout=60
         )
-        starts=[float(x) for x in re.findall(r'silence_start:\\s*([0-9.]+)',detected.stderr)]
-        ends=[float(x) for x in re.findall(r'silence_end:\\s*([0-9.]+)',detected.stderr)]
+        starts=[float(x) for x in re.findall(r'silence_start:\s*([0-9.]+)',detected.stderr)]
+        ends=[float(x) for x in re.findall(r'silence_end:\s*([0-9.]+)',detected.stderr)]
         if len(ends)<len(starts):
             ends.append(duration)
         ends=ends[:len(starts)]
