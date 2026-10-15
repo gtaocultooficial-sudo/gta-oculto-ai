@@ -2815,75 +2815,39 @@ def _video_contains_rating_disclaimer(path, sample_fps=2.0):
         except Exception: pass
 
 
-def _download_official_youtube_proxies(cache, jid=None, limit_per_video=4):
-    """Use Rockstar's verified official trailers when the downloads ZIP exposes only stills."""
-    try:
-        import yt_dlp
-    except Exception as e:
-        raise RuntimeError('yt-dlp indisponível para obter trailers oficiais: '+str(e)[:180])
-
+def _download_official_rockstar_cdn_proxies(cache, jid=None, limit_per_video=5):
+    """Extract short moving clips from Rockstar's own public CDN without downloading a full trailer."""
     cache=Path(cache)
     cache.mkdir(parents=True,exist_ok=True)
-    source_dir=cache/'youtube_sources'
-    source_dir.mkdir(parents=True,exist_ok=True)
     ff=_ffmpeg_executable()
-    # Rockstar Games' official channel: Trailer 2 and Trailer 1.
-    source_ids=[
-        ('VQRLujxTm3c','Trailer_2'),
-        ('QdBZY2fkU-0','Trailer_1'),
-    ]
+    # Rockstar's official video page exposes the Extended Look under this media ID.
+    # Use ranged, time-seeked downloads so only short segments are fetched.
+    media_id='rk721912'
+    starts=[72.0,365.0,672.0,1015.0,1390.0]
+    resolutions=['720p','1080p','2160p']
     next_index=0
     for p in cache.glob('rockstar_real_v251_*.mp4'):
         m=re.search(r'_(\d+)\.mp4$',p.name)
         if m: next_index=max(next_index,int(m.group(1))+1)
     proxies=[]
-    for video_id,label in source_ids:
-        source=source_dir/f'{video_id}.mp4'
-        source_probe=_probe_media(source) if source.exists() else {'ok':False}
-        if not source_probe.get('ok') or not source_probe.get('video') or float(source_probe.get('duration') or 0)<10:
-            for p in source_dir.glob(f'{video_id}.*'):
-                if p.is_file():
-                    try: p.unlink()
-                    except Exception: pass
-            if jid: update_job(jid,log=f'Obtendo trailer oficial {label} do canal Rockstar Games...')
-            options={
-                'format':'best[height<=720][ext=mp4]/best[height<=720]/best',
-                'outtmpl':str(source_dir/'%(id)s.%(ext)s'),
-                'merge_output_format':'mp4',
-                'noplaylist':True,
-                'quiet':True,
-                'no_warnings':True,
-                'retries':2,
-                'fragment_retries':2,
-                'socket_timeout':25,
-                'overwrites':True,
-            }
-            with yt_dlp.YoutubeDL(options) as ydl:
-                info=ydl.extract_info('https://www.youtube.com/watch?v='+video_id,download=True)
-                prepared=Path(ydl.prepare_filename(info))
-            candidates=[source, prepared]
-            candidates += [p for p in source_dir.glob(f'{video_id}.*') if p.suffix.lower() in {'.mp4','.mkv','.webm','.mov'}]
-            source=next((p for p in candidates if p.exists() and p.is_file()),None)
-            if source is None:
-                raise RuntimeError(f'yt-dlp não criou arquivo válido para {label}')
-            source_probe=_probe_media(source)
-        duration=float(source_probe.get('duration') or 0)
-        if not source_probe.get('ok') or not source_probe.get('video') or duration<10:
-            print(f'[OFFICIAL_YOUTUBE] rejected={label} duration={duration:.2f}s error={source_probe.get("error","sem stream válido")}',flush=True)
-            continue
-        # Four spaced samples per trailer limit data transfer and prevent reuse of one opening.
-        count=min(int(limit_per_video),max(1,int(duration//12)))
-        for i in range(count):
-            if len(proxies)>=8: break
-            max_start=max(0.0,duration-8.5)
-            start=(i+0.5)*max_start/count if count else 0.0
+    failures=[]
+    for resolution in resolutions:
+        url=f'https://videos-rockstargames-com.akamaized.net/v4/{media_id}/flv/en-us-{resolution}.mp4'
+        for i,start in enumerate(starts):
+            if len(proxies)>=int(limit_per_video):
+                break
             target=cache/f'rockstar_real_v251_{next_index}.mp4'
             next_index+=1
             try:
-                if jid: update_job(jid,log=f'Preparando trecho oficial {label} {i+1}/{count} ({start:.1f}s)...')
+                if jid:
+                    update_job(jid,log=f'Obtendo trecho de vídeo oficial Rockstar ({resolution}, amostra {i+1}/{len(starts)})...')
+                headers='Referer: https://www.rockstargames.com/\r\nUser-Agent: '+UA+'\r\n'
+                # Input-side -ss lets FFmpeg request the selected byte range instead of
+                # downloading the entire 26-minute source first.
                 run_cmd([
                     ff,'-hide_banner','-loglevel','error','-y','-threads:v','1',
-                    '-i',str(source),'-ss',f'{start:.3f}','-t','8.5',
+                    '-rw_timeout','30000000','-headers',headers,
+                    '-ss',f'{start:.3f}','-i',url,'-t','8.5',
                     '-vf','scale=320:568:force_original_aspect_ratio=increase,crop=320:568,setsar=1,fps=12',
                     '-an','-c:v','libx264','-preset','ultrafast','-crf','31',
                     '-threads','1','-filter_threads','1','-filter_complex_threads','1',
@@ -2893,20 +2857,25 @@ def _download_official_youtube_proxies(cache, jid=None, limit_per_video=4):
                 pprobe=_probe_media(target) if target.exists() else {'ok':False,'duration':0,'video':[],'error':'arquivo não criado'}
                 pduration=float(pprobe.get('duration') or 0)
                 if not pprobe.get('ok') or not pprobe.get('video') or pduration<4.0 or target.stat().st_size<20000:
-                    raise RuntimeError(f'trecho inválido duration={pduration:.2f}s {pprobe.get("error","")}')
+                    raise RuntimeError(f'trecho inválido duration={pduration:.2f}s bytes={target.stat().st_size if target.exists() else 0}; {pprobe.get("error","")}')
                 if _video_contains_rating_disclaimer(target):
                     target.unlink(missing_ok=True)
                     raise RuntimeError('trecho descartado por tela de classificação/disclaimer')
                 proxies.append(target)
-                print(f'[OFFICIAL_YOUTUBE] accepted={target.name} source={label} start={start:.1f}s duration={pduration:.2f}s',flush=True)
+                print(f'[OFFICIAL_ROCKSTAR_CDN] accepted={target.name} resolution={resolution} start={start:.1f}s duration={pduration:.2f}s',flush=True)
             except Exception as e:
-                target.unlink(missing_ok=True)
-                print(f'[OFFICIAL_YOUTUBE] rejected={label} start={start:.1f}s error={str(e)[:220]}',flush=True)
-        if len(proxies)>=8: break
+                try: target.unlink(missing_ok=True)
+                except Exception: pass
+                reason=f'{resolution} @ {start:.1f}s: {str(e)[:220]}'
+                failures.append(reason)
+                print(f'[OFFICIAL_ROCKSTAR_CDN] rejected {reason}',flush=True)
+        if len(proxies)>=int(limit_per_video):
+            break
     if len(proxies)<2:
-        raise RuntimeError(f'Fallback oficial do YouTube gerou apenas {len(proxies)} trechos válidos; são necessários pelo menos 2.')
-    print(f'[OFFICIAL_YOUTUBE] ready proxies={len(proxies)}',flush=True)
-    return proxies[:8]
+        raise RuntimeError(f'CDN oficial da Rockstar forneceu apenas {len(proxies)} trechos válidos; necessários pelo menos 2. Últimos erros: {" | ".join(failures[-5:])}')
+    print(f'[OFFICIAL_ROCKSTAR_CDN] ready proxies={len(proxies)}',flush=True)
+    return proxies
+
 
 
 def download_official_video_clips(outdir, jid=None):
@@ -3039,11 +3008,11 @@ def download_official_video_clips(outdir, jid=None):
         zip_error=str(e)[:900]
         print(f'[OFFICIAL_VIDEO_ZIP] insufficient valid motion clips: {zip_error}; trying verified Rockstar YouTube sources',flush=True)
         try:
-            return _download_official_youtube_proxies(cache,jid=jid,limit_per_video=4)
+            return _download_official_rockstar_cdn_proxies(cache,jid=jid,limit_per_video=5)
         except Exception as yt_error:
             raise RuntimeError(
                 'Não foi possível obter vídeos oficiais utilizáveis. '
-                f'Pacote de downloads: {zip_error}. Fallback YouTube oficial: {str(yt_error)[:900]}'
+                f'Pacote de downloads: {zip_error}. Fallback CDN oficial: {str(yt_error)[:900]}'
             )
 
 
