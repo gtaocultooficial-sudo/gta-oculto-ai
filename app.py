@@ -4442,7 +4442,9 @@ def _visual_repetition_audit(path):
         for i in range(len(hashes)):
             for j in range(i+3,len(hashes)):
                 distance=sum(a!=b for a,b in zip(hashes[i],hashes[j]))
-                if distance<=12:
+                if distance<=6:
+                    # Similaridade isolada precisa ser forte; GTA tem muitos frames
+                    # com silhuetas/contraste parecidos que não são o mesmo take.
                     frame_matches.append((i,j,distance))
                     frame_marks.add(i); frame_marks.add(j)
 
