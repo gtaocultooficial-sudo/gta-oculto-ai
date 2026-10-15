@@ -2240,7 +2240,10 @@ def research_official():
             r=fetch(url); r.raise_for_status(); soup=BeautifulSoup(r.text,'html.parser')
             text=' '.join(soup.stripped_strings)
             facts.append(text[:16000])
-            images.extend(_candidate_urls(url,soup))
+            # The general GTA VI landing page contains store/product merchandising.
+            # Keep it for research text, but never use its images as story footage.
+            if url != ROCKSTAR_VI:
+                images.extend(_candidate_urls(url,soup))
         except Exception: pass
     # Também coleta a galeria oficial de downloads da Rockstar para aumentar a variedade visual.
     try:
