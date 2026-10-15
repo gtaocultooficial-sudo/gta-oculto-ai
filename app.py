@@ -5417,7 +5417,7 @@ threading.Thread(target=processor_loop,daemon=True).start()
 threading.Thread(target=boot_produce_once,daemon=True).start()
 threading.Thread(target=radar_loop,daemon=True).start()
 threading.Thread(target=autonomy_loop,daemon=True).start()
-if __name__=='__main__': APP.run(host='0.0.0.0',port=int(os.environ.get('PORT',5000))),'',stem,flags=re.I)
+
         stem=re.sub(r'_(?:clip|proxy|segment)_\d+
     video_sources={source_group(p) for p in videos}
     # V61: repetition is now a hard budget, not just a score penalty.
@@ -7238,7 +7238,7 @@ threading.Thread(target=processor_loop,daemon=True).start()
 threading.Thread(target=boot_produce_once,daemon=True).start()
 threading.Thread(target=radar_loop,daemon=True).start()
 threading.Thread(target=autonomy_loop,daemon=True).start()
-if __name__=='__main__': APP.run(host='0.0.0.0',port=int(os.environ.get('PORT',5000))),'',stem,flags=re.I)
+
         return stem.lower()
     video_sources={source_group(p) for p in videos}
     # V61: repetition is now a hard budget, not just a score penalty.
