@@ -2869,6 +2869,10 @@ def _download_official_rockstar_cdn_proxies(cache, jid=None, limit_per_video=5):
                 reason=f'{resolution} @ {start:.1f}s: {str(e)[:220]}'
                 failures.append(reason)
                 print(f'[OFFICIAL_ROCKSTAR_CDN] rejected {reason}',flush=True)
+                # If the first seek cannot open a resolution URL, test the next
+                # resolution instead of retrying the same unavailable asset 5 times.
+                if i == 0:
+                    break
         if len(proxies)>=int(limit_per_video):
             break
     if len(proxies)<2:
@@ -3006,13 +3010,13 @@ def download_official_video_clips(outdir, jid=None):
         return safe[:target_clips]
     except Exception as e:
         zip_error=str(e)[:900]
-        print(f'[OFFICIAL_VIDEO_ZIP] insufficient valid motion clips: {zip_error}; trying verified Rockstar YouTube sources',flush=True)
+        print(f'[OFFICIAL_VIDEO_ZIP] insufficient valid motion clips: {zip_error}; trying Rockstar official CDN range-download fallback',flush=True)
         try:
             return _download_official_rockstar_cdn_proxies(cache,jid=jid,limit_per_video=5)
-        except Exception as yt_error:
+        except Exception as rockstar_error:
             raise RuntimeError(
                 'Não foi possível obter vídeos oficiais utilizáveis. '
-                f'Pacote de downloads: {zip_error}. Fallback CDN oficial: {str(yt_error)[:900]}'
+                f'Pacote de downloads: {zip_error}. Fallback CDN oficial: {str(rockstar_error)[:900]}'
             )
 
 
