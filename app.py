@@ -3844,7 +3844,10 @@ def _partition_caption_tokens_for_count(tokens, target_count, max_words=7, min_w
                 raise RuntimeError('GATE CAPTIONS: final caption would exceed the word limit.')
         else:
             ideal=round((idx+1)*len(tokens)/target)
-            lo=cursor+min_words
+            # Leave enough tokens for every remaining caption, while bounding
+            # each of them at max_words. Without this lower bound, an earlier
+            # semantically pleasant cut could strand >7 words in the final caption.
+            lo=max(cursor+min_words,len(tokens)-max_words*(remaining_slots-1))
             hi=min(cursor+max_words,len(tokens)-min_words*(remaining_slots-1))
             candidates=[]
             for cut in range(lo,hi+1):
