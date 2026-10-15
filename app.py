@@ -2831,7 +2831,7 @@ def download_official_video_clips(outdir, jid=None):
                 continue
             probe=_probe_media(p)
             seconds=float(probe.get('duration') or 0)
-            if not probe.get('ok') or not probe.get('video') or seconds < 4.0:
+            if not probe.get('ok') or not probe.get('video') or seconds < 0.8:
                 print(f'[VIDEO_CACHE] removing_invalid={p.name} duration={seconds:.2f}s error={probe.get("error","no video or too short")}',flush=True)
                 p.unlink(missing_ok=True)
                 continue
@@ -2885,7 +2885,7 @@ def download_official_video_clips(outdir, jid=None):
                 _remote_zip_extract(ROCKSTAR_VIDEO_ZIP,entry,raw)
                 raw_probe=_probe_media(raw)
                 raw_duration=float(raw_probe.get('duration') or 0)
-                if not raw_probe.get('ok') or not raw_probe.get('video') or raw_duration < 4.0:
+                if not raw_probe.get('ok') or not raw_probe.get('video') or raw_duration < 0.8:
                     raise RuntimeError(f'fonte extraída inválida: duration={raw_duration:.2f}s bytes={raw.stat().st_size if raw.exists() else 0}; {raw_probe.get("error","sem stream de vídeo")}')
                 if jid:
                     update_job(jid,log=f'Convertendo fonte validada ({raw_duration:.1f}s) para proxy leve 320x568...')
@@ -2908,10 +2908,10 @@ def download_official_video_clips(outdir, jid=None):
                     run_cmd(cmd,90)
                     proxy_probe=_probe_media(target) if target.exists() else {'ok':False,'duration':0,'video':[],'error':'arquivo não criado'}
                     proxy_duration=float(proxy_probe.get('duration') or 0)
-                    if target.exists() and target.stat().st_size>20000 and proxy_probe.get('ok') and proxy_probe.get('video') and proxy_duration>=4.0:
+                    if target.exists() and target.stat().st_size>20000 and proxy_probe.get('ok') and proxy_probe.get('video') and proxy_duration>=0.8:
                         break
                     proxy_errors.append(f'tentativa {attempt+1}: {proxy_duration:.2f}s; {proxy_probe.get("error","sem stream de vídeo")}')
-                if not target.exists() or target.stat().st_size<=20000 or not proxy_probe.get('ok') or not proxy_probe.get('video') or proxy_duration<4.0:
+                if not target.exists() or target.stat().st_size<=20000 or not proxy_probe.get('ok') or not proxy_probe.get('video') or proxy_duration<0.8:
                     raise RuntimeError(f'proxy inválido após 2 tentativas; fonte={raw_duration:.2f}s; '+ ' | '.join(proxy_errors))
                 if _video_contains_rating_disclaimer(target):
                     if jid:
@@ -2976,7 +2976,7 @@ def _expand_video_clips_into_distinct_windows(video_clips, jobdir, windows_per_c
         try:
             source_probe=_probe_media(clip)
             source_duration=float(source_probe.get('duration') or 0)
-            if not source_probe.get('ok') or not source_probe.get('video') or source_duration < 4.0:
+            if not source_probe.get('ok') or not source_probe.get('video') or source_duration < 0.8:
                 print(
                     f'[VIDEO_WINDOWS] source_rejected={clip.name} duration={source_duration:.2f}s '
                     f'error={source_probe.get("error","no video or clip too short")}',
