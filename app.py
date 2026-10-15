@@ -3878,7 +3878,11 @@ def _partition_caption_tokens_for_count(tokens, target_count, max_words=7, min_w
                     failed=True
                     break
                 # Prefer a clean grammatical boundary whenever one exists at this position.
-                clean=[x for x in candidates if x[0] < 80]
+                clean=[
+                    item for item in candidates
+                    if _caption_clean_word(tokens[item[1]-1]) not in bad_end
+                    and _caption_clean_word(tokens[item[1]]) not in bad_start
+                ]
                 _,cut=min(clean or candidates,key=lambda item:item[0])
             chunks.append(tokens[cursor:cut])
             cursor=cut
