@@ -80,7 +80,10 @@ class AutonomousEngine:
         result={'published':False,'analytics':None}
         print(f'[AUTONOMY {jid}] on_done start video={bool(video)} publisher_enabled={self.publisher.enabled} token_configured={bool(self.publisher.token_json)}', flush=True)
         if video:
-            if self.trend_brain:
+            # Do not reserve a future public release slot while YouTube auto-publishing
+            # is disabled. A stale publishAt value could otherwise schedule visibility
+            # unexpectedly if publishing is enabled again later.
+            if self.trend_brain and self.publisher.enabled:
                 try:
                     quality=float(job.get('score',0) or job.get('audit_score',0) or 0)
                     if isinstance(job.get('media_validation'),dict):
@@ -92,6 +95,10 @@ class AutonomousEngine:
                         meta['publish_slot']=job['recommended_publish_slot'].get('time','')
                     app_module.update_job(jid,recommended_publish_slot=job['recommended_publish_slot'],metadata=meta)
                 except Exception as e: self.memory.event('publish_slot_error',str(e))
+            elif not self.publisher.enabled:
+                meta.pop('publish_at',None)
+                job['recommended_publish_slot']={}
+                app_module.update_job(jid,recommended_publish_slot=None,metadata=meta)
             path=app_module.WORK/video
             if path.exists():
                 print(f'[AUTONOMY {jid}] YouTube upload start bytes={path.stat().st_size}', flush=True)
