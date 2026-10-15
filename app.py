@@ -2572,6 +2572,93 @@ def duration_of_audio(path):
         out=run_cmd(['ffprobe','-v','error','-show_entries','format=duration','-of','default=nw=1:nk=1',str(path)],30); return max(20,min(42,float(out.strip())))
     except Exception: return 30.0
 
+
+def _compress_long_tts_pauses(audio_path, word_cues=None, min_silence=0.70, keep_silence=0.14, threshold_db=-45):
+    """Compacta pausas longas no TTS e desloca os WordBoundary pela mesma duração removida."""
+    path=Path(audio_path)
+    temp=path.with_name(path.stem+'_pausefix'+path.suffix)
+    try:
+        ff=_ffmpeg_executable()
+        probe=subprocess.run(
+            ['ffprobe','-v','error','-show_entries','format=duration','-of','default=nw=1:nk=1',str(path)],
+            stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,timeout=25,check=True
+        )
+        duration=float(probe.stdout.strip())
+        detected=subprocess.run(
+            [ff,'-hide_banner','-i',str(path),'-vn','-af',f'silencedetect=noise={threshold_db}dB:d={min_silence:.3f}','-f','null','-'],
+            stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,text=True,timeout=60
+        )
+        starts=[float(x) for x in re.findall(r'silence_start:\\s*([0-9.]+)',detected.stderr)]
+        ends=[float(x) for x in re.findall(r'silence_end:\\s*([0-9.]+)',detected.stderr)]
+        if len(ends)<len(starts):
+            ends.append(duration)
+        ends=ends[:len(starts)]
+        cuts=[]
+        for start,end in zip(starts,ends):
+            start=max(0.0,min(start,duration)); end=max(start,min(end,duration))
+            if end-start < min_silence:
+                continue
+            cut_start=min(end,start+keep_silence)
+            # Preserve a tiny natural tail instead of cutting audio flush at EOF.
+            cut_end=max(cut_start,min(end,duration-0.08) if end>=duration-0.10 else end)
+            if cut_end-cut_start>0.04:
+                cuts.append((cut_start,cut_end))
+        if not cuts:
+            return path,list(word_cues or [])
+        cuts.sort()
+        merged=[]
+        for a,b in cuts:
+            if merged and a<=merged[-1][1]+0.01:
+                merged[-1]=(merged[-1][0],max(merged[-1][1],b))
+            else:
+                merged.append((a,b))
+        cuts=merged
+        segments=[]; cursor=0.0
+        for a,b in cuts:
+            if a>cursor+0.025:
+                segments.append((cursor,a))
+            cursor=max(cursor,b)
+        if duration>cursor+0.025:
+            segments.append((cursor,duration))
+        if len(segments)<2:
+            return path,list(word_cues or [])
+        graph=[]
+        for i,(a,b) in enumerate(segments):
+            graph.append(f'[0:a]atrim=start={a:.6f}:end={b:.6f},asetpts=PTS-STARTPTS[a{i}]')
+        graph.append(''.join(f'[a{i}]' for i in range(len(segments)))+f'concat=n={len(segments)}:v=0:a=1[outa]')
+        temp.unlink(missing_ok=True)
+        run_cmd([ff,'-hide_banner','-loglevel','error','-y','-i',str(path),
+                 '-filter_complex',';'.join(graph),'-map','[outa]','-vn',
+                 '-c:a','libmp3lame','-q:a','3',str(temp)],120)
+        if not temp.exists() or temp.stat().st_size<1000:
+            raise RuntimeError('o áudio compactado não foi gerado corretamente')
+        removed=sum(b-a for a,b in cuts)
+        adjusted=[]
+        for cue in (word_cues or []):
+            c=dict(cue)
+            try:
+                start=float(c.get('start',0.0)); old_len=max(0.0,float(c.get('duration',0.0)))
+                end=start+old_len
+                shift=0.0; overlap=0.0
+                for a,b in cuts:
+                    if start>a:
+                        shift+=max(0.0,min(start,b)-a)
+                    overlap+=max(0.0,min(end,b)-max(start,a))
+                c['start']=round(max(0.0,start-shift),4)
+                c['duration']=round(max(0.03,old_len-overlap),4)
+            except Exception:
+                pass
+            adjusted.append(c)
+        os.replace(str(temp),str(path))
+        print(f'[TTS_PAUSE_REPAIR] gaps={len(cuts)} removed={removed:.2f}s original={duration:.2f}s',flush=True)
+        return path,adjusted
+    except Exception as e:
+        try: temp.unlink(missing_ok=True)
+        except Exception: pass
+        print(f'[TTS_PAUSE_REPAIR] skipped error={type(e).__name__}:{str(e)[:220]}',flush=True)
+        return path,list(word_cues or [])
+
+
 async def make_tts(text,path):
     """Gera narração PT-BR: tenta Edge-TTS e usa gTTS como fallback gratuito."""
     last=None
@@ -3688,6 +3775,12 @@ def _asset_relevance(path, title, beat_text, kind):
     if kind=='video': score+=3
     return score
 
+def _visual_source_key(path):
+    """Return the original clip stem so cropped windows cannot masquerade as new sources."""
+    stem=Path(path).stem
+    return re.sub(r'_window_[0-9]+$','',stem,flags=re.I)
+
+
 def _choose_timeline_assets(video_clips, image_paths, beats, topic_title, variant=0):
     """V57: editor video-first.
     Prioriza material em movimento e usa imagens apenas como apoio editorial.
@@ -3698,8 +3791,8 @@ def _choose_timeline_assets(video_clips, image_paths, beats, topic_title, varian
     pool=[('video',p) for p in videos]+[('image',p) for p in images]
     chosen=[]; used=set(); asset_counts={}; source_counts={}
     def source_group(path):
-        # Every 2.8s window is a one-use motion segment.
-        return Path(path).stem
+        # Three windows cut from one trailer still count as one editorial source.
+        return _visual_source_key(path)
     video_sources={source_group(p) for p in videos}
     # V61: repetition is now a hard budget, not just a score penalty.
     # The pool can shrink on Render Free after a restart, so the reuse budget is
@@ -3893,7 +3986,7 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
     # Cap scene count before normalization so the renderer cannot recreate more
     # scenes than the unique visual pool can support.
     if video_clips:
-        source_keys={Path(p).stem if re.search(r'_window_\d+$',Path(p).stem,flags=re.I) else Path(p).stem.split('_window_')[0] for p in video_clips if p}
+        source_keys={_visual_source_key(p) for p in video_clips if p}
         visual_capacity=len(source_keys)+len(set(map(str,image_paths)))
         if 6 <= visual_capacity < len(beats):
             narration_words=re.sub(r'\\s+',' ',str(script.get('narration','')).strip()).split()
@@ -3912,7 +4005,7 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
         # Preserve the capped timeline exactly when it fits the unique visual pool.
         # Calling the normalizer here can split long beats and recreate the same
         # visual-capacity failure we just avoided.
-        unique_pool=len({Path(p).stem if re.search(r'_window_\d+$',Path(p).stem,flags=re.I) else Path(p).stem.split('_window_')[0] for p in video_clips if p})+len(set(map(str,image_paths)))
+        unique_pool=len({_visual_source_key(p) for p in video_clips if p})+len(set(map(str,image_paths)))
         if len(beats) <= unique_pool:
             n=max(1,len(beats))
             beats=[dict(b, start=i*duration/n, end=(i+1)*duration/n, duration=duration/n) for i,b in enumerate(beats)]
@@ -4733,7 +4826,7 @@ def audit_short(script, video, duration, beats, selected_videos, image_scenes):
         issues.append(('VISUAL_STAGNATION',f'visual praticamente parado por {motion.get("longest_still_seconds",0):.0f}s'))
     if motion.get('frozen_ratio',0)>=0.40:
         issues.append(('HIGH_FROZEN_RATIO',f'{motion.get("frozen_ratio",0)*100:.0f}% das transições amostradas com pouca mudança visual'))
-    if not repetition.get('error') and (repetition.get('repeated_ratio',0)>=0.28 or repetition.get('longest_repeat_s',0)>=4):
+    if not repetition.get('error') and (repetition.get('repeated_ratio',0)>=0.24 or repetition.get('longest_repeat_s',0)>=4):
         issues.append(('VISUAL_REPETITION',f'repetição visual detectada: {repetition.get("repeated_ratio",0)*100:.0f}% das amostras / trecho repetido até {repetition.get("longest_repeat_s",0):.1f}s'))
     final=max(0,round((checks['roteiro']+checks['alinhamento_pauta']+checks['legendas']+checks['alinhamento_legendas']+checks['mp4']+checks['visuais']+checks['movimento']+checks['repeticao_visual'])/8))
     return {'score':final,'checks':checks,'issues':[{'code':c,'message':m} for c,m in issues],'media':media,'caption_audit':cap,'motion_audit':motion,'repetition_audit':repetition}
@@ -4947,7 +5040,7 @@ def produce_job(jid):
         update_job(jid,progress=44,log=f'Plano visual de contingência: {len(image_scenes)} imagens oficiais únicas preparadas; tentando priorizar vídeo real.')
         update_job(jid,stage='NARRAÇÃO',progress=60,log='Gerando narração PT-BR e capturando timestamps reais da fala...')
         print(f'[JOB {jid}] stage=TTS start',flush=True)
-        audio=jobdir/'narracao.mp3'; word_cues=asyncio.run(make_tts(script['narration'],audio)); duration=duration_of_audio(audio)
+        audio=jobdir/'narracao.mp3'; word_cues=asyncio.run(make_tts(script['narration'],audio)); audio,word_cues=_compress_long_tts_pauses(audio,word_cues); duration=duration_of_audio(audio)
         print(f'[JOB {jid}] stage=TTS done audio_bytes={audio.stat().st_size if audio.exists() else 0} duration={duration:.1f}',flush=True)
         (jobdir/'word_cues.json').write_text(json.dumps(word_cues,ensure_ascii=False,indent=2),encoding='utf-8')
         # Editorial pacing: use more short beats so stills do not linger for 3-4 seconds.
@@ -5035,7 +5128,7 @@ def produce_job(jid):
         # Fit the edit to the actual one-use visual pool before rendering.
         # Timeline selection permits each original official source once and each
         # unique still once; counting two windows per source overstated capacity.
-        available_slots=len(selected_videos)+len(image_scenes)
+        available_slots=len({_visual_source_key(p) for p in selected_videos})+len(set(map(str,image_scenes)))
         if available_slots < len(beats) and available_slots >= 6:
             fallback_count=min(available_slots,16)
             beats=build_short_timeline(script,topic,duration,fallback_count,word_cues=None)
