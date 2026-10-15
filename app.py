@@ -3451,12 +3451,19 @@ def _semantic_caption_chunks(sentence, min_words=3, max_words=7):
     preferred={'e','mas','porque','porém','porem','então','entao','quando','enquanto','porque'}
     protected={('gta','6'),('gta','vi'),('vice','city'),('cloud','gaming'),('xbox','cloud','gaming'),('playstation','5'),('xbox','series')}
     def protected_cut(cut):
+        # A cut is protected only when it splits a protected expression across
+        # its two sides (for example VICE | CITY), not when the whole phrase is
+        # safely contained in one caption.
         left=[norm(x) for x in tokens[max(0,cut-3):cut]]
         right=[norm(x) for x in tokens[cut:cut+3]]
         for ph in protected:
             n=len(ph)
-            if len(left)>=n and tuple(left[-n:])==ph: return True
-            if len(right)>=n and tuple(right[:n])==ph: return True
+            for left_count in range(1,n):
+                right_count=n-left_count
+                if (len(left)>=left_count and len(right)>=right_count
+                    and tuple(left[-left_count:])==ph[:left_count]
+                    and tuple(right[:right_count])==ph[left_count:]):
+                    return True
         return False
     out=[]; i=0
     while i<len(tokens):
@@ -3468,6 +3475,8 @@ def _semantic_caption_chunks(sentence, min_words=3, max_words=7):
         best=None
         target=min(max_words, 6 if rem>=10 else 5)
         for cut in range(lo,hi+1):
+            if protected_cut(cut):
+                continue
             left=tokens[i:cut]; right=tokens[cut:]
             if not right: continue
             lw=norm(left[-1]); rw=norm(right[0])
@@ -3483,7 +3492,12 @@ def _semantic_caption_chunks(sentence, min_words=3, max_words=7):
             if len(right)<min_words and rem>max_words+min_words: score+=25
             cand=(score,cut)
             if best is None or cand<best: best=cand
-        cut=best[1] if best else min(i+target,len(tokens))
+        if best:
+            cut=best[1]
+        else:
+            fallback=min(i+target,len(tokens))
+            safe=[c for c in range(lo,hi+1) if not protected_cut(c)]
+            cut=min(safe,key=lambda c:abs(c-fallback)) if safe else fallback
         out.append(tokens[i:cut]); i=cut
     # Último passe: junta um fragmento curto ao vizinho sem criar corte ruim.
     fixed=[]
@@ -3514,14 +3528,17 @@ def _caption_phrase_chunks(sentence, min_words=3, max_words=10):
         ('playstation','5'),('xbox','series')
     }
     def protected_cut(cut):
+        # Prevent cutting inside a protected multiword phrase.
         left=[norm(x) for x in tokens[max(0,cut-4):cut]]
         right=[norm(x) for x in tokens[cut:cut+4]]
         for ph in protected:
             n=len(ph)
-            for i in range(len(left)-n+1):
-                if tuple(left[i:i+n])==ph and i+n==len(left): return True
-            for i in range(len(right)-n+1):
-                if tuple(right[i:i+n])==ph and i==0: return True
+            for left_count in range(1,n):
+                right_count=n-left_count
+                if (len(left)>=left_count and len(right)>=right_count
+                    and tuple(left[-left_count:])==ph[:left_count]
+                    and tuple(right[:right_count])==ph[left_count:]):
+                    return True
         return False
 
     chunks=[]; i=0
@@ -3534,6 +3551,8 @@ def _caption_phrase_chunks(sentence, min_words=3, max_words=10):
         hi=min(len(tokens)-1,i+max_words)
         candidates=[]
         for cut in range(lo,hi+1):
+            if protected_cut(cut):
+                continue
             left=tokens[i:cut]; right=tokens[cut:]
             if len(right)>0 and len(right)<min_words and rem>max_words+min_words: continue
             lw=norm(left[-1]); rw=norm(right[0]) if right else ''
@@ -3545,7 +3564,12 @@ def _caption_phrase_chunks(sentence, min_words=3, max_words=10):
             if protected_cut(cut): score+=45
             if len(left)>=8: score+=1
             candidates.append((score,cut))
-        cut=min(i+target,len(tokens)) if not candidates else min(candidates)[1]
+        if candidates:
+            cut=min(candidates)[1]
+        else:
+            fallback=min(i+target,len(tokens))
+            safe=[c for c in range(lo,hi+1) if not protected_cut(c)]
+            cut=min(safe,key=lambda c:abs(c-fallback)) if safe else fallback
         chunks.append(tokens[i:cut]); i=cut
 
     # Merge tiny chunks without crossing protected expressions.
@@ -3775,7 +3799,7 @@ def _asset_relevance(path, title, beat_text, kind):
     if kind=='video': score+=3
     return score
 
-VIDEO_SOURCE_MAX_USES=2
+VIDEO_SOURCE_MAX_USES=1
 
 
 def _visual_source_key(path):
