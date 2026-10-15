@@ -3498,7 +3498,7 @@ def _semantic_caption_chunks(sentence, min_words=3, max_words=7):
     bad_end={'e','de','do','da','em','no','na','que','um','uma','o','a','os','as','para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa','sobre','entre','até','sem','como','pelo','pela','pelos','pelas','porém','porem','então','entao'}
     bad_start={'e','mas','porque','porém','porem','então','entao','quando','enquanto','que','para','com','de','do','da','em','no','na'}
     preferred={'e','mas','porque','porém','porem','então','entao','quando','enquanto','porque'}
-    protected={('gta','6'),('gta','vi'),('vice','city'),('cloud','gaming'),('xbox','cloud','gaming'),('playstation','5'),('xbox','series')}
+    protected={('gta','6'),('gta','vi'),('vice','city'),('cloud','gaming'),('xbox','cloud','gaming'),('jason','e','lucia'),('playstation','5'),('xbox','series')}
     def protected_cut(cut):
         # A cut is protected only when it splits a protected expression across
         # its two sides (for example VICE | CITY), not when the whole phrase is
@@ -5181,6 +5181,16 @@ def produce_job(jid):
                 beats=_fixed_beats
         _pre_cap=_audit_caption_quality(beats)
         _pre_align=_caption_narration_alignment(beats,script.get('narration',''))
+        print(
+            f"[CAPTION_PRECHECK] job={jid} score={_pre_cap.get('score',0)} "
+            f"bad_end={len(_pre_cap.get('bad_end',[]))} "
+            f"bad_start={len(_pre_cap.get('bad_start',[]))} "
+            f"protected_splits={len(_pre_cap.get('protected_splits',[]))} "
+            f"visual_bad={len(_pre_cap.get('visual_bad',[]))} "
+            f"long={len(_pre_cap.get('long',[]))} short={len(_pre_cap.get('short',[]))} "
+            f"repeated_adjacent={_pre_cap.get('repeated_adjacent',0)}",
+            flush=True
+        )
         # V68: fronteiras gramaticais são um sinal de qualidade, mas a heurística
         # pode marcar continuações naturais (ex.: demonstrativos/possessivos). Bloquear
         # qualquer ocorrência deixa a fila em ERROR sem produzir vídeo. Só falha fechado
