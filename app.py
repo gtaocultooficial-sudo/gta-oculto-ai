@@ -3592,11 +3592,12 @@ def _choose_timeline_assets(video_clips, image_paths, beats, topic_title, varian
     pool=[('video',p) for p in videos]+[('image',p) for p in images]
     chosen=[]; used=set(); asset_counts={}; source_counts={}
     def source_group(path):
-        # Treat extracted windows/proxies from the same original clip as one source.
-        # Otherwise names such as trailer_window_01 and trailer_window_02 bypass
-        # the one-use-per-source rule and bring the same shot back later in the Short.
+        # Group extracted windows/proxies from the same original clip as one source.
+        # This prevents the same trailer from reappearing as supposedly new footage.
         stem=Path(path).stem
-        stem=re.sub(r'_window_\d+
+        stem=re.sub(r'_window_\d+$','',stem,flags=re.I)
+        stem=re.sub(r'_(?:clip|proxy|segment)_\d+$','',stem,flags=re.I)
+        return stem.lower()
     video_sources={source_group(p) for p in videos}
     # V61: repetition is now a hard budget, not just a score penalty.
     # The pool can shrink on Render Free after a restart, so the reuse budget is
