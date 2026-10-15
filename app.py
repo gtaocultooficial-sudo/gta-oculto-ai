@@ -3109,8 +3109,16 @@ def _expand_video_clips_into_distinct_windows(video_clips, jobdir, windows_per_c
     # the same 8.5s proxy). Round-robin ordering switches footage every scene.
     def _window_round_robin_key(path):
         stem=Path(path).stem
-        match=re.search(r'_window_(\d+)
-
+        parts=stem.rsplit('_window_',1)
+        if len(parts)!=2 or not parts[1].isdigit():
+            return (0,0,stem)
+        source_stem=parts[0]
+        source_tail=source_stem.rsplit('_',1)[-1]
+        source_index=int(source_tail) if source_tail.isdigit() else 0
+        return (int(parts[1]),source_index,source_stem)
+    expanded.sort(key=_window_round_robin_key)
+    print(f'[VIDEO_WINDOWS] expanded {len(clips)} source clips into {len(expanded)} valid windows; order=round_robin',flush=True)
+    return expanded
 def _frame_visual_hash(path):
     """Small dependency-light perceptual hash for near-duplicate frame rejection."""
     try:
