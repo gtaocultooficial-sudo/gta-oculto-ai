@@ -3775,10 +3775,24 @@ def _asset_relevance(path, title, beat_text, kind):
     if kind=='video': score+=3
     return score
 
+VIDEO_SOURCE_MAX_USES=2
+
+
 def _visual_source_key(path):
     """Return the original clip stem so cropped windows cannot masquerade as new sources."""
     stem=Path(path).stem
     return re.sub(r'_window_[0-9]+$','',stem,flags=re.I)
+
+
+def _visual_source_capacity(paths, max_per_source=VIDEO_SOURCE_MAX_USES):
+    """Count how many video windows can be used without exceeding the per-source budget."""
+    counts={}
+    for path in (paths or []):
+        if not path:
+            continue
+        key=_visual_source_key(path)
+        counts[key]=counts.get(key,0)+1
+    return sum(min(max(0,int(max_per_source)),count) for count in counts.values())
 
 
 def _choose_timeline_assets(video_clips, image_paths, beats, topic_title, variant=0):
@@ -3808,15 +3822,16 @@ def _choose_timeline_assets(video_clips, image_paths, beats, topic_title, varian
     # nova cena editorial: limitar cada fonte original a UMA aparição por Short.
     # Se o pool de fontes oficiais for insuficiente, o gate deve bloquear em vez
     # de publicar um vídeo com o mesmo personagem/plano reciclado.
-    video_max_reuse=1
+    video_max_reuse=VIDEO_SOURCE_MAX_USES
     max_reuse=max(image_max_reuse,video_max_reuse)
-    target_video=min(len(beats), len(video_sources)*video_max_reuse) if beats and videos else 0
+    video_capacity=_visual_source_capacity(videos,video_max_reuse) if videos else 0
+    target_video=min(len(beats),video_capacity) if beats and videos else 0
     target_images=min(len(images), max(0, len(beats)-target_video)) if beats and images else 0
     print(f'[TIMELINE_VARIETY] videos={len(videos)} images={len(images)} video_max_reuse={video_max_reuse} target_video={target_video} target_images={target_images}',flush=True)
-    if len(beats or []) > len(video_sources) + len(images):
+    if len(beats or []) > video_capacity + len(images):
         raise RuntimeError(
             f'GATE VISUAL: pool insuficiente para evitar repetição '
-            f'({len(video_sources)} fontes oficiais + {len(images)} imagens únicas '
+            f'({video_capacity} janelas de vídeo utilizáveis + {len(images)} imagens únicas '
             f'para {len(beats)} cenas). Buscar mais material oficial antes de renderizar.'
         )
     video_used=0
@@ -3986,8 +4001,7 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
     # Cap scene count before normalization so the renderer cannot recreate more
     # scenes than the unique visual pool can support.
     if video_clips:
-        source_keys={_visual_source_key(p) for p in video_clips if p}
-        visual_capacity=len(source_keys)+len(set(map(str,image_paths)))
+        visual_capacity=_visual_source_capacity(video_clips)+len(set(map(str,image_paths)))
         if 6 <= visual_capacity < len(beats):
             narration_words=re.sub(r'\\s+',' ',str(script.get('narration','')).strip()).split()
             if narration_words:
@@ -4005,7 +4019,7 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
         # Preserve the capped timeline exactly when it fits the unique visual pool.
         # Calling the normalizer here can split long beats and recreate the same
         # visual-capacity failure we just avoided.
-        unique_pool=len({_visual_source_key(p) for p in video_clips if p})+len(set(map(str,image_paths)))
+        unique_pool=_visual_source_capacity(video_clips)+len(set(map(str,image_paths)))
         if len(beats) <= unique_pool:
             n=max(1,len(beats))
             beats=[dict(b, start=i*duration/n, end=(i+1)*duration/n, duration=duration/n) for i,b in enumerate(beats)]
@@ -5128,7 +5142,7 @@ def produce_job(jid):
         # Fit the edit to the actual one-use visual pool before rendering.
         # Timeline selection permits each original official source once and each
         # unique still once; counting two windows per source overstated capacity.
-        available_slots=len({_visual_source_key(p) for p in selected_videos})+len(set(map(str,image_scenes)))
+        available_slots=_visual_source_capacity(selected_videos)+len(set(map(str,image_scenes)))
         if available_slots < len(beats) and available_slots >= 6:
             fallback_count=min(available_slots,16)
             beats=build_short_timeline(script,topic,duration,fallback_count,word_cues=None)
