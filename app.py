@@ -4512,7 +4512,7 @@ def audit_short(script, video, duration, beats, selected_videos, image_scenes):
         # Caption beats are derived from the narration, so reflowing word boundaries
         # is safe and does not alter the spoken script or factual content.
         try:
-            _rebuilt=_build_caption_beats(narration, float(duration))
+            _rebuilt=_repair_caption_beats(beats, float(duration))
             _rebuilt_audit=_audit_caption_quality(_rebuilt)
             _current_bad=len(cap.get('bad_end',[]))+len(cap.get('bad_start',[]))+len(cap.get('long',[]))+len(cap.get('short',[]))
             _rebuilt_bad=len(_rebuilt_audit.get('bad_end',[]))+len(_rebuilt_audit.get('bad_start',[]))+len(_rebuilt_audit.get('long',[]))+len(_rebuilt_audit.get('short',[]))
