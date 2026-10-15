@@ -2494,13 +2494,13 @@ def download_visuals(urls,outdir,title):
 
 
 def _edge_white_ratio(im):
-    """Measure bright, nearly-neutral pixels touching the left/right frame edges."""
+    """Measure compressed near-white source borders at the outer frame edges."""
     try:
         small=im.convert('RGB').resize((90,160),Image.Resampling.BILINEAR)
         pixels=list(small.getdata())
         def is_edge_white(pixel):
-            r,g,b=pixel
-            return r>235 and g>235 and b>235 and max(pixel)-min(pixel)<28
+            # JPEG/antialiasing often reduces source-white lettering below 235.
+            return min(pixel)>220 and max(pixel)-min(pixel)<42
         left=[pixels[y*90+x] for y in range(160) for x in range(3)]
         right=[pixels[y*90+x] for y in range(160) for x in range(87,90)]
         return max(sum(is_edge_white(p) for p in left)/max(1,len(left)),
@@ -2569,6 +2569,19 @@ def prepare_scene(src,dst,caption,idx,total):
     max_l=max(0,nw-W); max_t=max(0,nh-H)
     x=int(max_l*((idx*0.23)%1.0)); y=int(max_t*(0.28+0.44*((idx*0.37)%1.0)))
     im=im.crop((x,y,x+W,y+H))
+    # Final trim after all zoom/pan operations: source thumbnails can carry a
+    # compressed white border and clipped "LOOK" lettering at the extreme edge.
+    # Trim the sides only when the edge detector actually sees contamination.
+    if _edge_white_ratio(im)>=0.035:
+        trim=int(W*0.08)
+        cleaned=im.crop((trim,0,W-trim,H)).resize((W,H),Image.Resampling.LANCZOS)
+        im.close()
+        im=cleaned
+        if _edge_white_ratio(im)>=0.06:
+            trim2=int(W*0.05)
+            cleaned=im.crop((trim2,0,W-trim2,H)).resize((W,H),Image.Resampling.LANCZOS)
+            im.close()
+            im=cleaned
     # Branding is added only in the final timeline, as a watermark.
     im.save(dst,quality=84,optimize=True)
     im.close()
@@ -3812,9 +3825,12 @@ def build_short_timeline(script, topic, duration, count=10, word_cues=None):
         return [{'text':'GTA 6','duration':duration,'highlight':'GTA','start':0,'end':duration}]
     sentences=[s.strip() for s in re.split(r'(?<=[.!?])\s+',narration) if s.strip()]
     all_chunks=[]
-    for sent in sentences: all_chunks.extend(_semantic_caption_chunks(sent,3,6))
+    # Use the full seven-word ceiling allowed by the final caption auditor.
+    # This lets the semantic merger fit the available scene budget without a
+    # later raw-word slice that could split VICE CITY or another protected name.
+    for sent in sentences: all_chunks.extend(_semantic_caption_chunks(sent,3,7))
     if not all_chunks: all_chunks=[_caption_words(narration)]
-    all_chunks=_merge_caption_chunks(all_chunks,target_count=max(1,count),max_words=6)
+    all_chunks=_merge_caption_chunks(all_chunks,target_count=max(1,count),max_words=7)
     phrases=[]
     for ch in all_chunks:
         phrase=_clean_caption_phrase(' '.join(ch))
@@ -4084,15 +4100,13 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
     if video_clips:
         visual_capacity=_visual_source_capacity(video_clips)+len(set(map(str,image_paths)))
         if 6 <= visual_capacity < len(beats):
-            narration_words=re.sub(r'\\s+',' ',str(script.get('narration','')).strip()).split()
-            if narration_words:
-                compact=[]
-                for bi in range(visual_capacity):
-                    a=round(bi*len(narration_words)/visual_capacity)
-                    b=round((bi+1)*len(narration_words)/visual_capacity)
-                    compact.append({'text':' '.join(narration_words[a:b]),'duration':duration/visual_capacity,'start':bi*duration/visual_capacity,'end':(bi+1)*duration/visual_capacity})
-                beats=compact
-                print(f'[VISUAL_POOL] timeline_capped={len(beats)} capacity={visual_capacity}',flush=True)
+            beats=build_short_timeline(script,{'title':topic_title},duration,count=visual_capacity,word_cues=None)
+            if len(beats)>visual_capacity:
+                raise RuntimeError(
+                    f'GATE CAPTIONS: {len(beats)} semantic captions exceed the {visual_capacity}-scene visual pool; '
+                    'refusing to split narration by raw word counts.'
+                )
+            print(f'[VISUAL_POOL] timeline_capped={len(beats)} capacity={visual_capacity}',flush=True)
     # Video-first timelines are normalized to short beats. In the controlled
     # image-only fallback, preserve one unique image per beat instead of splitting
     # each 2.5s beat into duplicates that would recycle the same stills.
@@ -4214,6 +4228,9 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
         except Exception: pass
     try: listfile.unlink()
     except Exception: pass
+    # Return the exact timeline painted into the MP4 so downstream QA audits
+    # the rendered beats, not a stale pre-render copy.
+    return beats
 
 def make_video(scenes,audio,out,duration):
     # Corte mais rápido: 12 cenas em ~2–3 s cada. A troca de enquadramento já foi
@@ -5017,7 +5034,7 @@ def self_heal(jid, script, video, duration, beats, selected_videos, image_scenes
                 progress=95,
                 log='🧠 AUDITOR IA: repetição/congelamento detectado. Refazendo a edição automaticamente (1/1)...'
             )
-            make_multimedia_video(
+            beats=make_multimedia_video(
                 selected_videos,
                 image_scenes,
                 audio,
@@ -5088,7 +5105,7 @@ def self_heal(jid, script, video, duration, beats, selected_videos, image_scenes
             repaired_captions=[str(b.get('text','')).strip() for b in repaired_beats]
             if any(not caption for caption in repaired_captions):
                 raise RuntimeError('resegmentação produziu legenda vazia')
-            make_multimedia_video(
+            repaired_beats=make_multimedia_video(
                 selected_videos,
                 image_scenes,
                 audio,
@@ -5304,13 +5321,13 @@ def produce_job(jid):
             fallback_count=min(available_slots,16)
             beats=build_short_timeline(script,topic,duration,fallback_count,word_cues=None)
             if len(beats)>fallback_count:
-                narration_words=re.sub(r'\s+',' ',str(script.get('narration','')).strip()).split()
-                chunks=[]
-                for bi in range(fallback_count):
-                    a=round(bi*len(narration_words)/fallback_count)
-                    b=round((bi+1)*len(narration_words)/fallback_count)
-                    chunks.append({'text':' '.join(narration_words[a:b]),'duration':duration/fallback_count,'start':bi*duration/fallback_count,'end':(bi+1)*duration/fallback_count})
-                beats=chunks
+                raise RuntimeError(
+                    f'GATE CAPTIONS: {len(beats)} semantic captions exceed the {fallback_count}-scene visual pool; '
+                    'refusing to split narration by raw word counts.'
+                )
+            _fallback_cap=_audit_caption_quality(beats)
+            if any(_fallback_cap.get(key) for key in ('bad_end','bad_start','protected_splits','long','short','visual_bad')):
+                raise RuntimeError(f'GATE CAPTIONS: visual fallback captions failed final audit: {_fallback_cap}')
             caps=[b['text'] for b in beats]
             print(f'[JOB {jid}] visual fallback scenes={len(beats)} images={len(image_scenes)} videos={len(selected_videos)}',flush=True)
             update_job(jid,log=f'Fallback controlado: {len(selected_videos)} vídeos + {len(image_scenes)} visuais únicos; timeline reduzida para {len(beats)} cenas sem reciclagem.')
@@ -5318,7 +5335,7 @@ def produce_job(jid):
             raise RuntimeError(f'GATE VISUAL: só {available_slots} slots visuais distintos para {len(beats)} cenas; não vou reciclar planos.')
         video=jobdir/'GTA_OCULTO_SHORT.mp4'
         print(f'[JOB {jid}] stage=RENDER start',flush=True)
-        make_multimedia_video(selected_videos,image_scenes,audio,video,duration,caps,script,topic['title'],beats)
+        beats=make_multimedia_video(selected_videos,image_scenes,audio,video,duration,caps,script,topic['title'],beats)
         print(f'[JOB {jid}] stage=RENDER done exists={video.exists()} bytes={video.stat().st_size if video.exists() else 0}',flush=True)
         # Nunca deixe a capa derrubar uma produção já renderizada.
         print(f'[JOB {jid}] stage=POST_RENDER cover start',flush=True)
