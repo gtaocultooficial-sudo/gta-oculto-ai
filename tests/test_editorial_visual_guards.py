@@ -49,8 +49,8 @@ class EditorialVisualGuardTests(unittest.TestCase):
         draw = ImageDraw.Draw(source)
         # Reproduce the narrow antialiased white edge and source text visible in
         # the real Short; wide, pure-white borders alone did not catch this case.
-        draw.line((0, 35, 0, 210), fill=(255, 255, 255), width=2)
-        draw.text((-18, 220), "LOOK", fill=(255, 255, 255))
+        draw.rectangle((0, 35, 9, 210), fill=(255, 255, 255))
+        draw.text((0, 220), "LOOK", fill=(255, 255, 255))
         draw.rectangle((110, 80, 215, 445), fill=(220, 80, 55))
 
         with tempfile.TemporaryDirectory() as td:
