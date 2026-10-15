@@ -2686,6 +2686,14 @@ async def make_tts(text,path):
                             except Exception:
                                 pass
                 if path.exists() and path.stat().st_size>1000:
+                    expected_words=_caption_words(text)
+                    if cues and expected_words:
+                        expected_last=_caption_clean_word(expected_words[-1])
+                        actual_last=_caption_clean_word(cues[-1].get('word',''))
+                        if expected_last and actual_last and expected_last!=actual_last:
+                            raise RuntimeError(
+                                f'Edge-TTS parece truncado: último evento={actual_last!r}; esperado={expected_last!r}'
+                            )
                     return cues
                 last=RuntimeError('Edge-TTS terminou sem gerar áudio válido')
             except Exception as e:
@@ -3596,6 +3604,7 @@ def _merge_caption_chunks(chunks, target_count=10, max_words=12):
             first=_caption_clean_word(chunks[i+1][0])
             if last in {'e','de','do','da','em','no','na','que','para','com','por','mas'}: score-=4
             if first in {'e','mas','porque','porém','porem','então','entao'}: score-=2
+            if re.search(r'[.!?;:]$',str(chunks[i][-1])): score+=8
             if best_score is None or score<best_score:
                 best_score=score; best_idx=i
         if best_idx is None:
@@ -3692,7 +3701,9 @@ def _build_timed_caption_beats(word_cues, duration, count=10):
             if _cue_bad_end(a[-1]['word']): score-=5
             if _cue_bad_start(b[0]['word']): score-=3
             gap=float(b[0]['start'])-float(a[-1]['start'])
-            if gap<0.6: score-=2
+            if re.search(r'[.!?;:]$',str(a[-1].get('word',''))): score+=8
+            if gap>=0.6: score+=2
+            elif gap<0.6: score-=2
             if best is None or score<best[0]: best=(score,i)
         if best is None: break
         i=best[1]; beats[i:i+2]=[beats[i]+beats[i+1]]
@@ -4332,33 +4343,57 @@ def _caption_visual_split_quality(text, W=540):
     return {'score':65,'lines':[str(text).upper()]}
 
 def _audit_caption_quality(beats):
-    bad_end=[]; bad_start=[]; long=[]; short=[]; visual_bad=[]
+    bad_end=[]; bad_start=[]; long=[]; short=[]; visual_bad=[]; protected_splits=[]
     bad_end_set={'e','de','do','da','em','no','na','que','um','uma','o','a','os','as','para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa','sobre','entre','até','sem','esse','essa','esses','essas','este','esta','estes','estas','aquele','aquela','aqueles','aquelas','meu','minha','meus','minhas','seu','sua','seus','suas','nosso','nossa','nossos','nossas'}
     bad_start_set={'e','mas','porque','porém','porem','então','entao','quando','enquanto','para','com','de','do','da','em','no','na','que'}
+    protected_phrases={
+        ('gta','6'),('gta','vi'),('vice','city'),('cloud','gaming'),
+        ('xbox','cloud','gaming'),('jason','e','lucia'),('playstation','5'),('xbox','series')
+    }
     for bi,b in enumerate(beats or []):
         words=_caption_words(b.get('text',''))
         if not words: continue
         if _caption_clean_word(words[-1]) in bad_end_set: bad_end.append(b['text'])
         first=_caption_clean_word(words[0])
         # Aceita "PARA" quando é continuação gramatical de "empregos para várias pessoas".
-        valid_para_continuation=(first=='para' and bi>0 and _caption_clean_word(_caption_words(beats[bi-1].get('text',''))[-1])=='empregos')
+        previous_words=_caption_words((beats[bi-1] or {}).get('text','')) if bi>0 else []
+        valid_para_continuation=(first=='para' and previous_words and _caption_clean_word(previous_words[-1])=='empregos')
         if first in bad_start_set and not valid_para_continuation: bad_start.append(b['text'])
         if len(words)>7: long.append(b['text'])
         if len(words)<2: short.append(b['text'])
         vs=_caption_visual_split_quality(b.get('text',''))
         if vs['score']<85: visual_bad.append({'text':b.get('text',''),'lines':vs['lines']})
+
+    # Check phrase integrity across each caption boundary, not only inside a block.
+    clean_blocks=[
+        [_caption_clean_word(w) for w in _caption_words((b or {}).get('text',''))]
+        for b in (beats or [])
+    ]
+    for bi in range(len(clean_blocks)-1):
+        left=clean_blocks[bi]; right=clean_blocks[bi+1]
+        for phrase in protected_phrases:
+            for left_count in range(1,len(phrase)):
+                right_count=len(phrase)-left_count
+                if (len(left)>=left_count and len(right)>=right_count
+                    and tuple(left[-left_count:])==phrase[:left_count]
+                    and tuple(right[:right_count])==phrase[left_count:]):
+                    protected_splits.append({
+                        'phrase':' '.join(phrase),
+                        'left':(beats[bi] or {}).get('text',''),
+                        'right':(beats[bi+1] or {}).get('text','')
+                    })
     total=max(1,len(beats or []))
-    texts=[re.sub(r'\s+',' ',str(b.get('text','')).strip().lower()) for b in (beats or []) if str(b.get('text','')).strip()]
+    texts=[re.sub(r'\\s+',' ',str(b.get('text','')).strip().lower()) for b in (beats or []) if str(b.get('text','')).strip()]
     repeated_adj=sum(1 for i in range(1,len(texts)) if texts[i] and texts[i]==texts[i-1])
     repeated_total=max(0,len(texts)-len(set(texts))) if texts else 0
-    # V55.5: semantic boundary is independent from visual line balance.
-    # A caption ending in a preposition is a warning; it is not by itself a production blocker.
+    # A caption ending in a preposition or splitting a protected name is a stronger warning.
     boundary_penalty=min(28, len(bad_end)*2 + len(bad_start)*2)
-    penalty=min(65,boundary_penalty + len(long)*3 + len(short)*2 + len(visual_bad)*3 + repeated_adj*8 + repeated_total*3)
+    penalty=min(65,boundary_penalty + len(long)*3 + len(short)*2 + len(visual_bad)*3 + repeated_adj*8 + repeated_total*3 + min(30,len(protected_splits)*15))
     return {
         'score':max(0,100-penalty),
         'bad_end':bad_end,'bad_start':bad_start,'long':long,'short':short,
-        'visual_bad':visual_bad,'repeated_adjacent':repeated_adj,'repeated_total':repeated_total
+        'visual_bad':visual_bad,'protected_splits':protected_splits,
+        'repeated_adjacent':repeated_adj,'repeated_total':repeated_total
     }
 
 
@@ -4778,7 +4813,10 @@ def audit_short(script, video, duration, beats, selected_videos, image_scenes):
     # V55.5: only actual semantic boundary violations can trigger this issue.
     # Visual wrapping, caption length and line balance are quality signals, not semantic-boundary failures.
     boundary_severe=(boundary_bad_count>=max(4,int(len(beats or [])*0.55)))
-    if boundary_severe: issues.append(('CAPTIONS_BAD_BOUNDARY','legendas com cortes semanticamente ruins'))
+    protected_splits=cap.get('protected_splits',[]) or []
+    if boundary_severe or protected_splits:
+        detail=('; termos divididos: '+', '.join(sorted({x.get('phrase','') for x in protected_splits if x.get('phrase')}))) if protected_splits else ''
+        issues.append(('CAPTIONS_BAD_BOUNDARY','legendas com cortes semanticamente ruins'+detail))
     if alignment.get('foreign_ratio',0)>0.03 or alignment.get('score',100)<85:
         issues.append(('CAPTIONS_NOT_FROM_NARRATION',f'legendas contêm palavras fora da narração: {alignment.get("foreign_ratio",0)*100:.0f}%'))
     if cap.get('repeated_adjacent',0)>0: issues.append(('CAPTIONS_REPEATED','legenda repetida em blocos consecutivos'))
@@ -4872,7 +4910,7 @@ def audit_short(script, video, duration, beats, selected_videos, image_scenes):
 def self_heal(jid, script, video, duration, beats, selected_videos, image_scenes, topic, audio):
     """Run bounded safe repairs. No endless retry and no self-modifying source code."""
     audit=audit_short(script,video,duration,beats,selected_videos,image_scenes)
-    if audit['score']>=92 and not any(x['code'] in {'CAPTIONS_NOT_FROM_NARRATION','VISUAL_REPETITION','VISUAL_STAGNATION','HIGH_FROZEN_RATIO'} for x in audit.get('issues',[])): return audit,beats,False
+    if audit['score']>=92 and not any(x['code'] in {'CAPTIONS_BAD_BOUNDARY','CAPTIONS_NOT_FROM_NARRATION','CAPTIONS_REPEATED','CAPTIONS_INCOMPLETE','CAPTIONS_LOW_QUALITY','VISUAL_REPETITION','VISUAL_STAGNATION','HIGH_FROZEN_RATIO'} for x in audit.get('issues',[])): return audit,beats,False
     repaired=False
     codes={x['code'] for x in audit['issues']}
     if 'VISUAL_STAGNATION' in codes or 'HIGH_FROZEN_RATIO' in codes or 'VISUAL_REPETITION' in codes:
