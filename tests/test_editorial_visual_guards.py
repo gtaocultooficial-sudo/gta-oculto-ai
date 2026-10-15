@@ -1,4 +1,6 @@
+import tempfile
 import unittest
+from pathlib import Path
 
 import app
 from PIL import Image, ImageDraw
