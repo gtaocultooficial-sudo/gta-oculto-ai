@@ -30,6 +30,21 @@ class CaptionIntegrityTests(unittest.TestCase):
                     f"Protected phrase split across captions: {left} | {right}",
                 )
 
+    def test_focused_work_hook_survives_caption_repair_without_dangling_preposition(self):
+        hook = app._focused_work_story_hook()
+        initial = app._semantic_caption_chunks(hook, min_words=3, max_words=6)
+        beats = [
+            {"text": " ".join(chunk), "start": index * 2.0, "end": (index + 1) * 2.0}
+            for index, chunk in enumerate(initial)
+        ]
+        repaired = app._repair_caption_beats(beats, duration=12.0, max_words=6)
+        audit = app._audit_caption_quality(repaired)
+
+        self.assertEqual([], audit["bad_end"], audit)
+        self.assertEqual([], audit["bad_start"], audit)
+        clean_chunks = [app._caption_words(item["text"]) for item in repaired]
+        self._assert_no_protected_split(clean_chunks, ("jason", "e", "lucia"))
+
     def test_semantic_caption_chunks_keep_vice_city_together(self):
         text = (
             "A Rockstar revelou mais detalhes importantes sobre VICE CITY "
