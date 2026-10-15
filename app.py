@@ -2477,7 +2477,8 @@ def download_visuals(urls,outdir,title):
             im=Image.open(raw).convert('RGB')
             if max(im.size)<900: raw.unlink(missing_ok=True); continue
             im.thumbnail((1600,1600),Image.Resampling.BILINEAR)
-            p=outdir/f'good_{len(candidates):02d}.jpg'; im.save(p,quality=88)
+            slug=''.join(ch if ch.isalnum() else '_' for ch in (label or u.rsplit('/',1)[-1].split('?',1)[0]).lower())[:42].strip('_')
+            p=outdir/f'good_{len(candidates):02d}_{slug}.jpg'; im.save(p,quality=88)
             im.close(); raw.unlink(missing_ok=True)
             key=(p.stat().st_size,label[:80])
             if key in seen: p.unlink(missing_ok=True); continue
