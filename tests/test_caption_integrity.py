@@ -61,6 +61,40 @@ class CaptionIntegrityTests(unittest.TestCase):
         self.assertEqual([], audit["protected_splits"], audit)
         self.assertTrue(any("DUPLA" in item["text"] for item in repaired))
 
+    def test_render_caption_repair_respects_visual_capacity(self):
+        narration = (
+            "O QUE LEVA JASON E LUCIA A BUSCAR TRABALHOS EM VICE CITY? "
+            "Essas cenas também situam a dupla no ambiente da cidade, antes de sabermos "
+            "quais consequências essa rotina terá. "
+            "Até agora, Jason e Lucia parecem estar aceitando trabalhos para diferentes "
+            "figuras importantes de Vice City, numa tentativa de conseguir dinheiro. "
+            "A informação não confirma que cada trabalho seja uma missão principal nem "
+            "define o papel deles na trama. Você acha que isso vai ter impacto na história?"
+        )
+        # Supply intentionally fragmented input beats, similar to the live WordBoundary
+        # stream. Final repair must fix grammar while staying within 14 unique visual slots.
+        words = narration.split()
+        original = []
+        for index in range(15):
+            start = round(index * len(words) / 15)
+            end = round((index + 1) * len(words) / 15)
+            original.append({
+                "text": " ".join(words[start:end]),
+                "start": index * 2.0,
+                "end": (index + 1) * 2.0,
+            })
+        repaired = app._repair_caption_beats(
+            original, duration=30.0, max_words=7, target_count=14
+        )
+        audit = app._audit_caption_quality(repaired)
+
+        self.assertLessEqual(len(repaired), 14, f"Caption repair exceeded visual capacity: {len(repaired)}")
+        self.assertEqual([], audit["bad_end"], audit)
+        self.assertEqual([], audit["bad_start"], audit)
+        self.assertEqual([], audit["protected_splits"], audit)
+        self.assertEqual([], audit["long"], audit)
+        self.assertEqual([], audit["short"], audit)
+
     def test_semantic_caption_chunks_keep_vice_city_together(self):
         text = (
             "A Rockstar revelou mais detalhes importantes sobre VICE CITY "

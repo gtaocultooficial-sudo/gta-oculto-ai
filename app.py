@@ -4123,15 +4123,18 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
     if (_render_cap.get('bad_end') or _render_cap.get('bad_start')
         or _render_cap.get('protected_splits') or _render_cap.get('long')
         or _render_cap.get('short') or _render_cap.get('visual_bad')):
-        _render_fixed=_repair_caption_beats(beats,float(duration),max_words=6)
+        _render_target_count=unique_pool if video_clips else len(beats)
+        _render_fixed=_repair_caption_beats(
+            beats,float(duration),max_words=7,target_count=_render_target_count
+        )
         _render_fixed_cap=_audit_caption_quality(_render_fixed)
         if (_render_fixed_cap.get('bad_end') or _render_fixed_cap.get('bad_start')
             or _render_fixed_cap.get('protected_splits') or _render_fixed_cap.get('long')
             or _render_fixed_cap.get('short') or _render_fixed_cap.get('visual_bad')
-            or not _render_fixed):
+            or not _render_fixed or len(_render_fixed)>_render_target_count):
             raise RuntimeError(
                 "RENDER_CAPTION_GATE: a segmentação final das legendas continua inválida: "
-                f"{_render_fixed_cap}"
+                f"{_render_fixed_cap}; scenes={len(_render_fixed)} capacity={_render_target_count}"
             )
         beats=_render_fixed
         print(
@@ -4272,7 +4275,97 @@ def _learn_event(code, message, strategy=None, success=None):
     except Exception:
         pass
 
-def _repair_caption_beats(beats, duration, max_words=7):
+def _caption_capacity_resegment(text, target_count, max_words=7):
+    """Reflow spoken words into a bounded number of caption blocks using grammar-aware cuts."""
+    tokens=_caption_words(str(text or ''))
+    n=len(tokens)
+    if n<2 or not target_count:
+        return []
+    capacity=max(1,int(target_count))
+    blocks=min(capacity,n//2)
+    if blocks*max_words<n:
+        return []
+    target_len=n/blocks
+    bad_end={'e','de','do','da','em','no','na','que','um','uma','o','a','os','as',
+             'para','com','por','mas','se','ou','ao','à','às','dos','das','num',
+             'numa','sobre','entre','até','sem','como','pelo','pela','pelos','pelas',
+             'porém','porem','então','entao','esse','essa','esses','essas','este',
+             'esta','estes','estas','aquele','aquela','aqueles','aquelas','meu',
+             'minha','meus','minhas','seu','sua','seus','suas','nosso','nossa',
+             'nossos','nossas'}
+    bad_start={'e','mas','porque','porém','porem','então','entao','quando','enquanto',
+               'para','com','de','do','da','em','no','na','que'}
+    protected={
+        ('gta','6'),('gta','vi'),('vice','city'),('cloud','gaming'),
+        ('xbox','cloud'),('xbox','cloud','gaming'),('jason','e','lucia'),
+        ('playstation','5'),('xbox','series')
+    }
+    norm=lambda w:re.sub(r'[^a-z0-9à-ÿ]','',str(w or '').lower())
+    clean=[norm(w) for w in tokens]
+
+    def protected_cut(cut):
+        for phrase in protected:
+            for left_count in range(1,len(phrase)):
+                right_count=len(phrase)-left_count
+                if (cut>=left_count and cut+right_count<=n
+                    and tuple(clean[cut-left_count:cut])==phrase[:left_count]
+                    and tuple(clean[cut:cut+right_count])==phrase[left_count:]):
+                    return True
+        return False
+
+    memo={}
+    def solve(start,remaining):
+        key=(start,remaining)
+        if key in memo:
+            return memo[key]
+        left_count=n-start
+        if remaining==1:
+            if 2<=left_count<=max_words:
+                final_cost=140 if clean[-1] in bad_end else 0
+                memo[key]=(final_cost,[tokens[start:]])
+            else:
+                memo[key]=None
+            return memo[key]
+        best=None
+        lo=start+2
+        hi=min(start+max_words,n-2*(remaining-1),n-max_words*(remaining-1))
+        for cut in range(lo,hi+1):
+            if protected_cut(cut):
+                continue
+            tail=solve(cut,remaining-1)
+            if tail is None:
+                continue
+            length=cut-start
+            last=clean[cut-1]
+            first_next=clean[cut]
+            score=tail[0]+abs(length-target_len)*2.0
+            if last in bad_end:
+                score+=90
+            if first_next in bad_start:
+                score+=70
+            final_word=str(tokens[cut-1]).rstrip()
+            if any(final_word.endswith(mark) for mark in ('.','!','?',';',':')):
+                score-=14
+            elif any(final_word.endswith(mark) for mark in (',',')')):
+                score-=6
+            candidate=(score,[tokens[start:cut]]+tail[1])
+            if best is None or candidate[0]<best[0]:
+                best=candidate
+        memo[key]=best
+        return best
+
+    result=solve(0,blocks)
+    if result is None:
+        return []
+    chunks=result[1]
+    audit=_audit_caption_quality([{'text':' '.join(chunk)} for chunk in chunks])
+    if (audit.get('bad_end') or audit.get('bad_start') or audit.get('protected_splits')
+        or audit.get('long') or audit.get('short')):
+        return []
+    return chunks
+
+
+def _repair_caption_beats(beats, duration, max_words=7, target_count=None):
     """V55.3: reconstrução semântica das legendas usando somente as palavras já faladas.
     Em vez de apenas juntar blocos ruins, achata a fala existente, resegmenta por
     unidades de sentido e redistribui o tempo proporcionalmente. Isso elimina falsos
@@ -4304,7 +4397,11 @@ def _repair_caption_beats(beats, duration, max_words=7):
             fixed[-1].extend(ch)
         else:
             fixed.append(ch)
-    chunks=_merge_caption_chunks(fixed,target_count=max(1,min(16,len(fixed))),max_words=max_words)
+    if target_count is None:
+        merge_target=max(1,min(16,len(fixed)))
+    else:
+        merge_target=max(1,min(int(target_count),len(fixed)))
+    chunks=_merge_caption_chunks(fixed,target_count=merge_target,max_words=max_words)
 
     # Repair semantic boundaries without creating very long captions.
     bad_end={'e','de','do','da','em','no','na','que','um','uma','o','a','os','as','para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa','sobre','entre','até','sem','esse','essa','esses','essas','este','esta','estes','estas','aquele','aquela','aqueles','aquelas','meu','minha','meus','minhas','seu','sua','seus','suas','nosso','nossa','nossos','nossas'}
