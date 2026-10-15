@@ -61,6 +61,40 @@ class CaptionIntegrityTests(unittest.TestCase):
         self.assertEqual([], audit["protected_splits"], audit)
         self.assertTrue(any("DUPLA" in item["text"] for item in repaired))
 
+    def test_visual_capacity_fallback_preserves_vice_city_and_audits_final_beats(self):
+        narration = (
+            "O QUE LEVA JASON E LUCIA A BUSCAR TRABALHOS EM VICE CITY? "
+            "Essas cenas também situam a dupla no ambiente da cidade, antes de sabermos "
+            "quais consequências essa rotina terá. Até agora, Jason e Lucia parecem estar "
+            "aceitando trabalhos para diferentes figuras importantes de Vice City, numa "
+            "tentativa de conseguir dinheiro. A informação não confirma que cada trabalho "
+            "seja uma missão principal nem define o papel deles na trama. Você acha que "
+            "isso vai ter impacto na história?"
+        )
+        beats = app.build_short_timeline(
+            {"narration": narration},
+            {"title": "GTA 6"},
+            duration=29.952,
+            count=14,
+            word_cues=None,
+        )
+        audit = app._audit_caption_quality(beats)
+
+        self.assertLessEqual(len(beats), 14)
+        self.assertEqual([], audit["bad_end"], audit)
+        self.assertEqual([], audit["bad_start"], audit)
+        self.assertEqual([], audit["protected_splits"], audit)
+        clean_chunks = [app._caption_words(item["text"]) for item in beats]
+        self._assert_no_protected_split(clean_chunks, ("vice", "city"))
+
+        expected = [app._caption_clean_word(word) for word in app._caption_words(narration)]
+        actual = [
+            app._caption_clean_word(word)
+            for item in beats
+            for word in app._caption_words(item["text"])
+        ]
+        self.assertEqual(expected, actual, "Safe compaction must preserve spoken word order and content.")
+
     def test_semantic_caption_chunks_keep_vice_city_together(self):
         text = (
             "A Rockstar revelou mais detalhes importantes sobre VICE CITY "
