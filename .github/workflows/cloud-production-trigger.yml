@@ -34,13 +34,23 @@ jobs:
           cat /tmp/health.json 2>/dev/null || true
           exit 1
 
-      - name: Start autonomous production
+      - name: Verify publishing is disabled and start one controlled production
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
           echo "Deployment candidate: $GITHUB_SHA"
-          echo "Starting exactly one production for this run"
-          response=$(curl -sS --max-time 30 https://gta-oculto-ai.onrender.com/api/produce)
+          youtube_status=$(curl -sS --max-time 20 https://gta-oculto-ai.onrender.com/api/youtube/status)
+          echo "YouTube status: $youtube_status"
+          echo "$youtube_status" | python -c "import json,sys; d=json.load(sys.stdin); sys.exit(0 if d.get('enabled') is False else 1)"
+          topic=$(python -c 'import json,os,re; d=json.load(open(os.environ["GITHUB_EVENT_PATH"])); m=(d.get("head_commit") or {}).get("message",""); r=re.search(r"\[produce\]\s+topic=(.+)",m); print(r.group(1).strip() if r else "")')
+          if [ -n "$topic" ]; then
+            echo "Starting controlled production for topic: $topic"
+            payload=$(TOPIC="$topic" python -c 'import json,os; print(json.dumps({"topic":os.environ["TOPIC"]},ensure_ascii=False))')
+            response=$(curl -sS --max-time 30 -X POST -H 'Content-Type: application/json' --data "$payload" https://gta-oculto-ai.onrender.com/api/produce)
+          else
+            echo "Starting one automatic production for this run"
+            response=$(curl -sS --max-time 30 https://gta-oculto-ai.onrender.com/api/produce)
+          fi
           echo "$response"
           echo "$response" | grep -q '"ok":true'
           job_id=$(echo "$response" | python -c "import json,sys; print(json.load(sys.stdin)['job_id'])")
