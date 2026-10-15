@@ -4842,7 +4842,9 @@ def produce_job(jid):
         audio=jobdir/'narracao.mp3'; word_cues=asyncio.run(make_tts(script['narration'],audio)); duration=duration_of_audio(audio)
         print(f'[JOB {jid}] stage=TTS done audio_bytes={audio.stat().st_size if audio.exists() else 0} duration={duration:.1f}',flush=True)
         (jobdir/'word_cues.json').write_text(json.dumps(word_cues,ensure_ascii=False,indent=2),encoding='utf-8')
-        timeline_count=_learned_timeline_count(duration,10)
+        # Editorial pacing: use more short beats so stills do not linger for 3-4 seconds.
+        # Keep the narration duration unchanged; only increase the visual/caption beat density.
+        timeline_count=max(14,_learned_timeline_count(duration,14))
         beats=build_short_timeline(script,topic,duration,timeline_count,word_cues=word_cues)
         # V63: corrigir a segmentação antes do encode final. Evita re-renderizações
         # completas posteriores no Render Free sem abrir mão do gate de legendas.
