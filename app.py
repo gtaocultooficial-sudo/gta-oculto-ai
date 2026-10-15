@@ -2824,15 +2824,15 @@ def download_official_video_clips(outdir, jid=None):
     cached=[]
     for p in sorted(cache.glob('rockstar_real_v251_*.mp4')):
         try:
-            # Size alone is not enough: the cache previously admitted truncated
-            # 0.17s/0.67s proxies which later made every timeline segment invalid.
+            # Accept only complete motion proxies. Clips under 4s cannot provide
+            # two distinct 2s scenes and were silently looped by the renderer.
             if p.stat().st_size <= 20000:
                 p.unlink(missing_ok=True)
                 continue
             probe=_probe_media(p)
             seconds=float(probe.get('duration') or 0)
-            if not probe.get('ok') or not probe.get('video') or seconds < 0.8:
-                print(f'[VIDEO_CACHE] removing_invalid={p.name} duration={seconds:.2f}s error={probe.get("error","no video or too short")}',flush=True)
+            if not probe.get('ok') or not probe.get('video') or seconds < 4.0:
+                print(f'[VIDEO_CACHE] removing_short={p.name} duration={seconds:.2f}s minimum=4.0s error={probe.get("error","no video or too short")}',flush=True)
                 p.unlink(missing_ok=True)
                 continue
             # Revalidate cached clips cheaply on every run; only complete motion
@@ -2885,8 +2885,8 @@ def download_official_video_clips(outdir, jid=None):
                 _remote_zip_extract(ROCKSTAR_VIDEO_ZIP,entry,raw)
                 raw_probe=_probe_media(raw)
                 raw_duration=float(raw_probe.get('duration') or 0)
-                if not raw_probe.get('ok') or not raw_probe.get('video') or raw_duration < 0.8:
-                    raise RuntimeError(f'fonte extraída inválida: duration={raw_duration:.2f}s bytes={raw.stat().st_size if raw.exists() else 0}; {raw_probe.get("error","sem stream de vídeo")}')
+                if not raw_probe.get('ok') or not raw_probe.get('video') or raw_duration < 4.0:
+                    raise RuntimeError(f'fonte extraída curta/inválida: duration={raw_duration:.2f}s; mínimo 4.0s; bytes={raw.stat().st_size if raw.exists() else 0}; {raw_probe.get("error","sem stream de vídeo")}')
                 if jid:
                     update_job(jid,log=f'Convertendo fonte validada ({raw_duration:.1f}s) para proxy leve 320x568...')
                 # First try accurate output-side seeking. Some MP4 sources in the
@@ -2908,11 +2908,11 @@ def download_official_video_clips(outdir, jid=None):
                     run_cmd(cmd,90)
                     proxy_probe=_probe_media(target) if target.exists() else {'ok':False,'duration':0,'video':[],'error':'arquivo não criado'}
                     proxy_duration=float(proxy_probe.get('duration') or 0)
-                    if target.exists() and target.stat().st_size>20000 and proxy_probe.get('ok') and proxy_probe.get('video') and proxy_duration>=0.8:
+                    if target.exists() and target.stat().st_size>20000 and proxy_probe.get('ok') and proxy_probe.get('video') and proxy_duration>=4.0:
                         break
                     proxy_errors.append(f'tentativa {attempt+1}: {proxy_duration:.2f}s; {proxy_probe.get("error","sem stream de vídeo")}')
-                if not target.exists() or target.stat().st_size<=20000 or not proxy_probe.get('ok') or not proxy_probe.get('video') or proxy_duration<0.8:
-                    raise RuntimeError(f'proxy inválido após 2 tentativas; fonte={raw_duration:.2f}s; '+ ' | '.join(proxy_errors))
+                if not target.exists() or target.stat().st_size<=20000 or not proxy_probe.get('ok') or not proxy_probe.get('video') or proxy_duration<4.0:
+                    raise RuntimeError(f'proxy curto/inválido após 2 tentativas; proxy={proxy_duration:.2f}s, mínimo=4.0s; fonte={raw_duration:.2f}s; '+ ' | '.join(proxy_errors))
                 if _video_contains_rating_disclaimer(target):
                     if jid:
                         update_job(jid,log=f'Filtro visual: descartando clipe com tela ESRB/disclaimer — {Path(entry["name"]).stem}')
@@ -2976,20 +2976,18 @@ def _expand_video_clips_into_distinct_windows(video_clips, jobdir, windows_per_c
         try:
             source_probe=_probe_media(clip)
             source_duration=float(source_probe.get('duration') or 0)
-            if not source_probe.get('ok') or not source_probe.get('video') or source_duration < 0.8:
+            if not source_probe.get('ok') or not source_probe.get('video') or source_duration < 4.0:
                 print(
-                    f'[VIDEO_WINDOWS] source_rejected={clip.name} duration={source_duration:.2f}s '
+                    f'[VIDEO_WINDOWS] source_rejected={clip.name} duration={source_duration:.2f}s minimum=4.0s '
                     f'error={source_probe.get("error","no video or clip too short")}',
                     flush=True
                 )
                 continue
-            # Aim for 2.5–4.3s segments; create 2 or 3 unique segments per source.
-            count=min(max(1,int(windows_per_clip)),max(1,int(source_duration//2.5)))
+            # Create distinct 2–4.3s motion segments. Never reuse a clip too short
+            # for two independent scenes: looping 1s sources creates visible repetition.
+            count=min(max(1,int(windows_per_clip)),max(1,int(source_duration//2.0)))
             if count < 2:
-                print(f'[VIDEO_WINDOWS] source_too_short={clip.name} duration={source_duration:.2f}s',flush=True)
-                # Keep this valid source as a motion segment instead of discarding it.
-                # Downstream rendering trims each scene to the requested timeline duration.
-                expanded.append(clip)
+                print(f'[VIDEO_WINDOWS] source_too_short={clip.name} duration={source_duration:.2f}s; skipped',flush=True)
                 continue
             window_seconds=source_duration/count
             for wi in range(count):
@@ -4890,11 +4888,10 @@ def produce_job(jid):
         try:
             official_videos=download_official_video_clips(jobdir/'official_videos', jid)
         except Exception as _video_source_error:
-            if len(image_scenes)<6:
-                raise RuntimeError(f'Vídeos oficiais indisponíveis e imagens de contingência insuficientes ({len(image_scenes)}): {str(_video_source_error)[:500]}')
-            official_videos=[]
-            update_job(jid,log=f'Vídeo oficial indisponível; usando {len(image_scenes)} imagens oficiais distintas com movimento de câmera e narração sincronizada. Detalhe: {str(_video_source_error)[:180]}')
-            print(f'[VIDEO_SOURCE_FALLBACK] images={len(image_scenes)} reason={str(_video_source_error)[:300]}',flush=True)
+            raise RuntimeError(
+                f'GATE VISUAL: não foi possível obter vídeos oficiais com movimento suficiente; '
+                f'não vou publicar um slideshow como substituto. {str(_video_source_error)[:700]}'
+            )
         print(f'[JOB {jid}] stage=OFFICIAL_VIDEO_DOWNLOAD done count={len(official_videos)}',flush=True)
         # Do not mix stills extracted from the same clips with their moving footage.
         selected_videos=_expand_video_clips_into_distinct_windows(
@@ -4915,13 +4912,11 @@ def produce_job(jid):
             if len(valid_sources)>=4:
                 print(f'[VIDEO_WINDOWS_FALLBACK] using {len(valid_sources)} validated original motion sources; segmented_windows={len(selected_videos)}',flush=True)
                 selected_videos=valid_sources
-            elif len(image_scenes)>=6:
-                print(f'[VIDEO_WINDOWS_FALLBACK] switching to {len(image_scenes)} unique official stills',flush=True)
-                selected_videos=[]
             else:
                 raise RuntimeError(
-                    f'GATE VISUAL: recorte gerou {len(selected_videos)} segmentos e só {len(valid_sources)} fontes válidas; '
-                    f'contingência possui apenas {len(image_scenes)} imagens únicas.'
+                    f'GATE VISUAL: recorte gerou {len(selected_videos)} segmentos utilizáveis e só {len(valid_sources)} fontes '
+                    f'com movimento de pelo menos 2s; imagens disponíveis={len(image_scenes)}. '
+                    'A produção foi bloqueada para não entregar um slideshow no lugar de vídeo.'
                 )
         source_video_count=len(selected_videos)
         update_job(
