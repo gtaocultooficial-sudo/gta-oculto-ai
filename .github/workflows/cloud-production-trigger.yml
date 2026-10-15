@@ -42,7 +42,7 @@ jobs:
           youtube_status=$(curl -sS --max-time 20 https://gta-oculto-ai.onrender.com/api/youtube/status)
           echo "YouTube status: $youtube_status"
           echo "$youtube_status" | python -c "import json,sys; d=json.load(sys.stdin); sys.exit(1 if d.get('enabled') else 0)"
-          topic=$(python -c 'import json,os,re; d=json.load(open(os.environ["GITHUB_EVENT_PATH"])); m=(d.get("head_commit") or {}).get("message",""); r=re.search(r"\\[produce\\]\\s+topic=(.+)",m); print(r.group(1).strip() if r else "")')
+          topic=$(python -c 'import json,os,re; d=json.load(open(os.environ["GITHUB_EVENT_PATH"])); m=(d.get("head_commit") or {}).get("message",""); r=re.search(r"\[produce\]\s+topic=(.+)",m); print(r.group(1).strip() if r else "")')
           if [ -n "$topic" ]; then
             echo "Starting controlled production for topic: $topic"
             payload=$(TOPIC="$topic" python -c 'import json,os; print(json.dumps({"topic":os.environ["TOPIC"]},ensure_ascii=False))')
