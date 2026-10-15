@@ -2219,9 +2219,9 @@ def select_visuals(paths, topic_title, count=10):
             merchandise_terms=('shop','store','merch','t-shirt','tshirt','hoodie','hat','cap','mug','keychain','apparel','clothing','shirt','poster','backpack','jacket','sock')
             if any(term in label_url for term in merchandise_terms):
                 continue
-            txt=_asset_text(item)
-            if not any(k in txt for plan in plans for k in plan):
-                continue
+            # Fallback assets may have opaque CDN URLs and empty alt text.
+            # Keep all non-merchandise official assets as a last resort, but prefer
+            # keyword-matched assets above; the renderer still deduplicates frames.
             remaining.append(idx)
         remaining.sort(key=lambda idx:_image_quality(paths[idx]['path'] if isinstance(paths[idx],dict) else paths[idx]),reverse=True)
         for idx in remaining:
