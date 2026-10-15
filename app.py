@@ -1,3 +1,4 @@
+# Internal editorial and crop-safety follow-up.
 import struct, zlib
 import os, json, uuid, threading, time, asyncio, subprocess, shutil, re, sys, math
 from pathlib import Path
