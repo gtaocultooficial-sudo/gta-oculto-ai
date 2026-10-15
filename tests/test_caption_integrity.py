@@ -45,6 +45,22 @@ class CaptionIntegrityTests(unittest.TestCase):
         clean_chunks = [app._caption_words(item["text"]) for item in repaired]
         self._assert_no_protected_split(clean_chunks, ("jason", "e", "lucia"))
 
+    def test_render_time_repair_reflows_caption_ending_in_situam_a(self):
+        # Actual MP4 showed this boundary despite the earlier transcript audit passing.
+        rendered_beats = [
+            {"text": "O QUE LEVA JASON E LUCIA A BUSCAR TRABALHOS EM VICE CITY?", "start": 0.0, "end": 4.0},
+            {"text": "ESSAS CENAS TAMBÉM SITUAM A", "start": 4.0, "end": 6.0},
+            {"text": "DUPLA NO AMBIENTE DA CIDADE, ANTES DE SABERMOS QUAIS CONSEQUÊNCIAS ESSA", "start": 6.0, "end": 11.0},
+            {"text": "ROTINA TERÁ.", "start": 11.0, "end": 12.0},
+        ]
+        repaired = app._repair_caption_beats(rendered_beats, duration=12.0, max_words=6)
+        audit = app._audit_caption_quality(repaired)
+
+        self.assertEqual([], audit["bad_end"], audit)
+        self.assertEqual([], audit["bad_start"], audit)
+        self.assertEqual([], audit["protected_splits"], audit)
+        self.assertTrue(any("DUPLA" in item["text"] for item in repaired))
+
     def test_semantic_caption_chunks_keep_vice_city_together(self):
         text = (
             "A Rockstar revelou mais detalhes importantes sobre VICE CITY "
