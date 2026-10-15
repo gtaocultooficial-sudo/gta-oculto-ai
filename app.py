@@ -3801,16 +3801,17 @@ def _learned_timeline_count(duration, fallback=10):
         return fallback
 
 def _partition_caption_tokens_for_count(tokens, target_count, max_words=7, min_words=3):
-    """Fit narration to at most target_count safe captions; reject unsafe boundaries."""
+    """Find a low-cost full-coverage caption partition under the scene-count ceiling."""
     tokens=list(tokens or [])
-    target=max(1,int(target_count))
     if not tokens:
         return []
-    min_target=max(1,(len(tokens)+max_words-1)//max_words)
-    max_target=min(target,max(1,len(tokens)//min_words))
-    if min_target>max_target:
+    max_words=max(2,int(max_words)); min_words=max(1,int(min_words))
+    requested=max(1,int(target_count))
+    min_count=max(1,(len(tokens)+max_words-1)//max_words)
+    max_count=min(requested,max(1,len(tokens)//min_words))
+    if min_count>max_count:
         raise RuntimeError(
-            f'GATE CAPTIONS: {len(tokens)} spoken words cannot fit in {target} captions '
+            f'GATE CAPTIONS: {len(tokens)} words cannot fit in <= {requested} captions '
             f'of {min_words}-{max_words} words.'
         )
 
@@ -3831,9 +3832,11 @@ def _partition_caption_tokens_for_count(tokens, target_count, max_words=7, min_w
         'e','mas','porque','porém','porem','então','entao','quando','enquanto',
         'que','para','com','de','do','da','em','no','na'
     }
+    def norm(word):
+        return _caption_clean_word(word)
     def protected_cut(cut):
-        left=[_caption_clean_word(x) for x in tokens[max(0,cut-3):cut]]
-        right=[_caption_clean_word(x) for x in tokens[cut:cut+3]]
+        left=[norm(x) for x in tokens[max(0,cut-3):cut]]
+        right=[norm(x) for x in tokens[cut:cut+3]]
         for phrase in protected:
             for left_count in range(1,len(phrase)):
                 right_count=len(phrase)-left_count
@@ -3843,61 +3846,65 @@ def _partition_caption_tokens_for_count(tokens, target_count, max_words=7, min_w
                     return True
         return False
 
-    last_audit={}
-    # Treat target_count as a ceiling, not a demand to make every available
-    # slot into a caption. Fewer clean captions are better than an awkward cut.
-    for target in range(max_target,min_target-1,-1):
-        chunks=[]; cursor=0; failed=False
-        for idx in range(target):
-            remaining_slots=target-idx
-            if cursor>=len(tokens):
-                failed=True
-                break
-            if remaining_slots==1:
-                cut=len(tokens)
-                if not min_words<=cut-cursor<=max_words:
-                    failed=True
-                    break
-            else:
-                ideal=round((idx+1)*len(tokens)/target)
-                lo=max(cursor+min_words,len(tokens)-max_words*(remaining_slots-1))
-                hi=min(cursor+max_words,len(tokens)-min_words*(remaining_slots-1))
-                candidates=[]
-                for cut in range(lo,hi+1):
-                    if protected_cut(cut):
+    def solve(target):
+        # Dynamic programming across token offsets finds globally valid cuts.
+        # A local greedy choice can otherwise strand a preposition or connector
+        # at the beginning/end of the last caption, even when another partition exists.
+        n=len(tokens)
+        dp=[[None]*(target+1) for _ in range(n+1)]
+        dp[0][0]=(0.0,[])
+        ideal_words=n/target
+        for offset in range(n):
+            for used in range(target):
+                state=dp[offset][used]
+                if state is None:
+                    continue
+                base_score,parts=state
+                if used>0 and norm(tokens[offset]) in bad_start:
+                    continue
+                for size in range(min_words,max_words+1):
+                    end=offset+size
+                    if end>n:
+                        break
+                    remaining_slots=target-(used+1)
+                    remaining=n-end
+                    if remaining_slots==0:
+                        if remaining:
+                            continue
+                    elif not (min_words*remaining_slots <= remaining <= max_words*remaining_slots):
                         continue
-                    left_word=_caption_clean_word(tokens[cut-1])
-                    right_word=_caption_clean_word(tokens[cut])
-                    penalty=0
-                    if left_word in bad_end: penalty+=80
-                    if right_word in bad_start: penalty+=80
-                    if re.search(r'[.!?;:]$',tokens[cut-1]): penalty-=10
-                    elif re.search(r'[,)]$',tokens[cut-1]): penalty-=5
-                    candidates.append((penalty+abs(cut-ideal)*2,cut))
-                if not candidates:
-                    failed=True
-                    break
-                # Prefer a clean grammatical boundary whenever one exists at this position.
-                clean=[
-                    item for item in candidates
-                    if _caption_clean_word(tokens[item[1]-1]) not in bad_end
-                    and _caption_clean_word(tokens[item[1]]) not in bad_start
-                ]
-                _,cut=min(clean or candidates,key=lambda item:item[0])
-            chunks.append(tokens[cursor:cut])
-            cursor=cut
-        if failed or cursor<len(tokens) or len(chunks)!=target:
-            continue
-        if any(not min_words<=len(chunk)<=max_words for chunk in chunks):
-            continue
+                    if norm(tokens[end-1]) in bad_end:
+                        continue
+                    if end<n and protected_cut(end):
+                        continue
+                    tail=tokens[end-1]
+                    score=base_score + abs(size-ideal_words)*2.0
+                    if re.search(r'[.!?;:]$',tail):
+                        score-=12
+                    elif re.search(r'[,)]$',tail):
+                        score-=4
+                    if end<n and norm(tokens[end]) in {'e','mas','porque','porém','porem','então','entao'}:
+                        score-=2
+                    candidate=(score,parts+[tokens[offset:end]])
+                    old=dp[end][used+1]
+                    if old is None or candidate[0]<old[0]:
+                        dp[end][used+1]=candidate
+        final=dp[n][target]
+        if final is None:
+            return None
+        chunks=final[1]
         audit=_audit_caption_quality([{'text':_clean_caption_phrase(' '.join(c))} for c in chunks])
-        last_audit=audit
-        if not any(audit.get(key) for key in ('bad_end','bad_start','protected_splits','long','short','visual_bad')):
-            return chunks
+        if any(audit.get(key) for key in ('bad_end','bad_start','protected_splits','long','short','visual_bad')):
+            return None
+        return chunks
 
+    for target in range(max_count,min_count-1,-1):
+        chunks=solve(target)
+        if chunks is not None:
+            return chunks
     raise RuntimeError(
-        f'GATE CAPTIONS: no safe partition fits <= {target_count} captions; '
-        f'last audit={last_audit}'
+        f'GATE CAPTIONS: no grammatically safe partition fits <= {requested} captions; '
+        'refusing to split a protected phrase or strand a preposition.'
     )
 
 
