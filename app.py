@@ -1630,18 +1630,24 @@ def _safe_hook(title,kind):
 
 
 
+def _focused_work_story_hook(preferred_type=None):
+    """Open with a question and leave the concrete job detail for the proof."""
+    variants={
+        'CURIOSIDADE':'O QUE A ROTINA DE JASON E LUCIA PODE REVELAR SOBRE O COMEÇO DE GTA 6?',
+        'DETALHE':'O INÍCIO DE GTA 6 JÁ DÁ PISTAS SOBRE A VIDA DE JASON E LUCIA?',
+        'CONFIRMACAO':'O QUE JÁ FOI MOSTRADO SOBRE A ROTINA DE JASON E LUCIA EM GTA 6?',
+        'RUMOR':'O QUE AINDA NÃO SABEMOS SOBRE JASON E LUCIA EM GTA 6?',
+    }
+    return variants.get(str(preferred_type or '').upper(),
+                        'O QUE A ROTINA DE JASON E LUCIA PODE REVELAR SOBRE O COMEÇO DE GTA 6?')
+
+
 def _learned_hook_variant(preferred_type, kind, focused_work_story, title):
     """Select a proven hook style without changing the underlying factual claim."""
     p=str(preferred_type or '').upper()
     k=str(kind or '').upper()
     if focused_work_story:
-        variants={
-            'CURIOSIDADE':'VOCÊ PERCEBEU ESSE DETALHE SOBRE JASON E LUCIA EM GTA 6?',
-            'DETALHE':'ESSE DETALHE SOBRE JASON E LUCIA PODE SER IMPORTANTE EM GTA 6?',
-            'CONFIRMACAO':'A ROCKSTAR REVELOU UM DETALHE SOBRE JASON E LUCIA EM GTA 6',
-            'RUMOR':'ISSO SOBRE JASON E LUCIA AINDA NÃO FOI CONFIRMADO',
-        }
-        return variants.get(p)
+        return _focused_work_story_hook(p)
     variants={
         'CONFIRMACAO':'A ROCKSTAR REVELOU UMA NOVA INFORMAÇÃO SOBRE GTA 6',
         'RUMOR':'ISSO SOBRE GTA 6 AINDA NÃO FOI CONFIRMADO',
@@ -1916,7 +1922,7 @@ def make_script(topic):
 
     # V64.12: hooks específicos vencem os hooks genéricos quando a evidência permite.
     if focused_work_story:
-        hook='JASON E LUCIA PODEM ESTAR TRABALHANDO PARA VÁRIAS PESSOAS EM VICE CITY?'
+        hook=_focused_work_story_hook()
     elif kind=='NOTÍCIA':
         hook='A ROCKSTAR REVELOU UMA NOVA INFORMAÇÃO SOBRE GTA 6'
     elif kind=='RUMOR':
@@ -1953,10 +1959,10 @@ def make_script(topic):
     fact='. '.join(fact_parts)+'.'
 
     if focused_work_story:
-        # A evidência aparece uma vez só, na seção proof; contexto e conclusão
-        # acrescentam interpretação sem recontar o mesmo fato.
-        context='A questão é o que essa busca por dinheiro revela sobre o momento vivido pela dupla.'
-        payoff='Isso não confirma que cada trabalho seja uma missão principal nem define o papel deles na história.'
+        # Give each beat a distinct job: hook, evidence, context, caveat, CTA.
+        fact='Até agora, Jason e Lucia parecem estar aceitando trabalhos para diferentes figuras importantes de Vice City, numa tentativa de conseguir dinheiro.'
+        context='Essas cenas também situam a dupla no ambiente da cidade, antes de sabermos quais consequências essa rotina terá.'
+        payoff='A informação não confirma que cada trabalho seja uma missão principal nem define o papel deles na trama.'
         cta='Você acha que isso vai ter impacto na história?'
     elif kind=='NOTÍCIA':
         context='O ponto agora é entender o alcance real dessa informação, sem confundir o fato com teorias da comunidade.'
@@ -2494,25 +2500,52 @@ def download_visuals(urls,outdir,title):
     return candidates[:18]
 
 
+def _edge_white_ratio(im):
+    """Measure bright, nearly-neutral pixels touching the left/right frame edges."""
+    try:
+        small=im.convert('RGB').resize((90,160),Image.Resampling.BILINEAR)
+        pixels=list(small.getdata())
+        def is_edge_white(pixel):
+            r,g,b=pixel
+            return r>235 and g>235 and b>235 and max(pixel)-min(pixel)<28
+        left=[pixels[y*90+x] for y in range(160) for x in range(3)]
+        right=[pixels[y*90+x] for y in range(160) for x in range(87,90)]
+        return max(sum(is_edge_white(p) for p in left)/max(1,len(left)),
+                   sum(is_edge_white(p) for p in right)/max(1,len(right)))
+    except Exception:
+        return 0.0
+
+
 def _smart_crop(im,W,H,variant=0):
     im=im.convert('RGB')
-    # Work out the 9:16 crop and choose among several horizontal/vertical positions
-    # using a simple visual-information score, avoiding white/flat areas.
-    scale=max(W/im.width,H/im.height); nw,nh=int(im.width*scale),int(im.height*scale)
+    # Downloaded portrait art sometimes has a thumbnail border or logo already
+    # touching an edge. Give only those frames room for an asymmetric crop.
+    source_edge_white=_edge_white_ratio(im)
+    edge_artifact=(source_edge_white>=0.07 and im.width/im.height <= (W/H)*1.08)
+    scale=max(W/im.width,H/im.height)
+    if edge_artifact:
+        scale*=1.26
+    nw,nh=int(im.width*scale),int(im.height*scale)
     big=im.resize((nw,nh),Image.Resampling.LANCZOS)
     max_left=max(0,nw-W); max_top=max(0,nh-H)
-    positions=[0.08,0.28,0.50,0.72,0.90]
+    positions=[0.03,0.26,0.50,0.74,0.97] if edge_artifact else [0.08,0.28,0.50,0.72,0.90]
     best=None
     for frac in positions:
-        left=int(max_left*frac); top=int(max_top*0.50)
-        crop=big.crop((left,top,left+W,top+H)); sm=crop.resize((90,160),Image.Resampling.BILINEAR)
+        left=int(max_left*frac)
+        top=int(max_top*(0.12 if edge_artifact else 0.50))
+        crop=big.crop((left,top,left+W,top+H))
+        sm=crop.resize((90,160),Image.Resampling.BILINEAR)
         px=list(sm.getdata()); n=len(px)
         white=sum(1 for r,g,b in px if r>242 and g>242 and b>242)/n
         gray=sum(1 for r,g,b in px if abs(r-g)<5 and abs(g-b)<5 and 150<r<242)/n
         spread=sum(max(p)-min(p) for p in px)/n
-        score=(1-white-gray)*80 + min(spread/35,2)*20
-        if best is None or score>best[0]: best=(score,crop)
-    return best[1] if best else big.crop((max(0,max_left//2),max(0,max_top//2),max(0,max_left//2)+W,max(0,max_top//2)+H))
+        # Avoid leaving bright thumbnail borders or clipped white lettering
+        # on the final edges; content detail remains the main scoring signal.
+        edge_white=_edge_white_ratio(crop)
+        score=(1-white-gray)*80 + min(spread/35,2)*20 - edge_white*70
+        if best is None or score>best[0]:
+            best=(score,crop)
+    return best[1] if best else big.crop((max(0,max_left//2),max(0,max_top//2),max(0,max_left//2)+W,max(0,max_top//2)+H)
 
 
 def prepare_scene(src,dst,caption,idx,total):
