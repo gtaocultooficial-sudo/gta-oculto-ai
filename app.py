@@ -1631,15 +1631,8 @@ def _safe_hook(title,kind):
 
 
 def _focused_work_story_hook(preferred_type=None):
-    """Open with a question and leave the concrete job detail for the proof."""
-    variants={
-        'CURIOSIDADE':'O QUE A ROTINA DE JASON E LUCIA PODE REVELAR SOBRE O COMEÇO DE GTA 6?',
-        'DETALHE':'O INÍCIO DE GTA 6 JÁ DÁ PISTAS SOBRE A VIDA DE JASON E LUCIA?',
-        'CONFIRMACAO':'O QUE JÁ FOI MOSTRADO SOBRE A ROTINA DE JASON E LUCIA EM GTA 6?',
-        'RUMOR':'O QUE AINDA NÃO SABEMOS SOBRE JASON E LUCIA EM GTA 6?',
-    }
-    return variants.get(str(preferred_type or '').upper(),
-                        'O QUE A ROTINA DE JASON E LUCIA PODE REVELAR SOBRE O COMEÇO DE GTA 6?')
+    """Caption-safe question; keeps the subject phrase together and avoids a dangling preposition."""
+    return 'O QUE LEVA JASON E LUCIA A BUSCAR TRABALHOS EM VICE CITY?'
 
 
 def _learned_hook_variant(preferred_type, kind, focused_work_story, title):
