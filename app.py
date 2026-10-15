@@ -2511,17 +2511,18 @@ def _edge_white_ratio(im):
 
 def _smart_crop(im,W,H,variant=0):
     im=im.convert('RGB')
-    # Downloaded portrait art sometimes has a thumbnail border or logo already
-    # touching an edge. Give only those frames room for an asymmetric crop.
+    # Detect edge overlays even when the underlying asset is landscape rather
+    # than already cropped to 9:16. Those assets can contain a thumbnail border
+    # or partially clipped source-logo at one side.
     source_edge_white=_edge_white_ratio(im)
-    edge_artifact=(source_edge_white>=0.07 and im.width/im.height <= (W/H)*1.08)
+    edge_artifact=source_edge_white>=0.035
     scale=max(W/im.width,H/im.height)
     if edge_artifact:
-        scale*=1.26
+        scale*=1.30 if im.width/im.height <= (W/H)*1.08 else 1.10
     nw,nh=int(im.width*scale),int(im.height*scale)
     big=im.resize((nw,nh),Image.Resampling.LANCZOS)
     max_left=max(0,nw-W); max_top=max(0,nh-H)
-    positions=[0.03,0.26,0.50,0.74,0.97] if edge_artifact else [0.08,0.28,0.50,0.72,0.90]
+    positions=[0.01,0.16,0.32,0.50,0.68,0.84,0.99] if edge_artifact else [0.08,0.28,0.50,0.72,0.90]
     best=None
     for frac in positions:
         left=int(max_left*frac)
@@ -2532,13 +2533,26 @@ def _smart_crop(im,W,H,variant=0):
         white=sum(1 for r,g,b in px if r>242 and g>242 and b>242)/n
         gray=sum(1 for r,g,b in px if abs(r-g)<5 and abs(g-b)<5 and 150<r<242)/n
         spread=sum(max(p)-min(p) for p in px)/n
-        # Avoid leaving bright thumbnail borders or clipped white lettering
-        # on the final edges; content detail remains the main scoring signal.
+        # Edge contamination dominates the score: retaining even a thin white
+        # strip or clipped lettering on a frame edge is an editorial defect.
         edge_white=_edge_white_ratio(crop)
-        score=(1-white-gray)*80 + min(spread/35,2)*20 - edge_white*70
+        score=(1-white-gray)*80 + min(spread/35,2)*20 - edge_white*420
         if best is None or score>best[0]:
             best=(score,crop)
-    return best[1] if best else big.crop((max(0,max_left//2),max(0,max_top//2),max(0,max_left//2)+W,max(0,max_top//2)+H))
+    result=best[1] if best else big.crop((max(0,max_left//2),max(0,max_top//2),max(0,max_left//2)+W,max(0,max_top//2)+H))
+    # Final edge-safe pass: if a bright border remains, crop inward further and
+    # choose the least contaminated position before considering image detail.
+    if _edge_white_ratio(result)>=0.035:
+        zoom=1.22
+        zw,zh=int(W*zoom),int(H*zoom)
+        enlarged=result.resize((zw,zh),Image.Resampling.LANCZOS)
+        zx=max(0,zw-W); zy=max(0,zh-H)
+        safer=[]
+        for xf in (0.0,0.25,0.50,0.75,1.0):
+            candidate=enlarged.crop((int(zx*xf),int(zy*0.35),int(zx*xf)+W,int(zy*0.35)+H))
+            safer.append((_edge_white_ratio(candidate),candidate))
+        result=min(safer,key=lambda item:item[0])[1]
+    return result
 
 
 def prepare_scene(src,dst,caption,idx,total):
@@ -4096,6 +4110,37 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
     else:
         n=max(1,len(beats))
         beats=[dict(b, start=i*duration/n, end=(i+1)*duration/n, duration=duration/n) for i,b in enumerate(beats)]
+    # Last-mile gate: inspect the exact caption beats that will be painted onto
+    # the output frames. Earlier prechecks ran before renderer compaction/retiming.
+    _render_cap=_audit_caption_quality(beats)
+    print(
+        f"[RENDER_CAPTION_AUDIT] before score={_render_cap.get('score',0)} "
+        f"bad_end={len(_render_cap.get('bad_end',[]))} "
+        f"bad_start={len(_render_cap.get('bad_start',[]))} "
+        f"protected_splits={len(_render_cap.get('protected_splits',[]))}",
+        flush=True
+    )
+    if (_render_cap.get('bad_end') or _render_cap.get('bad_start')
+        or _render_cap.get('protected_splits') or _render_cap.get('long')
+        or _render_cap.get('short') or _render_cap.get('visual_bad')):
+        _render_fixed=_repair_caption_beats(beats,float(duration),max_words=6)
+        _render_fixed_cap=_audit_caption_quality(_render_fixed)
+        if (_render_fixed_cap.get('bad_end') or _render_fixed_cap.get('bad_start')
+            or _render_fixed_cap.get('protected_splits') or _render_fixed_cap.get('long')
+            or _render_fixed_cap.get('short') or _render_fixed_cap.get('visual_bad')
+            or not _render_fixed):
+            raise RuntimeError(
+                "RENDER_CAPTION_GATE: a segmentação final das legendas continua inválida: "
+                f"{_render_fixed_cap}"
+            )
+        beats=_render_fixed
+        print(
+            f"[RENDER_CAPTION_AUDIT] repaired score={_render_fixed_cap.get('score',0)} "
+            f"scenes={len(beats)}",
+            flush=True
+        )
+    else:
+        print(f"[RENDER_CAPTION_AUDIT] accepted score={_render_cap.get('score',0)}",flush=True)
     # Use todos os assets disponíveis; quando há poucos, o renderer aplica
     # enquadramentos diferentes em cada reutilização em vez de congelar a tela.
     # Keep all unique frames produced by the official-video extractor. The old [:18]
@@ -4132,9 +4177,14 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
             vf=f"scale={scale_w}:{scale_h}:force_original_aspect_ratio=increase,crop={crop_w}:{crop_h}:x='10+{10+zoom_variant*8}*sin(n/18)':y='18+{max(4,10+zoom_variant*5)}*cos(n/23)',scale=540:960,setsar=1,fps=30"
             inp=['-stream_loop','-1','-threads:v','1','-probesize','1M','-analyzeduration','1M','-ss',f'{offset:.2f}','-i',str(src)]
         else:
+            # Apply edge-safe preprocessing in the actual render path. Previously
+            # the crop helper existed and its unit test passed, but image rendering
+            # bypassed it and retained clipped source-edge lettering.
+            prepared_source=work/f'image_safe_{i:02d}.jpg'
+            prepare_scene(src,prepared_source,beat.get('text',''),i,len(beats))
             zoom='0.008' if motion_boost else '0.003'
             vf=f"scale=540:960:force_original_aspect_ratio=increase,crop=540:960,setsar=1,zoompan=z='min(zoom+{zoom},1.06)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=540x960:fps=30"
-            inp=['-loop','1','-threads:v','1','-i',str(src)]
+            inp=['-loop','1','-threads:v','1','-i',str(prepared_source)]
         cmd=[ff,'-loglevel','error','-y']+inp+['-threads:v','1','-loop','1','-i',str(overlay),'-t',f'{beat["duration"]:.3f}',
              '-filter_complex',f'[0:v]{vf}[v];[1:v]format=rgba[o];[v][o]overlay=0:0:shortest=1[outv]',
              '-map','[outv]','-an','-c:v','libx264','-preset','ultrafast','-crf','21',
@@ -4157,6 +4207,9 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
              '-movflags','+faststart','-shortest',str(out)],300)
     print(f'[RENDER] concat done exists={out.exists()} bytes={out.stat().st_size if out.exists() else 0}', flush=True)
     for p in scene_files:
+        try: p.unlink()
+        except Exception: pass
+    for p in work.glob('image_safe_*.jpg'):
         try: p.unlink()
         except Exception: pass
     try: listfile.unlink()
