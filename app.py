@@ -2687,6 +2687,13 @@ async def make_tts(text,path):
                                 pass
                 if path.exists() and path.stat().st_size>1000:
                     expected_words=_caption_words(text)
+                    # Without word-boundary events we cannot prove that Edge-TTS
+                    # completed the approved narration. Retry/fall back instead of
+                    # accepting audio whose spoken ending cannot be verified.
+                    if expected_words and not cues:
+                        raise RuntimeError(
+                            'Edge-TTS não retornou eventos de palavras; integridade da narração não verificável'
+                        )
                     if cues and expected_words:
                         expected_last=_caption_clean_word(expected_words[-1])
                         actual_last=_caption_clean_word(cues[-1].get('word',''))
