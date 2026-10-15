@@ -3494,7 +3494,6 @@ def _semantic_caption_chunks(sentence, min_words=3, max_words=7):
             if lw in bad_end: score+=45
             if rw in bad_start: score+=32
             if rw in preferred: score-=8
-            if protected_cut(cut): score+=80
             # Evita blocos visualmente curtos demais.
             if len(left)<min_words: score+=25
             if len(right)<min_words and rem>max_words+min_words: score+=25
@@ -3569,7 +3568,6 @@ def _caption_phrase_chunks(sentence, min_words=3, max_words=10):
             if lw in bad_end: score+=35
             if rw in bad_start: score+=35
             if rw in connectors: score-=8
-            if protected_cut(cut): score+=45
             if len(left)>=8: score+=1
             candidates.append((score,cut))
         if candidates:
@@ -4383,7 +4381,7 @@ def _audit_caption_quality(beats):
                         'right':(beats[bi+1] or {}).get('text','')
                     })
     total=max(1,len(beats or []))
-    texts=[re.sub(r'\\s+',' ',str(b.get('text','')).strip().lower()) for b in (beats or []) if str(b.get('text','')).strip()]
+    texts=[re.sub(r'\s+',' ',str(b.get('text','')).strip().lower()) for b in (beats or []) if str(b.get('text','')).strip()]
     repeated_adj=sum(1 for i in range(1,len(texts)) if texts[i] and texts[i]==texts[i-1])
     repeated_total=max(0,len(texts)-len(set(texts))) if texts else 0
     # A caption ending in a preposition or splitting a protected name is a stronger warning.
