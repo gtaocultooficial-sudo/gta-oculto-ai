@@ -4123,15 +4123,18 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
     if (_render_cap.get('bad_end') or _render_cap.get('bad_start')
         or _render_cap.get('protected_splits') or _render_cap.get('long')
         or _render_cap.get('short') or _render_cap.get('visual_bad')):
-        _render_fixed=_repair_caption_beats(beats,float(duration),max_words=6)
+        _render_target_count=unique_pool if video_clips else len(beats)
+        _render_fixed=_repair_caption_beats(
+            beats,float(duration),max_words=7,target_count=_render_target_count
+        )
         _render_fixed_cap=_audit_caption_quality(_render_fixed)
         if (_render_fixed_cap.get('bad_end') or _render_fixed_cap.get('bad_start')
             or _render_fixed_cap.get('protected_splits') or _render_fixed_cap.get('long')
             or _render_fixed_cap.get('short') or _render_fixed_cap.get('visual_bad')
-            or not _render_fixed):
+            or not _render_fixed or len(_render_fixed)>_render_target_count):
             raise RuntimeError(
                 "RENDER_CAPTION_GATE: a segmentação final das legendas continua inválida: "
-                f"{_render_fixed_cap}"
+                f"{_render_fixed_cap}; scenes={len(_render_fixed)} capacity={_render_target_count}"
             )
         beats=_render_fixed
         print(
@@ -4272,7 +4275,7 @@ def _learn_event(code, message, strategy=None, success=None):
     except Exception:
         pass
 
-def _repair_caption_beats(beats, duration, max_words=7):
+def _repair_caption_beats(beats, duration, max_words=7, target_count=None):
     """V55.3: reconstrução semântica das legendas usando somente as palavras já faladas.
     Em vez de apenas juntar blocos ruins, achata a fala existente, resegmenta por
     unidades de sentido e redistribui o tempo proporcionalmente. Isso elimina falsos
@@ -4304,7 +4307,11 @@ def _repair_caption_beats(beats, duration, max_words=7):
             fixed[-1].extend(ch)
         else:
             fixed.append(ch)
-    chunks=_merge_caption_chunks(fixed,target_count=max(1,min(16,len(fixed))),max_words=max_words)
+    if target_count is None:
+        merge_target=max(1,min(16,len(fixed)))
+    else:
+        merge_target=max(1,min(int(target_count),len(fixed)))
+    chunks=_merge_caption_chunks(fixed,target_count=merge_target,max_words=max_words)
 
     # Repair semantic boundaries without creating very long captions.
     bad_end={'e','de','do','da','em','no','na','que','um','uma','o','a','os','as','para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa','sobre','entre','até','sem','esse','essa','esses','essas','este','esta','estes','estas','aquele','aquela','aqueles','aquelas','meu','minha','meus','minhas','seu','sua','seus','suas','nosso','nossa','nossos','nossas'}
