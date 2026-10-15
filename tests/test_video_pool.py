@@ -18,7 +18,12 @@ class OfficialVideoPoolTests(unittest.TestCase):
                 clip.write_bytes(b"x" * 25001)
                 expected.append(clip)
 
-            with patch.object(app, "WORK", root):
+            with (
+                patch.object(app, "WORK", root),
+                patch.object(app, "_probe_media", return_value={
+                    "ok": True, "video": [{"codec_type": "video"}], "duration": 8.5
+                }),
+            ):
                 actual = app.download_official_video_clips(root / "job" / "official_videos")
 
             self.assertEqual(len(actual), 8)
@@ -75,6 +80,9 @@ class OfficialVideoPoolTests(unittest.TestCase):
                 patch.object(app, "WORK", root),
                 patch.object(app, "_remote_zip_entries", return_value=(120000, entries)),
                 patch.object(app, "_remote_zip_extract", side_effect=write_raw),
+                patch.object(app, "_probe_media", return_value={
+                    "ok": True, "video": [{"codec_type": "video"}], "duration": 8.5
+                }),
                 patch.object(app, "_ffmpeg_executable", return_value="ffmpeg"),
                 patch.object(app, "run_cmd", side_effect=write_proxy),
                 patch.object(app, "_video_contains_rating_disclaimer", return_value=False),
