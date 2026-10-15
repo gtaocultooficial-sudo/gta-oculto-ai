@@ -2062,7 +2062,9 @@ def _image_quality(path):
         spread=sum(max(px)-min(px) for px in pix)/n
         # Blank pages, logos, CSS placeholders and mostly-white screenshots are bad assets.
         # Also reject obvious green-screen/blank-color frames.
-        if white > 0.34 or (white + lightgray) > 0.58 or green > 0.48:
+        # Official store product grids often pass generic image-quality checks.
+        # Reject unusually pale catalog-like assets before they enter the story pool.
+        if white > 0.22 or (white + lightgray) > 0.48 or green > 0.48:
             return -1
         # Quantized dominant-color ratio catches flat placeholder panels.
         buckets={}
@@ -2444,6 +2446,10 @@ def download_visuals(urls,outdir,title):
             break
         u=item.get('url') if isinstance(item,dict) else item
         label=item.get('label','') if isinstance(item,dict) else ''
+        # Do not ingest store/catalog URLs as narrative footage.
+        _url_label=(str(u)+' '+str(label)).lower()
+        if any(term in _url_label for term in ('/store/','rockstar-games-gear','merchandise','product-detail','product_image','/products/','shopify','t-shirt','tshirt','hoodie','apparel','clothing','keychain','backpack','mug')):
+            continue
         raw=None
         try:
             raw=outdir/f'raw_{i}'
