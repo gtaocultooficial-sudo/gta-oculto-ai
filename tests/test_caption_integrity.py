@@ -17,12 +17,18 @@ class CaptionIntegrityTests(unittest.TestCase):
         ]
         for index in range(len(clean) - 1):
             left, right = clean[index], clean[index + 1]
-            self.assertFalse(
-                len(left) >= 1 and len(right) >= 1
-                and tuple(left[-1:]) == phrase[:1]
-                and tuple(right[:1]) == phrase[1:],
-                f"Protected phrase split across captions: {left} | {right}",
-            )
+            for left_count in range(1, len(phrase)):
+                right_count = len(phrase) - left_count
+                split = (
+                    len(left) >= left_count
+                    and len(right) >= right_count
+                    and tuple(left[-left_count:]) == phrase[:left_count]
+                    and tuple(right[:right_count]) == phrase[left_count:]
+                )
+                self.assertFalse(
+                    split,
+                    f"Protected phrase split across captions: {left} | {right}",
+                )
 
     def test_semantic_caption_chunks_keep_vice_city_together(self):
         text = (
@@ -31,6 +37,24 @@ class CaptionIntegrityTests(unittest.TestCase):
         )
         chunks = app._semantic_caption_chunks(text, min_words=3, max_words=6)
         self._assert_no_protected_split(chunks, ("vice", "city"))
+
+    def test_semantic_caption_chunks_keep_jason_and_lucia_together(self):
+        text = (
+            "A narrativa mostra como Jason e Lucia tentam conseguir dinheiro "
+            "enquanto exploram Vice City durante a história principal."
+        )
+        chunks = app._semantic_caption_chunks(text, min_words=3, max_words=6)
+        self._assert_no_protected_split(chunks, ("jason", "e", "lucia"))
+
+    def test_caption_repair_keeps_jason_and_lucia_together(self):
+        original = [
+            {"text": "A narrativa mostra como Jason e", "start": 0.0, "end": 1.5},
+            {"text": "Lucia tentam conseguir dinheiro enquanto exploram Vice City durante a história principal.",
+             "start": 1.5, "end": 8.0},
+        ]
+        repaired = app._repair_caption_beats(original, duration=8.0, max_words=6)
+        chunks = [app._caption_words(item["text"]) for item in repaired]
+        self._assert_no_protected_split(chunks, ("jason", "e", "lucia"))
 
     def test_caption_phrase_chunks_keep_vice_city_together(self):
         text = (
