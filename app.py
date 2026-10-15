@@ -2545,7 +2545,7 @@ def _smart_crop(im,W,H,variant=0):
         score=(1-white-gray)*80 + min(spread/35,2)*20 - edge_white*70
         if best is None or score>best[0]:
             best=(score,crop)
-    return best[1] if best else big.crop((max(0,max_left//2),max(0,max_top//2),max(0,max_left//2)+W,max(0,max_top//2)+H)
+    return best[1] if best else big.crop((max(0,max_left//2),max(0,max_top//2),max(0,max_left//2)+W,max(0,max_top//2)+H))
 
 
 def prepare_scene(src,dst,caption,idx,total):
