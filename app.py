@@ -4508,7 +4508,22 @@ def audit_short(script, video, duration, beats, selected_videos, image_scenes):
     cap=_audit_caption_quality(beats); checks['legendas']=cap['score']
     alignment=_caption_narration_alignment(beats,narration); checks['alinhamento_legendas']=alignment['score']
     if cap.get('score',100)<85:
-        issues.append(('CAPTIONS_LOW_QUALITY',f'qualidade visual/segmentação das legendas abaixo do mínimo: {cap.get("score",0)}/100'))
+        # Try to repair caption segmentation once before blocking the entire Short.
+        # Caption beats are derived from the narration, so reflowing word boundaries
+        # is safe and does not alter the spoken script or factual content.
+        try:
+            _rebuilt=_build_caption_beats(narration, float(duration))
+            _rebuilt_audit=_audit_caption_quality(_rebuilt)
+            _current_bad=len(cap.get('bad_end',[]))+len(cap.get('bad_start',[]))+len(cap.get('long',[]))+len(cap.get('short',[]))
+            _rebuilt_bad=len(_rebuilt_audit.get('bad_end',[]))+len(_rebuilt_audit.get('bad_start',[]))+len(_rebuilt_audit.get('long',[]))+len(_rebuilt_audit.get('short',[]))
+            if _rebuilt_audit.get('score',0)>cap.get('score',0) or _rebuilt_bad<_current_bad:
+                beats=_rebuilt
+                cap=_rebuilt_audit
+                checks['legendas']=cap['score']
+        except Exception as _caption_repair_error:
+            print(f'[CAPTION_REPAIR] safe reflow failed: {str(_caption_repair_error)[:180]}',flush=True)
+        if cap.get('score',100)<85:
+            issues.append(('CAPTIONS_LOW_QUALITY',f'qualidade visual/segmentação das legendas abaixo do mínimo: {cap.get("score",0)}/100'))
     if alignment.get('narration_coverage',1.0)<0.85:
         issues.append(('CAPTIONS_INCOMPLETE',f'legendas representam apenas {alignment.get("narration_coverage",0)*100:.0f}% da narração'))
     boundary_bad_count=len(cap.get('bad_end',[]))+len(cap.get('bad_start',[]))
