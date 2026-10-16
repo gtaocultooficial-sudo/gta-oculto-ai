@@ -123,6 +123,7 @@ body{margin:0;background:radial-gradient(circle at 50% -10%,#11152a 0,#07090d 42
 <div class="hero"><div><div class="eyebrow">PRODUTOR AUTÔNOMO</div><h1>A IA encontra o assunto. Você decide se quer produzir.</h1><div class="muted">Radar → score → Editor-Chefe → hook → roteiro → visuais → voz → edição → avaliação → Short.</div></div><div class="buttons"><button class="btn red" onclick="createShort()">⚡ CRIAR SHORT</button><button class="btn" onclick="research()">🔥 ATUALIZAR RADAR</button></div></div>
 <div class="control"><input id="topic" placeholder="Digite um assunto ou deixe a IA decidir"><button class="btn red" onclick="createShort()">PRODUZIR</button></div>
 <div class="stats"><div class="stat"><small>ASSUNTOS</small><b id="assuntos">4</b></div><div class="stat"><small>OPORTUNIDADES</small><b id="opps">4</b></div><div class="stat"><small>PRODUZIDOS</small><b id="produzidos">0</b></div><div class="stat"><small>FILA</small><b id="fila">0</b></div></div>
+<div class="panel" id="analyticsPanel"><div class="radar-head"><div><h3>📊 RESUMO DO YOUTUBE ANALYTICS</h3><div class="muted" style="font-size:10px">Métricas reais dos vídeos do canal, conforme as permissões da conta conectada.</div></div><button class="btn" onclick="loadAnalytics(true)">↻ ATUALIZAR</button></div><div id="analyticsStatus" class="notice">Carregando resumo de métricas…</div><div class="stats"><div class="stat"><small>VISUALIZAÇÕES</small><b id="anViews">—</b></div><div class="stat"><small>MÉDIA POR VÍDEO</small><b id="anAverage">—</b></div><div class="stat"><small>INSCRITOS GANHOS</small><b id="anSubs">—</b></div><div class="stat"><small>CURTIDAS</small><b id="anLikes">—</b></div></div><div class="stats"><div class="stat"><small>TEMPO ASSISTIDO</small><b id="anMinutes">—</b></div><div class="stat"><small>DURAÇÃO MÉDIA</small><b id="anDuration">—</b></div><div class="stat"><small>COMENTÁRIOS</small><b id="anComments">—</b></div><div class="stat"><small>VÍDEOS ANALISADOS</small><b id="anCount">—</b></div></div><div id="analyticsAdvice" class="notice">A IA vai sugerir próximos testes quando houver dados suficientes.</div><div id="analyticsVideos"></div></div>
 <div class="panel"><div class="radar-head"><h3>🔥 RADAR GTA VI</h3><div class="filters"><button class="filter active">ATUAL</button><button class="filter" onclick="research()">↻ ATUALIZAR</button></div></div><div id="radarStatus" class="notice">Carregando radar…</div></div><div class="panel"><div id="editorPick" class="notice">Aguardando o Radar.</div></div><div class="panel"><h3>PIPELINE</h3><div class="steps">'''+''.join(f'<div class="step" id="step-{i}">{x}</div>' for i,x in enumerate(['PESQUISA','ANÁLISE','ROTEIRO','VISUAIS','NARRAÇÃO','EDIÇÃO','AVALIAÇÃO','PRONTO']))+'''</div></div>
 <div class="panel"><div class="radar-head"><div><h3>OPORTUNIDADES DO RADAR</h3><div class="muted" style="font-size:10px">Assuntos encontrados, agrupados e ranqueados pelo Radar + Editor-Chefe.</div></div><div class="filters"><button class="filter active">TODAS</button><button class="filter">PRODUZIR</button><button class="filter">OBSERVAR</button><button class="filter">BAIXA</button></div></div><div id="oppList">__OPPORTUNITIES__</div></div>
 <div class="panel"><h3>PRODUÇÕES</h3><div id="jobs">Nenhuma produção iniciada.</div></div>
@@ -175,7 +176,17 @@ async function createShort(id){
   }catch(e){alert('Não foi possível iniciar a produção. Verifique se o servidor terminou de iniciar e tente novamente.')}
 }
 async function research(){try{let r=await fetch('/api/research',{method:'POST'});let d=await r.json();if(!r.ok||d.error){alert(d.error||'Falha no radar');return}drawState(d);alert('Radar atualizado: '+(d.opportunities||[]).length+' oportunidades encontradas.')}catch(e){alert('Não foi possível atualizar o radar agora. O fallback continua disponível.')}}
-load();setInterval(load,3000);
+
+async function loadAnalytics(force){
+ const box=document.getElementById('analyticsStatus');if(!box)return;if(force)box.textContent='Buscando dados do canal…';
+ try{const r=await fetch('/api/analytics/summary'+(force?'?refresh=1':''),{cache:'no-store'});const d=await r.json();if(!r.ok||!d.ok){box.textContent='Analytics indisponível: '+(d.reason||d.error||'verifique a conexão e as permissões do YouTube.');return}
+ const fmt=n=>Number(n||0).toLocaleString('pt-BR'),set=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v};
+ set('anViews',fmt(d.total_views));set('anAverage',fmt(d.average_views));set('anSubs',d.subscribers_available?fmt(d.subscribers_gained):'N/D');set('anLikes',d.likes_available?fmt(d.total_likes):'N/D');set('anMinutes',d.watch_minutes_available?fmt(Math.round(d.watch_minutes))+' min':'N/D');set('anDuration',d.duration_available?Math.floor(d.average_view_duration/60)+'m '+Math.round(d.average_view_duration%60)+'s':'N/D');set('anComments',d.comments_available?fmt(d.total_comments):'N/D');set('anCount',fmt(d.video_count));
+ box.textContent='Período: '+(d.start||'—')+' a '+(d.end||'—')+' · Fonte: '+(d.source==='public_stats_fallback'?'estatísticas públicas do YouTube':'YouTube Analytics')+' · Atualizado: '+(d.checked_at?new Date(d.checked_at).toLocaleString('pt-BR'):'agora');
+ document.getElementById('analyticsAdvice').textContent=d.recommendation||'Ainda não há dados suficientes para recomendações.';
+ document.getElementById('analyticsVideos').innerHTML=d.videos&&d.videos.length?'<div class="table-head" style="display:grid;grid-template-columns:minmax(180px,1fr) 80px 80px 80px 80px;gap:8px"><div>VÍDEO</div><div>VIEWS</div><div>CURTIDAS</div><div>INSCRITOS</div><div>COMENT.</div></div>'+d.videos.map(v=>'<div class="row" style="grid-template-columns:minmax(180px,1fr) 80px 80px 80px 80px"><div class="title">'+esc(v.title||v.video_id)+'</div><div>'+fmt(v.views)+'</div><div>'+(v.likes_available?fmt(v.likes):'N/D')+'</div><div>'+(v.subscribers_available?fmt(v.subscribers_gained):'N/D')+'</div><div>'+(v.comments_available?fmt(v.comments):'N/D')+'</div></div>').join(''):'<div class="notice">Nenhum vídeo foi retornado pela fonte de métricas.</div>';
+ }catch(e){box.textContent='Falha ao carregar o resumo. Tente atualizar novamente.'}}
+load();setInterval(load,3000);setTimeout(()=>loadAnalytics(false),1800);
 </script><section class="panel" id="liveClipperPanel" style="border-color:#2d6bff">
 <h3>✂️ CORTES DE LIVE — IA AUTÔNOMA</h3>
 <div class="notice">Aceita lives longas. O motor trabalha por blocos e procura os melhores momentos sem carregar a gravação inteira na memória.</div>
@@ -5736,6 +5747,56 @@ def produce():
         return jsonify(ok=False,error='Não foi possível colocar o job na fila: '+str(e)[:300]),500
     print(f'[PRODUCE_API] queued job={jid} via pending file',flush=True)
     return jsonify(ok=True,job_id=jid,title=topic['title'])
+
+@APP.get('/api/analytics/summary')
+def analytics_summary():
+    if not AUTONOMOUS_ENGINE:
+        return jsonify(ok=False,reason='AUTONOMOUS_ENGINE_UNAVAILABLE'),503
+    engine=AUTONOMOUS_ENGINE
+    if request.args.get('refresh') == '1':
+        try: engine.collect_analytics()
+        except Exception as e: return jsonify(ok=False,reason='ANALYTICS_COLLECTION_FAILED: '+str(e)[:250]),502
+    try: raw=(engine.memory.summary().get('metrics',{}) or {}).get('latest_analytics') or {}
+    except Exception: raw={}
+    last=getattr(engine,'last_analytics_result',None) or {}
+    if not raw or not raw.get('ok'):
+        return jsonify(ok=False,reason=last.get('reason') or 'Ainda não há coleta válida. Confira a configuração OAuth e as permissões do YouTube Analytics.',checked_at=last.get('checked_at')),503
+    headers=[str(x.get('name','')).lower().replace(' ','') if isinstance(x,dict) else str(x).lower().replace(' ','') for x in (raw.get('headers') or [])]
+    videos=[]
+    for row in raw.get('rows') or []:
+        if not isinstance(row,(list,tuple)): continue
+        item={headers[i]:row[i] for i in range(min(len(headers),len(row)))}
+        vid=str(item.get('video','') or '')
+        if not vid: continue
+        def num(key):
+            try: return float(item.get(key,0) or 0)
+            except (ValueError,TypeError): return 0.0
+        videos.append({'video_id':vid,'title':vid,'views':int(num('views')),'likes':int(num('likes')),'likes_available':'likes' in headers,'comments':int(num('comments')),'comments_available':'comments' in headers,'subscribers_gained':int(num('subscribersgained')),'subscribers_available':'subscribersgained' in headers and raw.get('mode')!='public_stats_fallback','average_view_duration':num('averageviewduration'),'estimated_minutes_watched':num('estimatedminuteswatched')})
+    try:
+        token=os.getenv('YOUTUBE_TOKEN_JSON','').strip()
+        if token and videos:
+            import base64
+            from google.oauth2.credentials import Credentials
+            from googleapiclient.discovery import build
+            if token.startswith('base64:'): token=base64.b64decode(token[7:]).decode()
+            creds=Credentials.from_authorized_user_info(json.loads(token),['https://www.googleapis.com/auth/youtube.upload'])
+            yt=build('youtube','v3',credentials=creds,cache_discovery=False); byid={v['video_id']:v for v in videos}
+            for i in range(0,len(videos),50):
+                ids=[v['video_id'] for v in videos[i:i+50]]
+                for item in yt.videos().list(part='snippet,statistics',id=','.join(ids)).execute().get('items',[]):
+                    v=byid.get(item.get('id'))
+                    if v:
+                        v['title']=(item.get('snippet') or {}).get('title') or v['title']; st=item.get('statistics') or {}
+                        if 'likes' not in headers and 'likeCount' in st: v['likes']=int(st.get('likeCount',0) or 0);v['likes_available']=True
+                        if 'comments' not in headers and 'commentCount' in st: v['comments']=int(st.get('commentCount',0) or 0);v['comments_available']=True
+    except Exception: pass
+    total=sum(v['views'] for v in videos); avg=round(total/len(videos)) if videos else 0
+    likes_avail=any(v['likes_available'] for v in videos); subs_avail=any(v['subscribers_available'] for v in videos); comments_avail=any(v['comments_available'] for v in videos)
+    watch_avail='estimatedminuteswatched' in headers; duration_avail='averageviewduration' in headers; source=raw.get('mode','youtube_analytics')
+    recommendation='Ainda não há dados suficientes para recomendar um padrão.'
+    if videos:
+        top=max(videos,key=lambda v:v['views']); recommendation=f"Entre os vídeos retornados, ‘{top['title']}’ lidera com {top['views']} visualizações. Use o assunto e o gancho como hipótese para novos testes; isso não garante repetir o resultado."
+    return jsonify(ok=True,start=raw.get('start'),end=raw.get('end'),source=source,video_count=len(videos),total_views=total,average_views=avg,total_likes=sum(v['likes'] for v in videos),likes_available=likes_avail,subscribers_gained=sum(v['subscribers_gained'] for v in videos),subscribers_available=subs_avail,total_comments=sum(v['comments'] for v in videos),comments_available=comments_avail,watch_minutes=sum(v['estimated_minutes_watched'] for v in videos),watch_minutes_available=watch_avail,average_view_duration=(sum(v['average_view_duration'] for v in videos)/len(videos) if videos else 0),duration_available=duration_avail,videos=sorted(videos,key=lambda v:v['views'],reverse=True)[:20],recommendation=recommendation,checked_at=last.get('checked_at'))
 
 @APP.get('/api/youtube/status')
 def youtube_status():
