@@ -4324,8 +4324,12 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
             # bypassed it and retained clipped source-edge lettering.
             prepared_source=work/f'image_safe_{i:02d}.jpg'
             prepare_scene(src,prepared_source,beat.get('text',''),i,len(beats))
-            zoom='0.008' if motion_boost else '0.003'
-            vf=f"scale=540:960:force_original_aspect_ratio=increase,crop=540:960,setsar=1,zoompan=z='min(zoom+{zoom},1.06)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=540x960:fps=30"
+            # V67.1: keep image motion alive for the whole beat. The former
+            # zoom+0.003/frame hit the 1.06 cap in ~20 frames (~0.67 s), then
+            # visually held still for most of a 2.14 s scene.
+            zoom_rate='0.0014' if motion_boost else '0.00125'
+            zoom_cap='1.09' if motion_boost else '1.085'
+            vf=f"scale=540:960:force_original_aspect_ratio=increase,crop=540:960,setsar=1,zoompan=z='min(1+{zoom_rate}*on,{zoom_cap})':x='(iw-iw/zoom)/2+((iw-iw/zoom)/4)*sin(on/18)':y='(ih-ih/zoom)/2+((ih-ih/zoom)/4)*cos(on/23)':d=1:s=540x960:fps=30"
             inp=['-loop','1','-threads:v','1','-i',str(prepared_source)]
         cmd=[ff,'-loglevel','error','-y']+inp+['-threads:v','1','-loop','1','-i',str(overlay),'-t',f'{beat["duration"]:.3f}',
              '-filter_complex',f'[0:v]{vf}[v];[1:v]format=rgba[o];[v][o]overlay=0:0:shortest=1[outv]',
