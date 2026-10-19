@@ -1739,7 +1739,10 @@ def _is_source_recovery_error(exc):
     keys=(
         'blocked_url','blocked_no_article_body','matéria sem corpo','materia sem corpo',
         'corpo principal extraído','corpo original confiável','resolver_budget_exceeded',
-        'resolver budget','source-lock','source lock','sem evidência da matéria principal'
+        'resolver budget','source-lock','source lock','sem evidência da matéria principal',
+        # Editorial topic drift is recoverable: discard this candidate and try
+        # the next approved topic instead of rendering a mismatched Short.
+        'selected_topic_mismatch','selected topic mismatch'
     )
     return any(k in msg for k in keys)
 
@@ -1778,6 +1781,17 @@ def _autonomous_make_script(jid, topic, topics):
             script=make_script(candidate)
             # Preserve the original approved topic separately from the rewritten headline.
             script['selected_topic_title']=selected_topic_title
+            # Preflight the spoken narration against the original approved topic
+            # BEFORE spending time rendering a video. If it drifted, discard this
+            # candidate and let the bounded recovery loop try another topic.
+            preflight=_editorial_topic_alignment(
+                selected_topic_title, script.get('narration',''), [], selected_topic_title
+            )
+            if not preflight.get('ok'):
+                raise ValueError(
+                    'SELECTED_TOPIC_MISMATCH: roteiro não corresponde à pauta aprovada: '
+                    + ', '.join(preflight.get('issues',[])[:8])
+                )
             elapsed=round(time.monotonic()-started,1)
             update_job(jid,log=f'V64.8: fonte validada em {elapsed}s; pauta aprovada: {title}')
             return candidate, script
