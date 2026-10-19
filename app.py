@@ -2989,7 +2989,7 @@ def _video_contains_rating_disclaimer(path, sample_fps=2.0):
         except Exception: pass
 
 
-def _download_official_rockstar_cdn_proxies(cache, jid=None, limit_per_video=5):
+def _download_official_rockstar_cdn_proxies(cache, jid=None, limit_per_video=10):
     """Extract short moving clips from Rockstar's own public CDN without downloading a full trailer."""
     cache=Path(cache)
     cache.mkdir(parents=True,exist_ok=True)
@@ -2997,8 +2997,11 @@ def _download_official_rockstar_cdn_proxies(cache, jid=None, limit_per_video=5):
     # Rockstar's official video page exposes the Extended Look under this media ID.
     # Use ranged, time-seeked downloads so only short segments are fetched.
     media_id='rk721912'
-    starts=[72.0,365.0,672.0,1015.0,1390.0]
+    # Sample across the full official Extended Look so the editor has enough
+    # independent motion sources and does not fill most of a Short with stills.
+    starts=[72.0,180.0,300.0,365.0,480.0,600.0,672.0,790.0,900.0,1015.0,1130.0,1260.0,1390.0]
     resolutions=['720p','1080p','2160p']
+    accepted_starts=set()
     next_index=0
     for p in cache.glob('rockstar_real_v251_*.mp4'):
         m=re.search(r'_(\d+)\.mp4$',p.name)
@@ -3010,6 +3013,10 @@ def _download_official_rockstar_cdn_proxies(cache, jid=None, limit_per_video=5):
         for i,start in enumerate(starts):
             if len(proxies)>=int(limit_per_video):
                 break
+            # A lower-resolution retry must not create another filename for
+            # footage from a timestamp already accepted at a prior resolution.
+            if start in accepted_starts:
+                continue
             target=cache/f'rockstar_real_v251_{next_index}.mp4'
             next_index+=1
             try:
@@ -3036,6 +3043,7 @@ def _download_official_rockstar_cdn_proxies(cache, jid=None, limit_per_video=5):
                     target.unlink(missing_ok=True)
                     raise RuntimeError('trecho descartado por tela de classificação/disclaimer')
                 proxies.append(target)
+                accepted_starts.add(start)
                 print(f'[OFFICIAL_ROCKSTAR_CDN] accepted={target.name} resolution={resolution} start={start:.1f}s duration={pduration:.2f}s',flush=True)
             except Exception as e:
                 try: target.unlink(missing_ok=True)
@@ -3186,7 +3194,7 @@ def download_official_video_clips(outdir, jid=None):
         zip_error=str(e)[:900]
         print(f'[OFFICIAL_VIDEO_ZIP] insufficient valid motion clips: {zip_error}; trying Rockstar official CDN range-download fallback',flush=True)
         try:
-            return _download_official_rockstar_cdn_proxies(cache,jid=jid,limit_per_video=5)
+            return _download_official_rockstar_cdn_proxies(cache,jid=jid,limit_per_video=10)
         except Exception as rockstar_error:
             raise RuntimeError(
                 'Não foi possível obter vídeos oficiais utilizáveis. '
@@ -3518,7 +3526,7 @@ def _caption_is_bad_start(word):
 def _caption_is_bad_end(word):
     return _caption_clean_word(word) in {
         'e','de','do','da','em','no','na','que','um','uma','o','a','os','as',
-        'para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa'
+        'para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa','nem'
     }
 
 
@@ -3533,9 +3541,9 @@ def _semantic_caption_chunks(sentence, min_words=3, max_words=7):
     if len(tokens)<=max_words:
         return [tokens] if len(tokens)>=min_words else [tokens]
     norm=lambda w:_caption_clean_word(w)
-    bad_end={'e','de','do','da','em','no','na','que','um','uma','o','a','os','as','para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa','sobre','entre','até','sem','como','pelo','pela','pelos','pelas','porém','porem','então','entao'}
+    bad_end={'e','de','do','da','em','no','na','que','um','uma','o','a','os','as','para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa','sobre','entre','até','sem','como','pelo','pela','pelos','pelas','porém','porem','então','entao','nem'}
     bad_start={'e','mas','porque','porém','porem','então','entao','quando','enquanto','que','para','com','de','do','da','em','no','na'}
-    preferred={'e','mas','porque','porém','porem','então','entao','quando','enquanto','porque'}
+    preferred={'e','mas','porque','porém','porem','então','entao','quando','enquanto','porque','nem'}
     protected={('gta','6'),('gta','vi'),('vice','city'),('cloud','gaming'),('xbox','cloud','gaming'),('jason','e','lucia'),('playstation','5'),('xbox','series')}
     def protected_cut(cut):
         # A cut is protected only when it splits a protected expression across
@@ -3697,7 +3705,7 @@ def _cue_clean(w):
 
 def _cue_bad_end(w):
     return re.sub(r'[^A-Za-zÀ-ÿ]','',str(w or '')).lower() in {
-        'e','de','do','da','em','no','na','que','um','uma','o','a','os','as','para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa','sobre','entre','até','sem'
+        'e','de','do','da','em','no','na','que','um','uma','o','a','os','as','para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa','sobre','entre','até','sem','nem'
     }
 
 
@@ -3842,7 +3850,7 @@ def _partition_caption_tokens_for_count(tokens, target_count, max_words=7, min_w
     bad_end={
         'e','de','do','da','em','no','na','que','um','uma','o','a','os','as',
         'para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa',
-        'sobre','entre','até','sem','como','pelo','pela','pelos','pelas','porém','porem',
+        'sobre','entre','até','sem','como','pelo','pela','pelos','pelas','porém','porem','nem',
         'esse','essa','esses','essas','este','esta','estes','estas','aquele','aquela',
         'aqueles','aquelas','meu','minha','meus','minhas','seu','sua','seus','suas',
         'nosso','nossa','nossos','nossas'
@@ -4455,7 +4463,7 @@ def _repair_caption_beats(beats, duration, max_words=7):
     chunks=_merge_caption_chunks(fixed,target_count=max(1,min(16,len(fixed))),max_words=max_words)
 
     # Repair semantic boundaries without creating very long captions.
-    bad_end={'e','de','do','da','em','no','na','que','um','uma','o','a','os','as','para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa','sobre','entre','até','sem','esse','essa','esses','essas','este','esta','estes','estas','aquele','aquela','aqueles','aquelas','meu','minha','meus','minhas','seu','sua','seus','suas','nosso','nossa','nossos','nossas'}
+    bad_end={'e','de','do','da','em','no','na','que','um','uma','o','a','os','as','para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa','sobre','entre','até','sem','nem','esse','essa','esses','essas','este','esta','estes','estas','aquele','aquela','aqueles','aquelas','meu','minha','meus','minhas','seu','sua','seus','suas','nosso','nossa','nossos','nossas'}
     bad_start={'e','mas','porque','porém','porem','então','entao','quando','enquanto','para','com','de','do','da','em','no','na','que'}
     i=0
     while i < len(chunks)-1:
@@ -4577,7 +4585,7 @@ def _caption_visual_split_quality(text, W=540):
 
 def _audit_caption_quality(beats):
     bad_end=[]; bad_start=[]; long=[]; short=[]; visual_bad=[]; protected_splits=[]
-    bad_end_set={'e','de','do','da','em','no','na','que','um','uma','o','a','os','as','para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa','sobre','entre','até','sem','esse','essa','esses','essas','este','esta','estes','estas','aquele','aquela','aqueles','aquelas','meu','minha','meus','minhas','seu','sua','seus','suas','nosso','nossa','nossos','nossas'}
+    bad_end_set={'e','de','do','da','em','no','na','que','um','uma','o','a','os','as','para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa','sobre','entre','até','sem','nem','esse','essa','esses','essas','este','esta','estes','estas','aquele','aquela','aqueles','aquelas','meu','minha','meus','minhas','seu','sua','seus','suas','nosso','nossa','nossos','nossas'}
     bad_start_set={'e','mas','porque','porém','porem','então','entao','quando','enquanto','para','com','de','do','da','em','no','na','que'}
     protected_phrases={
         ('gta','6'),('gta','vi'),('vice','city'),('cloud','gaming'),
