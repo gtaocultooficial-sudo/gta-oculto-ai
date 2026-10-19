@@ -1,6 +1,6 @@
 # Internal editorial and crop-safety follow-up.
 import struct, zlib
-import os, json, uuid, threading, time, asyncio, subprocess, shutil, re, sys, math
+import os, json, uuid, threading, time, asyncio, subprocess, shutil, re, sys, math, statistics
 from pathlib import Path
 from datetime import datetime, timezone
 from urllib.parse import urljoin, urlparse, quote, quote_plus, parse_qs
@@ -5005,6 +5005,12 @@ def _persistent_source_subtitle_audit(path):
                  '-vf','fps=2,scale=270:480:flags=bilinear,format=gray',
                  str(tmp/'frame_%04d.png')],60)
         frame_paths=sorted(tmp.glob('frame_*.png'))
+        if len(frame_paths)<8:
+            return {
+                'embedded_subtitle':False,'sample_count':len(frame_paths),
+                'hit_times_s':[],'method':'persistent-two-line-source-text',
+                'error':'amostras insuficientes para auditar legendas-fonte'
+            }
         hits=[]
         for fi,fp in enumerate(frame_paths):
             try:
