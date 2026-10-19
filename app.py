@@ -5661,7 +5661,13 @@ def produce_job(jid):
         (jobdir/'word_cues.json').write_text(json.dumps(word_cues,ensure_ascii=False,indent=2),encoding='utf-8')
         # Editorial pacing: use more short beats so stills do not linger for 3-4 seconds.
         # Keep the narration duration unchanged; only increase the visual/caption beat density.
-        timeline_count=max(14,_learned_timeline_count(duration,14))
+        # Caption capacity must scale with the actual spoken word count.
+        # 100 words cannot fit into 14 captions capped at 7 words each; reserve
+        # enough caption beats before attempting segmentation, while preserving
+        # the 7-word quality gate.
+        spoken_word_count=len(re.findall(r"[A-Za-zÀ-ÿ0-9']+",str(script.get('narration',''))))
+        learned_count=max(14,_learned_timeline_count(duration,14))
+        timeline_count=max(learned_count,min(18,(spoken_word_count+6)//7))
         beats=build_short_timeline(script,topic,duration,timeline_count,word_cues=word_cues)
         # V63: corrigir a segmentação antes do encode final. Evita re-renderizações
         # completas posteriores no Render Free sem abrir mão do gate de legendas.
@@ -5670,7 +5676,8 @@ def produce_job(jid):
         # If TTS word-boundary events omitted or corrupted words, rebuild captions from
         # the complete approved narration instead of repeatedly repairing incomplete text.
         if (_pre_align.get('foreign_ratio',0)>0.0 or _pre_align.get('narration_coverage',1.0)<0.98) and script.get('narration'):
-            _complete_beats=build_short_timeline(script,topic,duration,_learned_timeline_count(duration,14),word_cues=None)
+            _complete_count=max(14,_learned_timeline_count(duration,14),min(18,(spoken_word_count+6)//7))
+            _complete_beats=build_short_timeline(script,topic,duration,_complete_count,word_cues=None)
             if _complete_beats:
                 beats=_complete_beats
             _pre_cap=_audit_caption_quality(beats)
