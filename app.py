@@ -65,7 +65,7 @@ UA = 'GTA-Oculto-AI/Cloud-Final/V55-SOURCE-RECOVERY-3'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
-BUILD_VERSION = 'V68.5-NEAR-DUPLICATE-FRAME-QA-20261019'
+BUILD_VERSION = 'V68.6-CAPTION-ALIGNMENT-SUBTITLE-AND-REPEAT-QA-20261019'
 
 FALLBACK_TOPICS = [
     {'id':'leonida','score':96,'priority':'ALTA','title':'GTA 6: o detalhe de Leonida que pode mudar a história','source':'Rockstar Games','url':ROCKSTAR_VI,
@@ -5053,7 +5053,10 @@ def _visual_repetition_audit(path):
         if longest_s>=8: score-=40
         elif longest_s>=6: score-=30
         elif longest_s>=4: score-=18
-        if near_frame_matches: score-=min(24,12+4*(len(near_frame_matches)-1))
+        # One or two near-identical samples can be normal during a pan/transition.
+        # Penalize gently; the blocking gate below requires a cluster.
+        if len(near_frame_matches)==2: score-=4
+        elif len(near_frame_matches)>=3: score-=min(20,8+4*(len(near_frame_matches)-3))
         return {
             'score':max(0,min(100,score)),
             'repeated_ratio':round(ratio,3),
@@ -5172,11 +5175,13 @@ def _persistent_source_subtitle_audit(path):
                     hits.append(fi)
             except Exception:
                 continue
-        # Require at least two consecutive half-second frames to suppress
-        # isolated false positives from artwork, signs, or clothing logos.
+        # Two samples only 0.5s apart can be a transient HUD element or scene detail.
+        # Require three consecutive half-second hits (at least 1s) to call it a
+        # persistent source subtitle and avoid blocking on brief visual coincidences.
         has_persistent=False
-        for a,b in zip(hits,hits[1:]):
-            if b==a+1:
+        for idx in range(max(0,len(hits)-2)):
+            a,b,c=hits[idx:idx+3]
+            if b==a+1 and c==b+1:
                 has_persistent=True
                 break
         times=[round(i/2.0,1) for i in hits]
@@ -5256,7 +5261,7 @@ def audit_short(script, video, duration, beats, selected_videos, image_scenes):
             print(f'[CAPTION_REPAIR] safe reflow failed: {str(_caption_repair_error)[:180]}',flush=True)
         if cap.get('score',100)<85:
             issues.append(('CAPTIONS_LOW_QUALITY',f'qualidade visual/segmentação das legendas abaixo do mínimo: {cap.get("score",0)}/100'))
-    if alignment.get('narration_coverage',1.0)<0.85:
+    if alignment.get('narration_coverage',1.0)<0.98:
         issues.append(('CAPTIONS_INCOMPLETE',f'legendas representam apenas {alignment.get("narration_coverage",0)*100:.0f}% da narração'))
     boundary_bad_count=len(cap.get('bad_end',[]))+len(cap.get('bad_start',[]))
     # V55.5: only actual semantic boundary violations can trigger this issue.
@@ -5359,7 +5364,7 @@ def audit_short(script, video, duration, beats, selected_videos, image_scenes):
         issues.append(('VISUAL_STAGNATION',f'visual praticamente parado por {motion.get("longest_still_seconds",0):.0f}s'))
     if motion.get('frozen_ratio',0)>=0.28:
         issues.append(('HIGH_FROZEN_RATIO',f'{motion.get("frozen_ratio",0)*100:.0f}% das transições amostradas com pouca mudança visual'))
-    if not repetition.get('error') and (repetition.get('near_frame_repeat_pairs') or repetition.get('score',100)<85 or repetition.get('repeated_ratio',0)>=0.24 or repetition.get('longest_repeat_s',0)>=4):
+    if not repetition.get('error') and (len(repetition.get('near_frame_repeat_pairs',[]))>=3 or repetition.get('score',100)<85 or repetition.get('repeated_ratio',0)>=0.24 or repetition.get('longest_repeat_s',0)>=4):
         issues.append(('VISUAL_REPETITION',f'repetição visual detectada: {repetition.get("repeated_ratio",0)*100:.0f}% das amostras / trecho repetido até {repetition.get("longest_repeat_s",0):.1f}s; quadros próximos repetidos={len(repetition.get("near_frame_repeat_pairs",[]))}'))
     final=max(0,round((checks['roteiro']+checks['alinhamento_pauta']+checks['legendas']+checks['alinhamento_legendas']+checks['mp4']+checks['visuais']+checks['movimento']+checks['repeticao_visual'])/8))
     return {'score':final,'checks':checks,'issues':[{'code':c,'message':m} for c,m in issues],'media':media,'caption_audit':cap,'motion_audit':motion,'repetition_audit':repetition}
@@ -5624,7 +5629,7 @@ def produce_job(jid):
             print(f'[CAPTION_QA] job={jid} warning residual_boundaries={_boundary_count} blocks={len(beats or [])}; continuing to alignment/score gates',flush=True)
         if _pre_cap.get('score',100)<85:
             raise ValueError(f'GATE CAPTIONS: qualidade das legendas abaixo de 85/100 após autocorreção ({_pre_cap.get("score",0)}/100).')
-        if _pre_align.get('foreign_ratio',0)>0.03 or _pre_align.get('narration_coverage',1.0)<0.85:
+        if _pre_align.get('foreign_ratio',0)>0.005 or _pre_align.get('narration_coverage',1.0)<0.98:
             raise ValueError('GATE CAPTIONS: as legendas não representam corretamente a narração após autocorreção.')
         caps=[b['text'] for b in beats]
         sync_mode='timestamps reais do Edge-TTS' if word_cues else 'fallback editorial pela duração real do áudio'
@@ -5750,7 +5755,7 @@ def produce_job(jid):
             cap_a=audit.get('caption_audit',{}) or {}
             align_a=_caption_narration_alignment(beats,script.get('narration',''))
             severe_boundary=((len(cap_a.get('bad_end',[]))+len(cap_a.get('bad_start',[])))>=max(4,int(len(beats or [])*0.55)))
-            if align_a.get('foreign_ratio',0)<=0.03 and align_a.get('score',100)>=85 and cap_a.get('repeated_adjacent',0)==0 and not severe_boundary:
+            if align_a.get('foreign_ratio',0)<=0.005 and align_a.get('score',100)>=92 and align_a.get('narration_coverage',1.0)>=0.98 and cap_a.get('repeated_adjacent',0)==0 and not severe_boundary:
                 blocking=[i for i in blocking if i.get('code')!='CAPTIONS_BAD_BOUNDARY']
                 audit.setdefault('notes',[]).append('V55.4: boundary leve aceito com alinhamento íntegro à narração.')
         if audit.get('score',0)<85 or blocking:
@@ -5779,7 +5784,7 @@ def produce_job(jid):
             )
         # V52 strict caption gate: never approve captions that are not derived from the actual narration.
         cap_alignment=_caption_narration_alignment(beats,script.get('narration',''))
-        if cap_alignment.get('foreign_ratio',0)>0.03 or cap_alignment.get('score',100)<85:
+        if cap_alignment.get('foreign_ratio',0)>0.005 or cap_alignment.get('score',100)<92 or cap_alignment.get('narration_coverage',1.0)<0.98:
             raise ValueError('GATE CAPTIONS: legendas contêm texto que não pertence à narração. Produção bloqueada para autocorreção.')
         # V33 hard gate: rendering is not enough; reject editorially contaminated/weak scripts.
         banned_editorial=('radar','editor-chefe','score','confiança','fontes','matérias','produzir agora')
