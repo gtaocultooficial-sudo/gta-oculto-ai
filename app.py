@@ -65,7 +65,7 @@ UA = 'GTA-Oculto-AI/Cloud-Final/V55-SOURCE-RECOVERY-3'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
-BUILD_VERSION = 'V68.1-MOTION-FIRST-IMAGE-CAP-20261019'
+BUILD_VERSION = 'V68.2-THIRTEEN-MOTION-SOURCES-20261019'
 
 FALLBACK_TOPICS = [
     {'id':'leonida','score':96,'priority':'ALTA','title':'GTA 6: o detalhe de Leonida que pode mudar a história','source':'Rockstar Games','url':ROCKSTAR_VI,
@@ -3003,10 +3003,193 @@ def _download_official_rockstar_cdn_proxies(cache, jid=None, limit_per_video=10)
     resolutions=['720p','1080p','2160p']
     accepted_starts=set()
     next_index=0
-    for p in cache.glob('rockstar_real_v251_*.mp4'):
-        m=re.search(r'_(\d+)\.mp4$',p.name)
-        if m: next_index=max(next_index,int(m.group(1))+1)
+    # Reuse valid CDN clips using the actual source timestamp, filling only gaps.
     proxies=[]
+    for p in sorted(cache.glob('rockstar_real_v251_*.mp4'), key=lambda q: int(re.search(r'_(\d+)\.mp4
+    for resolution in resolutions:
+        url=f'https://videos-rockstargames-com.akamaized.net/v4/{media_id}/flv/en-us-{resolution}.mp4'
+        for i,start in enumerate(starts):
+            if len(proxies)>=int(limit_per_video):
+                break
+            # A lower-resolution retry must not create another filename for
+            # footage from a timestamp already accepted at a prior resolution.
+            if start in accepted_starts:
+                continue
+            target=cache/f'rockstar_real_v251_{next_index}.mp4'
+            next_index+=1
+            try:
+                if jid:
+                    update_job(jid,log=f'Obtendo trecho de vídeo oficial Rockstar ({resolution}, amostra {i+1}/{len(starts)})...')
+                headers='Referer: https://www.rockstargames.com/\r\nUser-Agent: '+UA+'\r\n'
+                # Input-side -ss lets FFmpeg request the selected byte range instead of
+                # downloading the entire 26-minute source first.
+                run_cmd([
+                    ff,'-hide_banner','-loglevel','error','-y','-threads:v','1',
+                    '-rw_timeout','30000000','-headers',headers,
+                    '-ss',f'{start:.3f}','-i',url,'-t','8.5',
+                    '-vf','scale=320:568:force_original_aspect_ratio=increase,crop=320:568,setsar=1,fps=12',
+                    '-an','-c:v','libx264','-preset','ultrafast','-crf','31',
+                    '-threads','1','-filter_threads','1','-filter_complex_threads','1',
+                    '-x264-params','threads=1:lookahead-threads=1:rc-lookahead=0:sync-lookahead=0',
+                    '-pix_fmt','yuv420p','-movflags','+faststart',str(target)
+                ],120)
+                pprobe=_probe_media(target) if target.exists() else {'ok':False,'duration':0,'video':[],'error':'arquivo não criado'}
+                pduration=float(pprobe.get('duration') or 0)
+                if not pprobe.get('ok') or not pprobe.get('video') or pduration<4.0 or target.stat().st_size<20000:
+                    raise RuntimeError(f'trecho inválido duration={pduration:.2f}s bytes={target.stat().st_size if target.exists() else 0}; {pprobe.get("error","")}')
+                if _video_contains_rating_disclaimer(target):
+                    target.unlink(missing_ok=True)
+                    raise RuntimeError('trecho descartado por tela de classificação/disclaimer')
+                target.with_suffix('.json').write_text(
+                    json.dumps({'source':'rockstar_cdn','start':float(start),'resolution':resolution,'duration':pduration},ensure_ascii=False),
+                    encoding='utf-8'
+                )
+                proxies.append(target)
+                accepted_starts.add(start)
+                print(f'[OFFICIAL_ROCKSTAR_CDN] accepted={target.name} resolution={resolution} start={start:.1f}s duration={pduration:.2f}s',flush=True)
+            except Exception as e:
+                try: target.unlink(missing_ok=True)
+                except Exception: pass
+                reason=f'{resolution} @ {start:.1f}s: {str(e)[:220]}'
+                failures.append(reason)
+                print(f'[OFFICIAL_ROCKSTAR_CDN] rejected {reason}',flush=True)
+                # If the first seek cannot open a resolution URL, test the next
+                # resolution instead of retrying the same unavailable asset 5 times.
+                if i == 0:
+                    break
+        if len(proxies)>=int(limit_per_video):
+            break
+    if len(proxies)<2:
+        raise RuntimeError(f'CDN oficial da Rockstar forneceu apenas {len(proxies)} trechos válidos; necessários pelo menos 2. Últimos erros: {" | ".join(failures[-5:])}')
+    print(f'[OFFICIAL_ROCKSTAR_CDN] ready proxies={len(proxies)}',flush=True)
+    return proxies
+
+
+,q.name).group(1)) if re.search(r'_(\d+)\.mp4
+    for resolution in resolutions:
+        url=f'https://videos-rockstargames-com.akamaized.net/v4/{media_id}/flv/en-us-{resolution}.mp4'
+        for i,start in enumerate(starts):
+            if len(proxies)>=int(limit_per_video):
+                break
+            # A lower-resolution retry must not create another filename for
+            # footage from a timestamp already accepted at a prior resolution.
+            if start in accepted_starts:
+                continue
+            target=cache/f'rockstar_real_v251_{next_index}.mp4'
+            next_index+=1
+            try:
+                if jid:
+                    update_job(jid,log=f'Obtendo trecho de vídeo oficial Rockstar ({resolution}, amostra {i+1}/{len(starts)})...')
+                headers='Referer: https://www.rockstargames.com/\r\nUser-Agent: '+UA+'\r\n'
+                # Input-side -ss lets FFmpeg request the selected byte range instead of
+                # downloading the entire 26-minute source first.
+                run_cmd([
+                    ff,'-hide_banner','-loglevel','error','-y','-threads:v','1',
+                    '-rw_timeout','30000000','-headers',headers,
+                    '-ss',f'{start:.3f}','-i',url,'-t','8.5',
+                    '-vf','scale=320:568:force_original_aspect_ratio=increase,crop=320:568,setsar=1,fps=12',
+                    '-an','-c:v','libx264','-preset','ultrafast','-crf','31',
+                    '-threads','1','-filter_threads','1','-filter_complex_threads','1',
+                    '-x264-params','threads=1:lookahead-threads=1:rc-lookahead=0:sync-lookahead=0',
+                    '-pix_fmt','yuv420p','-movflags','+faststart',str(target)
+                ],120)
+                pprobe=_probe_media(target) if target.exists() else {'ok':False,'duration':0,'video':[],'error':'arquivo não criado'}
+                pduration=float(pprobe.get('duration') or 0)
+                if not pprobe.get('ok') or not pprobe.get('video') or pduration<4.0 or target.stat().st_size<20000:
+                    raise RuntimeError(f'trecho inválido duration={pduration:.2f}s bytes={target.stat().st_size if target.exists() else 0}; {pprobe.get("error","")}')
+                if _video_contains_rating_disclaimer(target):
+                    target.unlink(missing_ok=True)
+                    raise RuntimeError('trecho descartado por tela de classificação/disclaimer')
+                proxies.append(target)
+                accepted_starts.add(start)
+                print(f'[OFFICIAL_ROCKSTAR_CDN] accepted={target.name} resolution={resolution} start={start:.1f}s duration={pduration:.2f}s',flush=True)
+            except Exception as e:
+                try: target.unlink(missing_ok=True)
+                except Exception: pass
+                reason=f'{resolution} @ {start:.1f}s: {str(e)[:220]}'
+                failures.append(reason)
+                print(f'[OFFICIAL_ROCKSTAR_CDN] rejected {reason}',flush=True)
+                # If the first seek cannot open a resolution URL, test the next
+                # resolution instead of retrying the same unavailable asset 5 times.
+                if i == 0:
+                    break
+        if len(proxies)>=int(limit_per_video):
+            break
+    if len(proxies)<2:
+        raise RuntimeError(f'CDN oficial da Rockstar forneceu apenas {len(proxies)} trechos válidos; necessários pelo menos 2. Últimos erros: {" | ".join(failures[-5:])}')
+    print(f'[OFFICIAL_ROCKSTAR_CDN] ready proxies={len(proxies)}',flush=True)
+    return proxies
+
+
+,q.name) else 10**9):
+        m=re.search(r'_(\d+)\.mp4
+    for resolution in resolutions:
+        url=f'https://videos-rockstargames-com.akamaized.net/v4/{media_id}/flv/en-us-{resolution}.mp4'
+        for i,start in enumerate(starts):
+            if len(proxies)>=int(limit_per_video):
+                break
+            # A lower-resolution retry must not create another filename for
+            # footage from a timestamp already accepted at a prior resolution.
+            if start in accepted_starts:
+                continue
+            target=cache/f'rockstar_real_v251_{next_index}.mp4'
+            next_index+=1
+            try:
+                if jid:
+                    update_job(jid,log=f'Obtendo trecho de vídeo oficial Rockstar ({resolution}, amostra {i+1}/{len(starts)})...')
+                headers='Referer: https://www.rockstargames.com/\r\nUser-Agent: '+UA+'\r\n'
+                # Input-side -ss lets FFmpeg request the selected byte range instead of
+                # downloading the entire 26-minute source first.
+                run_cmd([
+                    ff,'-hide_banner','-loglevel','error','-y','-threads:v','1',
+                    '-rw_timeout','30000000','-headers',headers,
+                    '-ss',f'{start:.3f}','-i',url,'-t','8.5',
+                    '-vf','scale=320:568:force_original_aspect_ratio=increase,crop=320:568,setsar=1,fps=12',
+                    '-an','-c:v','libx264','-preset','ultrafast','-crf','31',
+                    '-threads','1','-filter_threads','1','-filter_complex_threads','1',
+                    '-x264-params','threads=1:lookahead-threads=1:rc-lookahead=0:sync-lookahead=0',
+                    '-pix_fmt','yuv420p','-movflags','+faststart',str(target)
+                ],120)
+                pprobe=_probe_media(target) if target.exists() else {'ok':False,'duration':0,'video':[],'error':'arquivo não criado'}
+                pduration=float(pprobe.get('duration') or 0)
+                if not pprobe.get('ok') or not pprobe.get('video') or pduration<4.0 or target.stat().st_size<20000:
+                    raise RuntimeError(f'trecho inválido duration={pduration:.2f}s bytes={target.stat().st_size if target.exists() else 0}; {pprobe.get("error","")}')
+                if _video_contains_rating_disclaimer(target):
+                    target.unlink(missing_ok=True)
+                    raise RuntimeError('trecho descartado por tela de classificação/disclaimer')
+                proxies.append(target)
+                accepted_starts.add(start)
+                print(f'[OFFICIAL_ROCKSTAR_CDN] accepted={target.name} resolution={resolution} start={start:.1f}s duration={pduration:.2f}s',flush=True)
+            except Exception as e:
+                try: target.unlink(missing_ok=True)
+                except Exception: pass
+                reason=f'{resolution} @ {start:.1f}s: {str(e)[:220]}'
+                failures.append(reason)
+                print(f'[OFFICIAL_ROCKSTAR_CDN] rejected {reason}',flush=True)
+                # If the first seek cannot open a resolution URL, test the next
+                # resolution instead of retrying the same unavailable asset 5 times.
+                if i == 0:
+                    break
+        if len(proxies)>=int(limit_per_video):
+            break
+    if len(proxies)<2:
+        raise RuntimeError(f'CDN oficial da Rockstar forneceu apenas {len(proxies)} trechos válidos; necessários pelo menos 2. Últimos erros: {" | ".join(failures[-5:])}')
+    print(f'[OFFICIAL_ROCKSTAR_CDN] ready proxies={len(proxies)}',flush=True)
+    return proxies
+
+
+,p.name)
+        if m: next_index=max(next_index,int(m.group(1))+1)
+        try:
+            meta=json.loads(p.with_suffix('.json').read_text(encoding='utf-8'))
+            source_start=float(meta.get('start')) if meta.get('source')=='rockstar_cdn' else None
+            if source_start is None or source_start in accepted_starts: continue
+            probe=_probe_media(p)
+            if probe.get('ok') and probe.get('video') and float(probe.get('duration') or 0)>=4.0 and p.stat().st_size>20000:
+                accepted_starts.add(source_start)
+                proxies.append(p)
+        except Exception:
+            continue
     failures=[]
     for resolution in resolutions:
         url=f'https://videos-rockstargames-com.akamaized.net/v4/{media_id}/flv/en-us-{resolution}.mp4'
@@ -3071,9 +3254,7 @@ def download_official_video_clips(outdir, jid=None):
     cache.mkdir(parents=True, exist_ok=True)
 
     cached=[]
-    for p in sorted(cache.glob('rockstar_real_v251_*.mp4')):
-        try:
-            # Accept only complete motion proxies. Clips under 4s cannot provide
+    for p in sorted(cache.glob('rockstar_real_v251_*.mp4'), key=lambda q: int(re.search(r'_(\d+)\.mp4
             # two distinct 2s scenes and were silently looped by the renderer.
             if p.stat().st_size <= 20000:
                 p.unlink(missing_ok=True)
@@ -3095,7 +3276,7 @@ def download_official_video_clips(outdir, jid=None):
     # insufficient in real renders: extracted frames were technically distinct
     # but kept showing the same characters/shots. Build a broader official pool
     # before falling back to still frames or blocking the timeline.
-    target_clips = 8
+    target_clips = 13
     if len(cached) >= target_clips:
         return cached[:target_clips]
     try:
@@ -3207,7 +3388,6168 @@ def download_official_video_clips(outdir, jid=None):
         zip_error=str(e)[:900]
         print(f'[OFFICIAL_VIDEO_ZIP] insufficient valid motion clips: {zip_error}; trying Rockstar official CDN range-download fallback',flush=True)
         try:
-            return _download_official_rockstar_cdn_proxies(cache,jid=jid,limit_per_video=10)
+            return _download_official_rockstar_cdn_proxies(cache,jid=jid,limit_per_video=13)
+        except Exception as rockstar_error:
+            raise RuntimeError(
+                'Não foi possível obter vídeos oficiais utilizáveis. '
+                f'Pacote de downloads: {zip_error}. Fallback CDN oficial: {str(rockstar_error)[:900]}'
+            )
+
+
+def _video_relevance(path,title):
+    text=(path.stem+' '+title).lower()
+    score=0
+    groups=[('jason',12),('lucia',12),('vice',8),('leonida',8),('cal',4),('boobie',4),('raul',4),('brian',4),('real',4),('dre',4),('cover',1)]
+    for k,v in groups:
+        if k in text:
+            score += v
+    return score
+
+
+def select_video_clips(videos,title,count=5):
+    ranked=sorted(videos,key=lambda p:_video_relevance(p,title),reverse=True)
+    return ranked[:count]
+
+
+def _expand_video_clips_into_distinct_windows(video_clips, jobdir, windows_per_clip=3):
+    """Split each source into valid, non-overlapping motion segments.
+
+    Calculate segment count from the actual source duration instead of assuming
+    every downloaded proxy is 8.5s. Seeking is input-side so FFmpeg extracts
+    the intended section, and each segment is probed before it enters the pool.
+    """
+    ff=_ffmpeg_executable()
+    outdir=Path(jobdir)/'video_windows'
+    outdir.mkdir(parents=True,exist_ok=True)
+    clips=[Path(p) for p in (video_clips or []) if p]
+    expanded=[]
+    for ci,clip in enumerate(clips):
+        try:
+            source_probe=_probe_media(clip)
+            source_duration=float(source_probe.get('duration') or 0)
+            if not source_probe.get('ok') or not source_probe.get('video') or source_duration < 4.0:
+                print(
+                    f'[VIDEO_WINDOWS] source_rejected={clip.name} duration={source_duration:.2f}s minimum=4.0s '
+                    f'error={source_probe.get("error","no video or clip too short")}',
+                    flush=True
+                )
+                continue
+            # Create distinct 2–4.3s motion segments. Never reuse a clip too short
+            # for two independent scenes: looping 1s sources creates visible repetition.
+            count=min(max(1,int(windows_per_clip)),max(1,int(source_duration//2.0)))
+            if count < 2:
+                print(f'[VIDEO_WINDOWS] source_too_short={clip.name} duration={source_duration:.2f}s; skipped',flush=True)
+                continue
+            window_seconds=source_duration/count
+            for wi in range(count):
+                start=wi*window_seconds
+                dst=outdir/f'{clip.stem}_window_{wi+1:02d}.mp4'
+                try:
+                    # Always recreate to avoid stale files from a different segmentation rule.
+                    dst.unlink(missing_ok=True)
+                    run_cmd([
+                        ff,'-loglevel','error','-y',
+                        '-ss',f'{start:.3f}','-i',str(clip),'-t',f'{window_seconds:.3f}',
+                        '-vf','scale=320:568:force_original_aspect_ratio=increase,crop=320:568,setsar=1,fps=12',
+                        '-an','-c:v','libx264','-preset','ultrafast','-crf','28',
+                        '-threads','1','-filter_threads','1','-filter_complex_threads','1',
+                        '-x264-params','threads=1:lookahead-threads=1:rc-lookahead=0:sync-lookahead=0',
+                        '-pix_fmt','yuv420p','-movflags','+faststart',str(dst)
+                    ],45)
+                    if not dst.exists() or dst.stat().st_size < 5000:
+                        raise RuntimeError('arquivo do segmento ausente ou pequeno')
+                    segment_probe=_probe_media(dst)
+                    segment_duration=float(segment_probe.get('duration') or 0)
+                    if segment_probe.get('ok') and segment_probe.get('video') and segment_duration >= 2.0:
+                        expanded.append(dst)
+                    else:
+                        dst.unlink(missing_ok=True)
+                        print(
+                            f'[VIDEO_WINDOWS] segment_rejected={dst.name} duration={segment_duration:.2f}s '
+                            f'error={segment_probe.get("error","invalid or too-short segment")}',
+                            flush=True
+                        )
+                except Exception as e:
+                    print(
+                        f'[VIDEO_WINDOWS] skip source={clip.name} window={wi+1} '
+                        f'error={type(e).__name__}:{str(e)[:180]}',
+                        flush=True
+                    )
+                    dst.unlink(missing_ok=True)
+                    continue
+        except Exception as e:
+            print(f'[VIDEO_WINDOWS] source_probe_failed={clip.name} error={type(e).__name__}:{str(e)[:180]}',flush=True)
+            continue
+    # Interleave windows from different source moments. Source-first ordering
+    # left 4–6 seconds from the same shot family together; round-robin creates
+    # a change of footage every scene without recycling the same window.
+    def _window_round_robin_key(path):
+        stem=Path(path).stem
+        parts=stem.rsplit('_window_',1)
+        if len(parts)!=2 or not parts[1].isdigit():
+            return (0,0,stem)
+        source_stem=parts[0]
+        source_tail=source_stem.rsplit('_',1)[-1]
+        source_index=int(source_tail) if source_tail.isdigit() else 0
+        return (int(parts[1]),source_index,source_stem)
+    expanded.sort(key=_window_round_robin_key)
+    print(f'[VIDEO_WINDOWS] expanded {len(clips)} source clips into {len(expanded)} valid windows; order=round_robin',flush=True)
+    return expanded
+
+def _frame_visual_hash(path):
+    """Small dependency-light perceptual hash for near-duplicate frame rejection."""
+    try:
+        from PIL import Image, ImageOps
+        with Image.open(path) as im:
+            gray=ImageOps.grayscale(im).resize((8,8))
+            vals=list(gray.getdata())
+        mean=sum(vals)/max(1,len(vals))
+        return tuple(v >= mean for v in vals)
+    except Exception:
+        return None
+
+def _visually_distinct_from_pool(candidate, existing, max_distance=10):
+    """Reject nearly identical frames even when filenames/timestamps differ."""
+    h=_frame_visual_hash(candidate)
+    if h is None:
+        return True
+    for prior in existing:
+        ph=_frame_visual_hash(prior)
+        if ph is None:
+            continue
+        if sum(a != b for a,b in zip(h,ph)) <= max_distance:
+            return False
+    return True
+
+def _augment_scenes_with_real_video_frames(video_clips, image_scenes, jobdir, target=24):
+    """Extract a wider set of genuine official-video frames as moving stills."""
+    out=list(image_scenes or [])
+    if len(out)>=target:
+        return out[:target]
+    ff=_ffmpeg_executable()
+    clips=list(video_clips or [])
+    # Round-robin across sources: the previous source-first loop could fill the
+    # target from only the first two clips (12 frames each), concentrating the
+    # entire Short on Lucia or the same armed character despite a larger pool.
+    # Sample each source at one timestamp before taking a second sample from any
+    # source, so the initial pool spans all available official clips.
+    source_durations=[]
+    for clip in clips:
+        try:
+            probe=_probe_media(Path(clip))
+            duration=max(0.8,float(probe.get('duration') or 8.5))
+        except Exception:
+            duration=8.5
+        source_durations.append(duration)
+    sample_count=12
+    for fi in range(sample_count):
+        for idx,clip in enumerate(clips):
+            if len(out)>=target:
+                break
+            duration=source_durations[idx]
+            timestamp=min(max(0.05,0.05 + fi*max(0.0,duration-0.10)/(sample_count-1)),max(0.05,duration-0.05))
+            dst=Path(jobdir)/f'official_frame_{idx:02d}_{fi:02d}.jpg'
+            try:
+                run_cmd([ff,'-loglevel','error','-y','-ss',f'{timestamp:.2f}','-i',str(clip),
+                         '-frames:v','1','-vf','scale=540:960:force_original_aspect_ratio=increase,crop=540:960',
+                         '-q:v','3',str(dst)],20)
+                if dst.exists() and dst.stat().st_size>4000:
+                    # Distinct timestamps can still show the same character/shot.
+                    # Compare image content against the pool before accepting it.
+                    if _visually_distinct_from_pool(dst, out):
+                        out.append(dst)
+                    else:
+                        print(f'[VISUAL_POOL] rejected_near_duplicate={dst.name}',flush=True)
+            except Exception:
+                continue
+        if len(out)>=target:
+            break
+    print(f'[VISUAL_POOL] official_video_sources={len(video_clips or [])} unique_frames={max(0,len(out)-len(image_scenes or []))} total_images={len(out)} target={target}',flush=True)
+    return out[:target]
+
+
+def _caption_overlay(path,caption,idx,total,W=320,H=568,highlight=None):
+    """V41.1 — legenda editorial com quebra visual equilibrada.
+    O texto continua sendo exatamente a fala; só a disposição em 1–2 linhas muda.
+    Evita linhas com uma única palavra e quebras visualmente tortas.
+    """
+    im=Image.new('RGBA',(W,H),(0,0,0,0)); d=ImageDraw.Draw(im)
+
+    # GTA OCULTO watermark: small, fixed, low opacity.
+    wm=font(11,True)
+    wm_text='GTA OCULTO'
+    wb=d.textbbox((0,0),wm_text,font=wm)
+    wx=W-wb[2]-14; wy=H-wb[3]-10
+    d.text((wx,wy),wm_text,font=wm,fill=(255,255,255,105))
+
+    f=font(24,True)
+    text=re.sub(r'\s+',' ',str(caption)).strip().upper()
+    words=text.split()
+    if not words:
+        im.save(path); return
+
+    max_width=W-42
+
+    # Build all valid 1/2-line splits and choose the most balanced one.
+    # Never create a one-word second line when there is a better alternative.
+    lines=[]
+    if len(words)<=4:
+        # Short phrases stay on one line when they fit.
+        test=' '.join(words)
+        if d.textbbox((0,0),test,font=f,stroke_width=1)[2] <= max_width:
+            lines=[test]
+        else:
+            lines=[test]
+    else:
+        candidates=[]
+        for cut in range(1,len(words)):
+            a=' '.join(words[:cut]); b=' '.join(words[cut:])
+            wa=d.textbbox((0,0),a,font=f,stroke_width=1)[2]
+            wb2=d.textbbox((0,0),b,font=f,stroke_width=1)[2]
+            if wa>max_width or wb2>max_width:
+                continue
+            # Prefer balanced visual width and 2+ words on each line.
+            balance=abs(wa-wb2)
+            count_balance=abs(len(words[:cut])-len(words[cut:]))*18
+            candidates.append((balance+count_balance,cut,a,b))
+        if candidates:
+            _,cut,a,b=min(candidates,key=lambda x:x[0])
+            lines=[a,b]
+        else:
+            # Fallback greedy wrap, still forbidding a lone final word.
+            cur=''
+            for w in words:
+                test=(cur+' '+w).strip()
+                if cur and d.textbbox((0,0),test,font=f,stroke_width=1)[2] > max_width:
+                    lines.append(cur); cur=w
+                else:
+                    cur=test
+            if cur: lines.append(cur)
+            if len(lines)>2:
+                # Merge the last line backwards where possible.
+                tail=lines[-1]
+                prev=lines[-2]
+                merged=(prev+' '+tail).strip()
+                if d.textbbox((0,0),merged,font=f,stroke_width=1)[2] <= max_width:
+                    lines=lines[:-2]+[merged]
+            if len(lines)==2 and len(lines[1].split())==1 and len(lines[0].split())>2:
+                w=lines[1]
+                parts=lines[0].split()
+                candidate=' '.join(parts[-2:] + [w])
+                first=' '.join(parts[:-2])
+                if first and d.textbbox((0,0),candidate,font=f,stroke_width=1)[2] <= max_width:
+                    lines=[first,candidate]
+
+    lines=[x for x in lines if x.strip()]
+    if not lines:
+        im.save(path); return
+
+    line_h=30
+    box_h=22+len(lines)*line_h
+    y=H-box_h-45
+    d.rounded_rectangle((18,y,W-18,H-45),radius=13,fill=(3,5,9,210),outline=(255,255,255,70),width=1)
+
+    yy=y+8
+    hi=str(highlight or '').strip().upper()
+    for line in lines[:2]:
+        # Render the complete line at once for stable visual rhythm.
+        d.text((W/2,yy),line,font=f,anchor='ma',fill='white',
+               stroke_width=1,stroke_fill=(0,0,0,220))
+        yy += line_h
+    im.save(path)
+
+def _clean_caption_phrase(text):
+    text=re.sub(r"\s+", " ", str(text)).strip(" .!?,:;-")
+    text=re.sub(r"^(?:gta\s*6\s*[:\-]\s*)", "", text, flags=re.I)
+    return text.upper()
+
+
+def _caption_phrases_from_sentence(sentence, max_words=7):
+    """Divide a frase em blocos contíguos e naturais, priorizando 3–7 palavras.
+    Nunca remove palavras importantes nem cria legendas com palavras fora da fala.
+    """
+    s=re.sub(r'\s+',' ',str(sentence)).strip(' .!?,:;-')
+    if not s: return []
+    words=s.split()
+    if len(words)<=max_words:
+        return [_clean_caption_phrase(s)] if len(words)>=3 else []
+
+    # Pontos naturais de corte. Preferimos pontuação/conjunções antes de cortar no meio.
+    boundary=set('e mas porque porém porem então entao quando enquanto se que para'.split())
+    out=[]; i=0
+    while i<len(words):
+        remaining=len(words)-i
+        if remaining<=max_words:
+            chunk=words[i:]
+            if len(chunk)>=3: out.append(_clean_caption_phrase(' '.join(chunk)))
+            break
+        target=min(max_words, max(4, round(remaining/2)))
+        lo=max(i+3,target-2); hi=min(i+max_words,target+2,len(words)-1)
+        cut=None
+        # Procura uma conjunção no final do primeiro bloco, mantendo a conjunção no próximo.
+        for j in range(hi,lo-1,-1):
+            if words[j].lower().strip('.,!?;:') in boundary:
+                if j-i>=3:
+                    cut=j; break
+        if cut is None:
+            cut=i+target
+        chunk=words[i:cut]
+        if len(chunk)<3:
+            cut=min(i+max_words,len(words)); chunk=words[i:cut]
+        out.append(_clean_caption_phrase(' '.join(chunk)))
+        i=cut
+    return [x for x in out if 3<=len(x.split())<=max_words]
+
+
+def _caption_words(text):
+    """Tokeniza preservando pontuação para decidir cortes linguísticos naturais."""
+    return re.findall(r"[^\s]+", re.sub(r'\s+', ' ', str(text)).strip())
+
+
+def _caption_clean_word(word):
+    return re.sub(r'^[\"“”‘’(\[]+|[\"“”‘’),.;:!?\]]+$', '', word).lower()
+
+
+def _caption_is_bad_start(word):
+    return _caption_clean_word(word) in {
+        'e','de','do','da','em','no','na','que','um','uma','o','a','os','as',
+        'para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa'
+    }
+
+
+def _caption_is_bad_end(word):
+    return _caption_clean_word(word) in {
+        'e','de','do','da','em','no','na','que','um','uma','o','a','os','as',
+        'para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa','nem'
+    }
+
+
+def _semantic_caption_chunks(sentence, min_words=3, max_words=7):
+    """V51: segmenta legendas por unidade de sentido, preservando a ordem exata da fala.
+    O objetivo é impedir cortes do tipo 'EM UMA' / 'NOVA' ou finais em preposição.
+    Pontuação e conectores recebem prioridade; cortes ruins ficam muito caros.
+    """
+    raw=re.sub(r'\s+', ' ', str(sentence or '')).strip()
+    if not raw: return []
+    tokens=_caption_words(raw)
+    if len(tokens)<=max_words:
+        return [tokens] if len(tokens)>=min_words else [tokens]
+    norm=lambda w:_caption_clean_word(w)
+    bad_end={'e','de','do','da','em','no','na','que','um','uma','o','a','os','as','para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa','sobre','entre','até','sem','como','pelo','pela','pelos','pelas','porém','porem','então','entao','nem'}
+    bad_start={'e','mas','porque','porém','porem','então','entao','quando','enquanto','que','para','com','de','do','da','em','no','na'}
+    preferred={'e','mas','porque','porém','porem','então','entao','quando','enquanto','porque','nem'}
+    protected={('gta','6'),('gta','vi'),('vice','city'),('cloud','gaming'),('xbox','cloud','gaming'),('jason','e','lucia'),('playstation','5'),('xbox','series')}
+    def protected_cut(cut):
+        # A cut is protected only when it splits a protected expression across
+        # its two sides (for example VICE | CITY), not when the whole phrase is
+        # safely contained in one caption.
+        left=[norm(x) for x in tokens[max(0,cut-3):cut]]
+        right=[norm(x) for x in tokens[cut:cut+3]]
+        for ph in protected:
+            n=len(ph)
+            for left_count in range(1,n):
+                right_count=n-left_count
+                if (len(left)>=left_count and len(right)>=right_count
+                    and tuple(left[-left_count:])==ph[:left_count]
+                    and tuple(right[:right_count])==ph[left_count:]):
+                    return True
+        return False
+    out=[]; i=0
+    while i<len(tokens):
+        rem=len(tokens)-i
+        if rem<=max_words:
+            out.append(tokens[i:]); break
+        lo=i+min_words
+        hi=min(i+max_words, len(tokens)-min_words)
+        best=None
+        target=min(max_words, 6 if rem>=10 else 5)
+        for cut in range(lo,hi+1):
+            if protected_cut(cut):
+                continue
+            left=tokens[i:cut]; right=tokens[cut:]
+            if not right: continue
+            lw=norm(left[-1]); rw=norm(right[0])
+            score=abs(len(left)-target)*2.0
+            if re.search(r'[.!?;:]$', left[-1]): score-=30
+            elif re.search(r'[,)]$', left[-1]): score-=12
+            if lw in bad_end: score+=45
+            if rw in bad_start: score+=32
+            if rw in preferred: score-=8
+            # Evita blocos visualmente curtos demais.
+            if len(left)<min_words: score+=25
+            if len(right)<min_words and rem>max_words+min_words: score+=25
+            cand=(score,cut)
+            if best is None or cand<best: best=cand
+        if best:
+            cut=best[1]
+        else:
+            fallback=min(i+target,len(tokens))
+            safe=[c for c in range(lo,hi+1) if not protected_cut(c)]
+            cut=min(safe,key=lambda c:abs(c-fallback)) if safe else fallback
+        out.append(tokens[i:cut]); i=cut
+    # Último passe: junta um fragmento curto ao vizinho sem criar corte ruim.
+    fixed=[]
+    for ch in out:
+        if fixed and len(ch)<min_words and len(fixed[-1])+len(ch)<=max_words:
+            fixed[-1].extend(ch)
+        else:
+            fixed.append(ch)
+    return fixed
+
+def _caption_phrase_chunks(sentence, min_words=3, max_words=10):
+    """V30 — divide by meaning and punctuation, preserving the complete spoken phrase."""
+    raw=re.sub(r'\s+',' ',str(sentence)).strip()
+    if not raw: return []
+    tokens=_caption_words(raw)
+    if len(tokens)<=max_words:
+        return [tokens] if len(tokens)>=min_words else ([tokens] if tokens else [])
+
+    def norm(w):
+        return _caption_clean_word(w).lower()
+    bad_end={'e','de','do','da','em','no','na','que','um','uma','o','a','os','as','para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa','sobre','entre','até','sem','como','pelo','pela','pelos','pelas'}
+    bad_start=bad_end | {'porque','porém','porem','então','entao','quando','enquanto'}
+    connectors={'e','mas','porque','porém','porem','então','entao','quando','enquanto'}
+    protected={
+        ('gta','6'),('gta','vi'),('vice','city'),('cloud','gaming'),('xbox','cloud'),('xbox','cloud','gaming'),
+        ('jason','e','lucia'),('nível','inédito','de','realismo'),('nivel','inedito','de','realismo'),
+        ('sistema','de','moral'),('mecânica','de','relacionamento'),('mecanica','de','relacionamento'),
+        ('playstation','5'),('xbox','series')
+    }
+    def protected_cut(cut):
+        # Prevent cutting inside a protected multiword phrase.
+        left=[norm(x) for x in tokens[max(0,cut-4):cut]]
+        right=[norm(x) for x in tokens[cut:cut+4]]
+        for ph in protected:
+            n=len(ph)
+            for left_count in range(1,n):
+                right_count=n-left_count
+                if (len(left)>=left_count and len(right)>=right_count
+                    and tuple(left[-left_count:])==ph[:left_count]
+                    and tuple(right[:right_count])==ph[left_count:]):
+                    return True
+        return False
+
+    chunks=[]; i=0
+    while i<len(tokens):
+        rem=len(tokens)-i
+        if rem<=max_words:
+            chunks.append(tokens[i:]); break
+        target=7 if rem>=15 else max(5,round(rem/2))
+        lo=i+min_words
+        hi=min(len(tokens)-1,i+max_words)
+        candidates=[]
+        for cut in range(lo,hi+1):
+            if protected_cut(cut):
+                continue
+            left=tokens[i:cut]; right=tokens[cut:]
+            if len(right)>0 and len(right)<min_words and rem>max_words+min_words: continue
+            lw=norm(left[-1]); rw=norm(right[0]) if right else ''
+            score=abs(len(left)-target)*1.4
+            if re.search(r'[,:;.!?]$',left[-1]): score-=18
+            if lw in bad_end: score+=35
+            if rw in bad_start: score+=35
+            if rw in connectors: score-=8
+            if len(left)>=8: score+=1
+            candidates.append((score,cut))
+        if candidates:
+            cut=min(candidates)[1]
+        else:
+            fallback=min(i+target,len(tokens))
+            safe=[c for c in range(lo,hi+1) if not protected_cut(c)]
+            cut=min(safe,key=lambda c:abs(c-fallback)) if safe else fallback
+        chunks.append(tokens[i:cut]); i=cut
+
+    # Merge tiny chunks without crossing protected expressions.
+    out=[]
+    for ch in chunks:
+        if not ch: continue
+        if out and len(ch)<min_words and len(out[-1])+len(ch)<=max_words:
+            out[-1].extend(ch)
+        else: out.append(ch)
+    return out
+
+
+def _merge_caption_chunks(chunks, target_count=10, max_words=12):
+    """Reduz a quantidade de blocos sem destruir unidades de sentido."""
+    chunks=[list(c) for c in chunks if c]
+    while len(chunks)>target_count:
+        best_idx=None; best_score=None
+        for i in range(len(chunks)-1):
+            merged=chunks[i]+chunks[i+1]
+            if len(merged)>max_words:
+                continue
+            score=abs(len(merged)-8)
+            last=_caption_clean_word(chunks[i][-1])
+            first=_caption_clean_word(chunks[i+1][0])
+            if last in {'e','de','do','da','em','no','na','que','para','com','por','mas'}: score-=4
+            if first in {'e','mas','porque','porém','porem','então','entao'}: score-=2
+            if re.search(r'[.!?;:]$',str(chunks[i][-1])): score+=8
+            if best_score is None or score<best_score:
+                best_score=score; best_idx=i
+        if best_idx is None:
+            # Preserve short readable captions rather than violating the word limit.
+            break
+        chunks[best_idx:best_idx+2]=[chunks[best_idx]+chunks[best_idx+1]]
+    return chunks
+
+
+def _cue_clean(w):
+    return re.sub(r'\s+',' ',str(w or '')).strip()
+
+
+def _cue_bad_end(w):
+    return re.sub(r'[^A-Za-zÀ-ÿ]','',str(w or '')).lower() in {
+        'e','de','do','da','em','no','na','que','um','uma','o','a','os','as','para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa','sobre','entre','até','sem','nem'
+    }
+
+
+def _cue_bad_start(w):
+    return re.sub(r'[^A-Za-zÀ-ÿ]','',str(w or '')).lower() in {
+        'e','mas','porque','porém','porem','então','entao','quando','enquanto','para','com','de','do','da','em','no','na','que'
+    }
+
+
+def _protected_pair(left,right):
+    a=re.sub(r'[^a-z0-9à-ÿ]','',left.lower())
+    b=re.sub(r'[^a-z0-9à-ÿ]','',right.lower())
+    return (a,b) in {('gta','6'),('gta','vi'),('vice','city'),('cloud','gaming'),('xbox','cloud')}
+
+
+def _protected_caption_boundary(current_cues,next_word):
+    """Avoid cuts in protected names and paired terms across timed captions."""
+    left=[re.sub(r'[^a-z0-9à-ÿ]','',_cue_clean(x.get('word','')).lower()) for x in (current_cues or [])[-3:]]
+    right=re.sub(r'[^a-z0-9à-ÿ]','',_cue_clean(next_word).lower())
+    seq=left+[right]
+    protected={
+        ('gta','6'),('gta','vi'),('vice','city'),('cloud','gaming'),
+        ('xbox','cloud'),('jason','e','lucia'),('playstation','5'),('xbox','series')
+    }
+    for phrase in protected:
+        n=len(phrase)
+        if len(seq)>=n and tuple(seq[-n:])==phrase:
+            return True
+    return False
+
+
+def _build_timed_caption_beats(word_cues, duration, count=10):
+    """V31: legendas derivadas dos WordBoundary reais do TTS, não de janelas estimadas."""
+    cues=[c for c in (word_cues or []) if _cue_clean(c.get('word'))]
+    if not cues:
+        return []
+    beats=[]; cur=[]
+    max_words=7; min_words=3
+    for i,c in enumerate(cues):
+        cur.append(c)
+        word=_cue_clean(c['word'])
+        nextc=cues[i+1] if i+1<len(cues) else None
+        punct=bool(re.search(r'[.!?;:]$',word))
+        pause=(float(nextc['start'])-float(c['start'])) if nextc else 0
+        need=False
+        if len(cur)>=max_words: need=True
+        if punct and len(cur)>=min_words: need=True
+        if nextc and pause>=0.42 and len(cur)>=min_words: need=True
+        # Não corta expressões importantes nem deixa preposição/conjunção isolada.
+        if need and nextc:
+            # Keep conjunctions/prepositions attached to their phrase even when
+            # the normal limit is reached; eight words is the absolute cap.
+            protected=_protected_caption_boundary(cur,nextc['word']) or _protected_pair(word,nextc['word'])
+            hard_split=len(cur)>=max_words+1
+            if protected:
+                need=False
+            elif (_cue_bad_end(word) or _cue_bad_start(nextc['word'])) and not hard_split:
+                need=False
+        if need:
+            beats.append(cur); cur=[]
+    if cur: beats.append(cur)
+
+    # Une blocos muito curtos sem apagar nenhuma palavra.
+    merged=[]
+    for b in beats:
+        if merged and len(b)<min_words and len(merged[-1])+len(b)<=max_words:
+            merged[-1].extend(b)
+        else: merged.append(b)
+    beats=merged
+
+    # Se houver blocos demais, funde pares vizinhos somente quando o sentido e o tamanho permitem.
+    while len(beats)>max(1,count):
+        best=None
+        for i in range(len(beats)-1):
+            a,b=beats[i],beats[i+1]
+            if len(a)+len(b)>max_words: continue
+            score=abs((len(a)+len(b))-6)
+            if _cue_bad_end(a[-1]['word']): score-=5
+            if _cue_bad_start(b[0]['word']): score-=3
+            gap=float(b[0]['start'])-float(a[-1]['start'])
+            if re.search(r'[.!?;:]$',str(a[-1].get('word',''))): score+=8
+            if gap>=0.6: score+=2
+            elif gap<0.6: score-=2
+            if best is None or score<best[0]: best=(score,i)
+        if best is None: break
+        i=best[1]; beats[i:i+2]=[beats[i]+beats[i+1]]
+
+    out=[]
+    for b in beats:
+        text=' '.join(_cue_clean(x['word']) for x in b)
+        text=_clean_caption_phrase(text)
+        start=float(b[0]['start']); end=max(start+0.35,float(b[-1]['start'])+max(0.25,float(b[-1].get('duration',0.25))))
+        end=min(duration,end)
+        ws=re.findall(r"[A-Za-zÀ-ÿ0-9']+",text)
+        preferred=[w for w in ws if w.lower() in {'gta','6','rockstar','jason','lucia','leonida','vice','city','cloud','gaming','xbox','realismo','novidades','microsoft'}]
+        highlight=preferred[0] if preferred else (ws[-1] if len(ws)>=5 else None)
+        out.append({'text':text,'highlight':highlight,'start':start,'end':end,'duration':max(0.35,end-start)})
+    # Corrige gaps/overlaps e garante cobertura até o fim real da fala.
+    for i in range(len(out)-1):
+        out[i]['end']=min(out[i]['end'],out[i+1]['start'])
+        out[i]['duration']=max(0.3,out[i]['end']-out[i]['start'])
+    if out:
+        out[-1]['end']=max(out[-1]['end'],min(duration,float(cues[-1]['start'])+float(cues[-1].get('duration',0.25))))
+        out[-1]['end']=min(duration,out[-1]['end'])
+        out[-1]['duration']=max(0.3,out[-1]['end']-out[-1]['start'])
+    return out
+
+
+def _learned_timeline_count(duration, fallback=10):
+    """Map an Analytics-learned winning duration bucket to pacing density."""
+    try:
+        profile=TREND_BRAIN.recommend_editorial_profile() if TREND_BRAIN else {}
+        pref=(profile or {}).get('preferred_duration') or {}
+        bucket=str(pref.get('bucket') or '')
+        s=float(duration or 0)
+        actual='24-29s' if 24 <= s < 30 else ('30-38s' if 30 <= s < 39 else 'UNSUPPORTED')
+        if bucket != actual: return fallback
+        return {'24-29s':8,'30-38s':10}.get(bucket,fallback)
+    except Exception:
+        return fallback
+
+def _partition_caption_tokens_for_count(tokens, target_count, max_words=7, min_words=3):
+    """Find a low-cost full-coverage caption partition under the scene-count ceiling."""
+    tokens=list(tokens or [])
+    if not tokens:
+        return []
+    max_words=max(2,int(max_words)); min_words=max(1,int(min_words))
+    requested=max(1,int(target_count))
+    min_count=max(1,(len(tokens)+max_words-1)//max_words)
+    max_count=min(requested,max(1,len(tokens)//min_words))
+    if min_count>max_count:
+        raise RuntimeError(
+            f'GATE CAPTIONS: {len(tokens)} words cannot fit in <= {requested} captions '
+            f'of {min_words}-{max_words} words.'
+        )
+
+    protected={
+        ('gta','6'),('gta','vi'),('vice','city'),('cloud','gaming'),
+        ('xbox','cloud','gaming'),('jason','e','lucia'),
+        ('playstation','5'),('xbox','series')
+    }
+    bad_end={
+        'e','de','do','da','em','no','na','que','um','uma','o','a','os','as',
+        'para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa',
+        'sobre','entre','até','sem','como','pelo','pela','pelos','pelas','porém','porem','nem',
+        'esse','essa','esses','essas','este','esta','estes','estas','aquele','aquela',
+        'aqueles','aquelas','meu','minha','meus','minhas','seu','sua','seus','suas',
+        'nosso','nossa','nossos','nossas'
+    }
+    bad_start={
+        'e','mas','porque','porém','porem','então','entao','quando','enquanto',
+        'que','para','com','de','do','da','em','no','na'
+    }
+    def norm(word):
+        return _caption_clean_word(word)
+    def protected_cut(cut):
+        left=[norm(x) for x in tokens[max(0,cut-3):cut]]
+        right=[norm(x) for x in tokens[cut:cut+3]]
+        for phrase in protected:
+            for left_count in range(1,len(phrase)):
+                right_count=len(phrase)-left_count
+                if (len(left)>=left_count and len(right)>=right_count
+                    and tuple(left[-left_count:])==phrase[:left_count]
+                    and tuple(right[:right_count])==phrase[left_count:]):
+                    return True
+        return False
+
+    def solve(target):
+        # Dynamic programming across token offsets finds globally valid cuts.
+        # A local greedy choice can otherwise strand a preposition or connector
+        # at the beginning/end of the last caption, even when another partition exists.
+        n=len(tokens)
+        dp=[[None]*(target+1) for _ in range(n+1)]
+        dp[0][0]=(0.0,[])
+        ideal_words=n/target
+        for offset in range(n):
+            for used in range(target):
+                state=dp[offset][used]
+                if state is None:
+                    continue
+                base_score,parts=state
+                if used>0 and norm(tokens[offset]) in bad_start:
+                    continue
+                for size in range(min_words,max_words+1):
+                    end=offset+size
+                    if end>n:
+                        break
+                    remaining_slots=target-(used+1)
+                    remaining=n-end
+                    if remaining_slots==0:
+                        if remaining:
+                            continue
+                    elif not (min_words*remaining_slots <= remaining <= max_words*remaining_slots):
+                        continue
+                    if norm(tokens[end-1]) in bad_end:
+                        continue
+                    if end<n and protected_cut(end):
+                        continue
+                    tail=tokens[end-1]
+                    score=base_score + abs(size-ideal_words)*2.0
+                    if re.search(r'[.!?;:]$',tail):
+                        score-=12
+                    elif re.search(r'[,)]$',tail):
+                        score-=4
+                    if end<n and norm(tokens[end]) in {'e','mas','porque','porém','porem','então','entao'}:
+                        score-=2
+                    candidate=(score,parts+[tokens[offset:end]])
+                    old=dp[end][used+1]
+                    if old is None or candidate[0]<old[0]:
+                        dp[end][used+1]=candidate
+        final=dp[n][target]
+        if final is None:
+            return None
+        chunks=final[1]
+        audit=_audit_caption_quality([{'text':_clean_caption_phrase(' '.join(c))} for c in chunks])
+        if any(audit.get(key) for key in ('bad_end','bad_start','protected_splits','long','short','visual_bad')):
+            return None
+        return chunks
+
+    for target in range(max_count,min_count-1,-1):
+        chunks=solve(target)
+        if chunks is not None:
+            return chunks
+    raise RuntimeError(
+        f'GATE CAPTIONS: no grammatically safe partition fits <= {requested} captions; '
+        'refusing to split a protected phrase or strand a preposition.'
+    )
+
+
+
+def build_short_timeline(script, topic, duration, count=10, word_cues=None):
+    """V31: se houver WordBoundary, usa timestamps reais da voz; caso contrário usa fallback editorial."""
+    if word_cues:
+        # Edge-TTS pode devolver timestamps que cobrem apenas parte do áudio.
+        # Nesse caso, nunca estenda o último bloco até o fim do MP3 (isso cria
+        # legendas repetidas + uma cena congelada). Só usamos timestamps reais
+        # quando eles cobrem praticamente toda a narração.
+        try:
+            cues_ok=[c for c in (word_cues or []) if _cue_clean(c.get('word'))]
+            last_end=0.0
+            if cues_ok:
+                last=cues_ok[-1]
+                last_end=float(last.get('start',0))+float(last.get('duration',0.25))
+            coverage=last_end/max(0.1,float(duration))
+        except Exception:
+            coverage=0.0
+        if coverage>=0.82:
+            timed=_build_timed_caption_beats(word_cues,duration,count)
+            if timed: return timed
+    narration=re.sub(r'\s+',' ',str(script.get('narration','')).strip())
+    if not narration:
+        return [{'text':'GTA 6','duration':duration,'highlight':'GTA','start':0,'end':duration}]
+    sentences=[s.strip() for s in re.split(r'(?<=[.!?])\s+',narration) if s.strip()]
+    all_chunks=[]
+    # Seven words is the audited maximum and gives enough flexibility to fit
+    # the actual visual-slot count without losing protected word groups.
+    for sent in sentences: all_chunks.extend(_semantic_caption_chunks(sent,3,7))
+    if not all_chunks: all_chunks=[_caption_words(narration)]
+    all_chunks=_merge_caption_chunks(all_chunks,target_count=max(1,count),max_words=7)
+    if len(all_chunks)>max(1,int(count)):
+        all_chunks=_partition_caption_tokens_for_count(_caption_words(narration),max(1,int(count)),max_words=7,min_words=3)
+    phrases=[]
+    for ch in all_chunks:
+        phrase=_clean_caption_phrase(' '.join(ch))
+        if phrase and len(re.findall(r"[A-Za-zÀ-ÿ0-9']+",phrase))>=2: phrases.append(phrase)
+    if not phrases: phrases=[_clean_caption_phrase(narration)]
+    weights=[max(2,len(re.findall(r"[A-Za-zÀ-ÿ0-9']+",p))) for p in phrases]
+    total=sum(weights) or 1
+    raw=[duration*w/total for w in weights]
+    if len(raw)>1:
+        raw=[max(1.25,min(4.8,x)) for x in raw]; scale=duration/sum(raw); raw=[x*scale for x in raw]
+    beats=[]; t=0
+    for phrase,d in zip(phrases,raw):
+        ws=re.findall(r"[A-Za-zÀ-ÿ0-9']+",phrase); preferred=[w for w in ws if w.lower() in {'gta','rockstar','jason','lucia','leonida','vice','city','cloud','gaming','xbox','realismo','novidades'}]
+        h=preferred[0] if preferred else (ws[-1] if len(ws)>=5 else None)
+        beats.append({'text':phrase,'highlight':h,'duration':d,'start':t,'end':t+d}); t+=d
+    return beats
+
+def _beat_keywords(text, topic_title):
+    blob=(str(text)+' '+str(topic_title)).lower()
+    groups=[
+        ('lucia',['lucia']),
+        ('jason',['jason']),
+        ('vice',['vice city','vice']),
+        ('leonida',['leonida']),
+        ('carro',['car','carro','veículo','veiculo','road','estrada']),
+        ('noite',['night','noite','sunset']),
+        ('mapa',['map','mapa','cidade','city']),
+        ('rockstar',['rockstar','confirm','oficial']),
+        ('gta',['gta 6','gta vi','gta'])
+    ]
+    return [name for name,ks in groups if any(k in blob for k in ks)]
+
+def _asset_relevance(path, title, beat_text, kind):
+    txt=(str(path)+' '+str(title)+' '+str(beat_text)).lower()
+    score=0
+    for k,v in [('jason',16),('lucia',16),('vice',12),('leonida',12),('car',7),('night',6),('map',7),('city',5),('rockstar',4),('gta',3)]:
+        if k in txt: score+=v
+    # Video filenames are more informative than generic image filenames.
+    if kind=='video': score+=3
+    return score
+
+VIDEO_SOURCE_MAX_USES=1
+
+
+def _visual_source_key(path):
+    """Return the original clip stem so cropped windows cannot masquerade as new sources."""
+    stem=Path(path).stem
+    return re.sub(r'_window_[0-9]+$','',stem,flags=re.I)
+
+
+def _visual_source_capacity(paths, max_per_source=VIDEO_SOURCE_MAX_USES):
+    """Count how many video windows can be used without exceeding the per-source budget."""
+    counts={}
+    for path in (paths or []):
+        if not path:
+            continue
+        key=_visual_source_key(path)
+        counts[key]=counts.get(key,0)+1
+    return sum(min(max(0,int(max_per_source)),count) for count in counts.values())
+
+
+def _choose_timeline_assets(video_clips, image_paths, beats, topic_title, variant=0):
+    """V57: editor video-first.
+    Prioriza material em movimento e usa imagens apenas como apoio editorial.
+    Evita repetição imediata e garante variedade sem transformar o Short em slideshow.
+    """
+    videos=[p for p in video_clips if p]
+    images=[p for p in image_paths if p]
+    pool=[('video',p) for p in videos]+[('image',p) for p in images]
+    chosen=[]; used=set(); asset_counts={}; source_counts={}
+    def source_group(path):
+        # Three windows cut from one trailer still count as one editorial source.
+        return _visual_source_key(path)
+    video_sources={source_group(p) for p in videos}
+    # V61: repetition is now a hard budget, not just a score penalty.
+    # The pool can shrink on Render Free after a restart, so the reuse budget is
+    # calculated from the assets actually available. With 8 videos + 4 images
+    # this yields 16 video + 8 image scenes; with 4 + 4 it yields 12 + 12.
+    asset_total=max(1,len(videos)+len(images))
+    # Images are supporting assets, not loopable footage: each still may appear
+    # at most once in a Short. Video sources can repeat only because each proxy
+    # is now 8.5s long and the renderer seeks to a materially different offset.
+    image_max_reuse=1
+    # V68: a amostra de QA (14/10) mostrou repetição perceptível mesmo com
+    # janelas tecnicamente diferentes do mesmo trailer. Não contar _window_N como
+    # nova cena editorial: limitar cada fonte original a UMA aparição por Short.
+    # Se o pool de fontes oficiais for insuficiente, o gate deve bloquear em vez
+    # de publicar um vídeo com o mesmo personagem/plano reciclado.
+    video_max_reuse=VIDEO_SOURCE_MAX_USES
+    max_reuse=max(image_max_reuse,video_max_reuse)
+    video_capacity=_visual_source_capacity(videos,video_max_reuse) if videos else 0
+    target_video=min(len(beats),video_capacity) if beats and videos else 0
+    target_images=min(len(images), max(0, len(beats)-target_video)) if beats and images else 0
+    print(f'[TIMELINE_VARIETY] videos={len(videos)} images={len(images)} video_max_reuse={video_max_reuse} target_video={target_video} target_images={target_images}',flush=True)
+    if len(beats or []) > video_capacity + len(images):
+        raise RuntimeError(
+            f'GATE VISUAL: pool insuficiente para evitar repetição '
+            f'({video_capacity} janelas de vídeo utilizáveis + {len(images)} imagens únicas '
+            f'para {len(beats)} cenas). Buscar mais material oficial antes de renderizar.'
+        )
+    video_used=0
+
+    def recent_penalty(p, bi):
+        pen=0
+        recent=[x[1] for x in chosen[-8:]]
+        if p in recent: pen += 420
+        if chosen and chosen[-1][1]==p: pen += 1000
+        if beats and bi >= max(0, int(len(beats)*0.80)) and p in [x[1] for x in chosen[:2]]:
+            pen += 180
+        # Strongly prefer sources that have not been used yet.
+        pen += asset_counts.get(p,0) * 180
+        return pen
+
+    def under_reuse_budget(p):
+        # Images are one-shot support assets; video windows share a budget by
+        # original source so cutting a trailer into windows cannot bypass it.
+        kind='video' if p in videos else 'image'
+        budget=video_max_reuse if kind=='video' else image_max_reuse
+        count=source_counts.get(source_group(p),0) if kind=='video' else asset_counts.get(p,0)
+        return count < budget
+
+    for bi,beat in enumerate(beats):
+        remaining=[(idx,kind,p) for idx,(kind,p) in enumerate(pool) if idx not in used]
+        remaining_videos=[x for x in remaining if x[1]=='video']
+        reusable_videos=[(idx,kind,p) for idx,(kind,p) in enumerate(pool) if kind=='video' and under_reuse_budget(p)]
+        reusable_images=[(idx,kind,p) for idx,(kind,p) in enumerate(pool) if kind=='image' and under_reuse_budget(p)]
+        target_image_count=max(0, len(beats)-target_video)
+        image_slots={int(round((i+1)*len(beats)/(target_image_count+1)))-1 for i in range(target_image_count)} if target_image_count else set()
+        image_due=(bi in image_slots) and bool(images)
+
+        # V65: FRESH-FIRST é uma regra dura. Se ainda existe uma fonte de vídeo
+        # que nunca apareceu, ela vence qualquer fonte já exibida. A penalidade
+        # numérica anterior podia ser superada pela relevância semântica (Jason/
+        # Lucia), causando o carrossel dos mesmos 4-5 planos.
+        fresh_videos=[x for x in remaining_videos if under_reuse_budget(x[2])]
+        fresh_images=[x for x in remaining if x[1]=='image' and under_reuse_budget(x[2])]
+        remaining_slots=len(beats)-bi-1
+        remaining_video_capacity=sum(1 for _idx,_kind,p in reusable_videos)
+        can_use_image=image_due and (video_used + remaining_slots >= target_video) and bool(fresh_images or reusable_images)
+        force_video=bool(videos) and video_used < target_video and not can_use_image and bool(reusable_videos)
+
+        if can_use_image:
+            candidates=fresh_images or reusable_images
+        elif force_video:
+            # Enquanto houver vídeo inédito, não aceite um vídeo reciclado.
+            candidates=fresh_videos or reusable_videos
+        elif fresh_videos:
+            candidates=fresh_videos
+        elif fresh_images:
+            candidates=fresh_images
+        elif reusable_videos:
+            candidates=reusable_videos
+        elif reusable_images:
+            candidates=reusable_images
+        else:
+            candidates=remaining or [(idx,kind,p) for idx,(kind,p) in enumerate(pool)]
+
+        # V62: balance source usage before semantic ranking. This prevents
+        # one character/shot from winning repeatedly just because its filename
+        # matches the topic better than the other clips.
+        if force_video and candidates:
+            min_count=min(source_counts.get(source_group(p),0) for _idx,_kind,p in candidates)
+            candidates=[x for x in candidates if source_counts.get(source_group(x[2]),0)==min_count] or candidates
+        ranked=[]
+        for idx,kind,p in candidates:
+            if force_video and kind!='video':
+                continue
+            score=_asset_relevance(p,topic_title,beat.get('text',''),kind)
+
+            # Movimento é prioridade editorial: vídeos recebem grande vantagem.
+            if kind=='video':
+                score += 55
+                if bi==0: score += 20
+                if bi>=2: score += 12
+            else:
+                score -= 10
+
+            # Nunca repetir o mesmo visual imediatamente.
+            score -= recent_penalty(p,bi)
+
+            # Relevância semântica continua valendo, mas não supera a prioridade
+            # de movimento quando o vídeo é utilizável.
+            if variant and idx % 4 == (bi+variant)%4:
+                score += 6
+
+            ranked.append((score,kind,p,idx))
+
+        # Fallback caso a cota tenha acabado ou só existam imagens restantes.
+        if not ranked:
+            ranked=[]
+            for idx,kind,p in candidates:
+                score=_asset_relevance(p,topic_title,beat.get('text',''),kind)
+                score += 40 if kind=='video' else -5
+                score -= recent_penalty(p,bi)
+                ranked.append((score,kind,p,idx))
+
+        ranked.sort(key=lambda x:x[0],reverse=True)
+        _,kind,p,idx=ranked[0]
+        chosen.append((kind,p))
+        asset_counts[p]=asset_counts.get(p,0)+1
+        if kind=='video':
+            source=source_group(p)
+            source_counts[source]=source_counts.get(source,0)+1
+        used.add(idx)
+        if kind=='video':
+            video_used += 1
+
+    return chosen
+
+def _normalize_visual_beats(beats, duration, max_scene=3.2):
+    """Garante que nenhuma cena visual fique longa demais.
+    O texto só permanece no intervalo real da fala; gaps de áudio viram
+    cenas de apoio sem repetir a última legenda.
+    """
+    src=list(beats or [])
+    if not src:
+        return [{'text':'','highlight':None,'start':0.0,'end':float(duration),'duration':float(duration),'captionless':True}]
+    out=[]
+    cursor=0.0
+    for b in src:
+        start=max(0.0,float(b.get('start',cursor)))
+        end=min(float(duration),float(b.get('end',start+float(b.get('duration',1.0)))))
+        if start>cursor+0.12:
+            gap=start-cursor
+            while gap>0.05:
+                d=min(max_scene,gap)
+                out.append({'text':'','highlight':None,'start':cursor,'end':cursor+d,'duration':d,'captionless':True})
+                cursor+=d; gap-=d
+        if end<=start: continue
+        span=end-start
+        pieces=max(1,int(__import__('math').ceil(span/max_scene)))
+        d=span/pieces
+        for i in range(pieces):
+            a=start+i*d; z=end if i==pieces-1 else start+(i+1)*d
+            out.append({'text':str(b.get('text','')) if i==0 else '',
+                        'highlight':b.get('highlight') if i==0 else None,
+                        'start':a,'end':z,'duration':max(0.35,z-a),
+                        'captionless':i>0})
+        cursor=end
+    if cursor<float(duration)-0.05:
+        gap=float(duration)-cursor
+        while gap>0.05:
+            d=min(max_scene,gap)
+            out.append({'text':'','highlight':None,'start':cursor,'end':cursor+d,'duration':d,'captionless':True})
+            cursor+=d; gap-=d
+    return out
+
+
+def make_multimedia_video(video_clips, image_paths, audio, out, duration, captions, script=None, topic_title='GTA 6', beats=None, motion_boost=False, asset_variant=0):
+    # FFmpeg/yuv420p requires even width/height. Keep per-scene intermediates at 540x960 for Render Free memory,
+    # then upscale only the final concatenated master to the required 1080x1920 delivery dimensions.
+    INTER_W, INTER_H = 540, 960
+    if INTER_W % 2 or INTER_H % 2:
+        raise RuntimeError(f'Dimensões intermediárias inválidas: {INTER_W}x{INTER_H}.')
+    """V57 editor: narration-driven video-first timeline, short beats, real clips + limited images.
+    Still optimized for Render Free by encoding one scene at a time.
+    """
+    ff=_ffmpeg_executable()
+    work=out.parent/'timeline'; work.mkdir(exist_ok=True)
+    if len(video_clips)<3 and len(image_paths)<8:
+        raise RuntimeError('A edição precisa de 3 vídeos reais ou pelo menos 8 visuais únicos de fallback.')
+    if script is None:
+        script={'narration':' '.join(captions)}
+    beats=beats or build_short_timeline(script, {'title':topic_title}, duration, count=10)
+    # Cap scene count before normalization so the renderer cannot recreate more
+    # scenes than the unique visual pool can support.
+    if video_clips:
+        visual_capacity=_visual_source_capacity(video_clips)+len(set(map(str,image_paths)))
+        if 6 <= visual_capacity < len(beats):
+            beats=build_short_timeline(script,{'title':topic_title},duration,count=visual_capacity,word_cues=None)
+            if len(beats)>visual_capacity:
+                raise RuntimeError(
+                    f'GATE CAPTIONS: {len(beats)} semantic captions exceed the {visual_capacity}-scene visual pool; '
+                    'refusing to split narration by raw word counts.'
+                )
+            print(f'[VISUAL_POOL] timeline_capped={len(beats)} capacity={visual_capacity}',flush=True)
+    # Video-first timelines are normalized to short beats. In the controlled
+    # image-only fallback, preserve one unique image per beat instead of splitting
+    # each 2.5s beat into duplicates that would recycle the same stills.
+    if video_clips:
+        # Preserve the capped timeline exactly when it fits the unique visual pool.
+        # Calling the normalizer here can split long beats and recreate the same
+        # visual-capacity failure we just avoided.
+        unique_pool=_visual_source_capacity(video_clips)+len(set(map(str,image_paths)))
+        if len(beats) <= unique_pool:
+            n=max(1,len(beats))
+            beats=[dict(b, start=i*duration/n, end=(i+1)*duration/n, duration=duration/n) for i,b in enumerate(beats)]
+        else:
+            max_scene=2.0 if len(video_clips)<3 and len(image_paths)>=8 else 1.8
+            beats=_normalize_visual_beats(beats,duration,max_scene=max_scene)
+    else:
+        n=max(1,len(beats))
+        beats=[dict(b, start=i*duration/n, end=(i+1)*duration/n, duration=duration/n) for i,b in enumerate(beats)]
+    # Last-mile gate: inspect the exact caption beats that will be painted onto
+    # the output frames. Earlier prechecks ran before renderer compaction/retiming.
+    _render_cap=_audit_caption_quality(beats)
+    print(
+        f"[RENDER_CAPTION_AUDIT] before score={_render_cap.get('score',0)} "
+        f"bad_end={len(_render_cap.get('bad_end',[]))} "
+        f"bad_start={len(_render_cap.get('bad_start',[]))} "
+        f"protected_splits={len(_render_cap.get('protected_splits',[]))}",
+        flush=True
+    )
+    if (_render_cap.get('bad_end') or _render_cap.get('bad_start')
+        or _render_cap.get('protected_splits') or _render_cap.get('long')
+        or _render_cap.get('short') or _render_cap.get('visual_bad')):
+        _render_fixed=_repair_caption_beats(beats,float(duration),max_words=6)
+        _render_fixed_cap=_audit_caption_quality(_render_fixed)
+        if (_render_fixed_cap.get('bad_end') or _render_fixed_cap.get('bad_start')
+            or _render_fixed_cap.get('protected_splits') or _render_fixed_cap.get('long')
+            or _render_fixed_cap.get('short') or _render_fixed_cap.get('visual_bad')
+            or not _render_fixed):
+            raise RuntimeError(
+                "RENDER_CAPTION_GATE: a segmentação final das legendas continua inválida: "
+                f"{_render_fixed_cap}"
+            )
+        beats=_render_fixed
+        print(
+            f"[RENDER_CAPTION_AUDIT] repaired score={_render_fixed_cap.get('score',0)} "
+            f"scenes={len(beats)}",
+            flush=True
+        )
+    else:
+        print(f"[RENDER_CAPTION_AUDIT] accepted score={_render_cap.get('score',0)}",flush=True)
+    # Use todos os assets disponíveis; quando há poucos, o renderer aplica
+    # enquadramentos diferentes em cada reutilização em vez de congelar a tela.
+    # Keep all unique frames produced by the official-video extractor. The old [:18]
+    # cap silently discarded frames even when augmentation had built a larger pool,
+    # causing the visual gate to reject otherwise viable timelines.
+    imgs=list(image_paths)[:24]
+    assets=_choose_timeline_assets(video_clips,imgs,beats,topic_title,variant=asset_variant)
+    scene_files=[]
+    render_use_counts={}
+    print(f'[RENDER] start title={topic_title[:100]} scenes={len(beats)} videos={len(videos) if (videos:=list(video_clips)) else 0} images={len(imgs)} duration={duration:.1f}s', flush=True)
+    for i,(beat,(kind,src)) in enumerate(zip(beats,assets)):
+        print(f'[RENDER] scene {i+1}/{len(beats)} start kind={kind} duration={float(beat.get("duration",0)):.2f}s source={Path(src).name}', flush=True)
+        scene=work/f'scene_{i:02d}.mp4'; overlay=work/f'overlay_{i:02d}.png'
+        _caption_overlay(overlay,beat['text'],i,len(beats),540,960,beat.get('highlight'))
+        if kind=='video':
+            # Movimento leve em todas as cenas. Em reparos, aumenta a amplitude.
+            amp=28 if motion_boost else 10
+            vf=f"scale=574:1020:force_original_aspect_ratio=increase,crop=540:960:x='10+{amp}*sin(n/18)':y='18+{max(4,amp//2)}*cos(n/23)',setsar=1,fps=30"
+            # Reused clips start at different offsets so the same source is
+            # not perceived as the exact same shot on every occurrence.
+            reuse_n=render_use_counts.get(str(src),0)
+            # V62: use six distinct windows across the 8.5s proxy. The previous
+            # 6.4s cap caused the 5th/6th reuse to collapse onto nearly the same
+            # opening, which is exactly the "same video came back" problem.
+            # V65: em uma segunda aparição, desloca o trecho de forma clara.
+            # O limite de 2 usos torna este offset determinístico e evita que
+            # a mesma abertura do proxy volte praticamente igual.
+            offset=(3.6 if asset_variant>0 else 0.0) if reuse_n==0 else 3.6
+            zoom_variant=reuse_n % 2
+            crop_w=540 + zoom_variant*10
+            crop_h=960 + zoom_variant*18
+            scale_w=574 + zoom_variant*18
+            scale_h=1020 + zoom_variant*30
+            vf=f"scale={scale_w}:{scale_h}:force_original_aspect_ratio=increase,crop={crop_w}:{crop_h}:x='10+{10+zoom_variant*8}*sin(n/18)':y='18+{max(4,10+zoom_variant*5)}*cos(n/23)',scale=540:960,setsar=1,fps=30"
+            inp=['-stream_loop','-1','-threads:v','1','-probesize','1M','-analyzeduration','1M','-ss',f'{offset:.2f}','-i',str(src)]
+        else:
+            # Apply edge-safe preprocessing in the actual render path. Previously
+            # the crop helper existed and its unit test passed, but image rendering
+            # bypassed it and retained clipped source-edge lettering.
+            prepared_source=work/f'image_safe_{i:02d}.jpg'
+            prepare_scene(src,prepared_source,beat.get('text',''),i,len(beats))
+            # V67.1: keep image motion alive for the whole beat. The former
+            # zoom+0.003/frame hit the 1.06 cap in ~20 frames (~0.67 s), then
+            # visually held still for most of a 2.14 s scene.
+            zoom_rate='0.0014' if motion_boost else '0.00125'
+            zoom_cap='1.09' if motion_boost else '1.085'
+            vf=f"scale=540:960:force_original_aspect_ratio=increase,crop=540:960,setsar=1,zoompan=z='min(1+{zoom_rate}*on,{zoom_cap})':x='(iw-iw/zoom)/2+((iw-iw/zoom)/4)*sin(on/18)':y='(ih-ih/zoom)/2+((ih-ih/zoom)/4)*cos(on/23)':d=1:s=540x960:fps=30"
+            inp=['-loop','1','-threads:v','1','-i',str(prepared_source)]
+        cmd=[ff,'-loglevel','error','-y']+inp+['-threads:v','1','-loop','1','-i',str(overlay),'-t',f'{beat["duration"]:.3f}',
+             '-filter_complex',f'[0:v]{vf}[v];[1:v]format=rgba[o];[v][o]overlay=0:0:shortest=1[outv]',
+             '-map','[outv]','-an','-c:v','libx264','-preset','ultrafast','-crf','21',
+             '-threads','1','-filter_threads','1','-filter_complex_threads','1',
+             '-x264-params','threads=1:lookahead-threads=1:rc-lookahead=0:sync-lookahead=0','-pix_fmt','yuv420p','-movflags','+faststart',str(scene)]
+        run_cmd(cmd,75)
+        scene_files.append(scene)
+        render_use_counts[str(src)]=render_use_counts.get(str(src),0)+1
+        print(f'[RENDER] scene {i+1}/{len(beats)} done bytes={scene.stat().st_size if scene.exists() else 0}', flush=True)
+        try: overlay.unlink()
+        except Exception: pass
+    listfile=work/'timeline.txt'
+    with listfile.open('w',encoding='utf-8') as f:
+        for sf in scene_files: f.write(f"file '{sf.as_posix()}'\n")
+    print(f'[RENDER] concat start scenes={len(scene_files)} audio_bytes={Path(audio).stat().st_size if Path(audio).exists() else 0}', flush=True)
+    run_cmd([ff,'-loglevel','error','-y','-f','concat','-safe','0','-i',str(listfile),'-i',str(audio),
+             '-t',f'{duration:.2f}','-vf','scale=1080:1920:flags=lanczos,setsar=1,format=yuv420p','-r','30',
+             '-c:v','libx264','-preset','ultrafast','-crf','20','-threads','1','-filter_threads','1','-filter_complex_threads','1',
+             '-x264-params','threads=1:lookahead-threads=1:rc-lookahead=0:sync-lookahead=0','-force_key_frames','expr:gte(t,n_forced*2)','-c:a','aac','-b:a','160k',
+             '-movflags','+faststart','-shortest',str(out)],300)
+    print(f'[RENDER] concat done exists={out.exists()} bytes={out.stat().st_size if out.exists() else 0}', flush=True)
+    for p in scene_files:
+        try: p.unlink()
+        except Exception: pass
+    for p in work.glob('image_safe_*.jpg'):
+        try: p.unlink()
+        except Exception: pass
+    try: listfile.unlink()
+    except Exception: pass
+    # Return exact caption beats painted into the MP4 for downstream post-render QA.
+    return beats
+
+def make_video(scenes,audio,out,duration):
+    # Corte mais rápido: 12 cenas em ~2–3 s cada. A troca de enquadramento já foi
+    # preparada nas imagens; o concat continua leve o bastante para o Render Free.
+    listfile=out.parent/'scenes.txt'; per=duration/len(scenes)
+    with listfile.open('w',encoding='utf-8') as f:
+        for p in scenes:
+            f.write(f"file '{p.as_posix()}'\nduration {per:.3f}\n")
+        f.write(f"file '{scenes[-1].as_posix()}'\n")
+    ff=_ffmpeg_executable()
+    run_cmd([ff,'-y','-f','concat','-safe','0','-i',str(listfile),'-i',str(audio),
+             '-t',f'{duration:.2f}','-r','24','-c:v','libx264','-preset','ultrafast',
+             '-crf','22','-threads','2','-profile:v','high','-pix_fmt','yuv420p',
+             '-c:a','aac','-b:a','128k','-movflags','+faststart','-shortest',str(out)],300)
+
+
+def make_cover(scene,title,out):
+    im=Image.open(scene).convert('RGB')
+    im=im.resize((540,960),Image.Resampling.BILINEAR)
+    d=ImageDraw.Draw(im,'RGBA')
+    d.rectangle((22,250,518,665),fill=(0,0,0,175),outline=(225,25,45),width=3)
+    f=font(36,True); y=305
+    for line in wrap_text(d,title,f,440)[:6]:
+        d.text((50,y),line,font=f,fill='white',stroke_width=1,stroke_fill='black'); y+=44
+    d.text((50,60),'GTA OCULTO',font=font(18,True),fill=(255,255,255,180))
+    im.save(out,quality=92)
+
+def _load_learning():
+    with LEARNING_LOCK:
+        if not LEARNING_FILE.exists():
+            return {'version':'V42.2','errors':{},'strategies':{},'experiments':[],'updated_at':now_iso()}
+        try:
+            d=json.loads(LEARNING_FILE.read_text(encoding='utf-8'))
+            if not isinstance(d,dict): raise ValueError('learning inválido')
+            d.setdefault('version','V41.3'); d.setdefault('errors',{}); d.setdefault('strategies',{}); d.setdefault('experiments',[])
+            return d
+        except Exception:
+            return {'version':'V42.2','errors':{},'strategies':{},'experiments':[],'updated_at':now_iso()}
+
+def _save_learning(data):
+    data['updated_at']=now_iso()
+    _atomic_write_json(LEARNING_FILE,data)
+
+def _learn_event(code, message, strategy=None, success=None):
+    try:
+        with LEARNING_LOCK:
+            d=_load_learning()
+            e=d['errors'].setdefault(code,{'count':0,'last':'','messages':[]})
+            e['count']=int(e.get('count',0))+1; e['last']=now_iso()
+            msgs=e.setdefault('messages',[]); msgs.append(str(message)[:500]); e['messages']=msgs[-8:]
+            if strategy:
+                st=d['strategies'].setdefault(code,{'uses':0,'success':0,'last':'','strategy':strategy})
+                st['uses']=int(st.get('uses',0))+1; st['last']=now_iso(); st['strategy']=strategy
+                if success is True: st['success']=int(st.get('success',0))+1
+            _save_learning(d)
+    except Exception:
+        pass
+
+def _repair_caption_beats(beats, duration, max_words=7):
+    """V55.3: reconstrução semântica das legendas usando somente as palavras já faladas.
+    Em vez de apenas juntar blocos ruins, achata a fala existente, resegmenta por
+    unidades de sentido e redistribui o tempo proporcionalmente. Isso elimina falsos
+    positivos como blocos terminando em preposição/conjunção.
+    """
+    if not beats:
+        return []
+
+    # Preserva exatamente o texto que já veio da narração; não cria palavras novas.
+    raw_parts=[re.sub(r'\s+',' ',str(b.get('text','')).strip()) for b in beats if str(b.get('text','')).strip()]
+    full=' '.join(raw_parts).strip()
+    if not full:
+        return []
+
+    # Recria frases a partir de pontuação quando ela ainda existir; caso contrário,
+    # usa a segmentação semântica existente no motor.
+    sentences=[x.strip() for x in re.split(r'(?<=[.!?;:])\s+',full) if x.strip()]
+    chunks=[]
+    for sent in sentences:
+        chunks.extend(_semantic_caption_chunks(sent, min_words=3, max_words=max_words))
+    if not chunks:
+        chunks=[_caption_words(full)]
+
+    # Corrige fragmentos e limita a quantidade de blocos sem alterar a sequência.
+    chunks=[list(c) for c in chunks if c]
+    fixed=[]
+    for ch in chunks:
+        if fixed and len(ch)<3 and len(fixed[-1])+len(ch)<=max_words:
+            fixed[-1].extend(ch)
+        else:
+            fixed.append(ch)
+    chunks=_merge_caption_chunks(fixed,target_count=max(1,min(16,len(fixed))),max_words=max_words)
+
+    # Repair semantic boundaries without creating very long captions.
+    bad_end={'e','de','do','da','em','no','na','que','um','uma','o','a','os','as','para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa','sobre','entre','até','sem','nem','esse','essa','esses','essas','este','esta','estes','estas','aquele','aquela','aqueles','aquelas','meu','minha','meus','minhas','seu','sua','seus','suas','nosso','nossa','nossos','nossas'}
+    bad_start={'e','mas','porque','porém','porem','então','entao','quando','enquanto','para','com','de','do','da','em','no','na','que'}
+    i=0
+    while i < len(chunks)-1:
+        last=_caption_clean_word(chunks[i][-1]); first=_caption_clean_word(chunks[i+1][0])
+        if (last in bad_end or first in bad_start) and len(chunks[i])+len(chunks[i+1])<=max_words:
+            chunks[i:i+2]=[chunks[i]+chunks[i+1]]
+            i=max(0,i-1)
+        else:
+            i+=1
+
+    # Gate final de início de legenda: nenhum bloco pode começar com conector/preposição.
+    # Se não houver espaço no bloco anterior, desloca uma palavra do fim anterior para
+    # preservar a sequência falada e evitar cortes como "DE EMPREGOS..." isolados.
+    bad_start_final={'e','mas','porque','porém','porem','então','entao','quando','enquanto','para','com','de','do','da','em','no','na','que'}
+    changed=True
+    guard=0
+    while changed and guard < 32:
+        changed=False
+        guard+=1
+        for idx in range(1,len(chunks)):
+            if not chunks[idx]:
+                continue
+            first=_caption_clean_word(chunks[idx][0])
+            if first not in bad_start_final:
+                continue
+            prev=chunks[idx-1]
+            # "PARA" pode iniciar a continuação natural de "empregos para várias pessoas";
+            # nesse caso, é melhor que a legenda anterior termine em "PARA".
+            if first == 'para' and prev and _caption_clean_word(prev[-1]) == 'empregos':
+                continue
+            if len(prev)+1 <= max_words:
+                prev.append(chunks[idx].pop(0))
+                changed=True
+            elif len(prev)>3 and len(chunks[idx])>3:
+                chunks[idx].insert(0,prev.pop())
+                changed=True
+            if not chunks[idx]:
+                chunks.pop(idx)
+                break
+
+    # Evita deixar preposição pendurada no fim de uma legenda quando a seguinte
+    # comporta a palavra e a construção continua naturalmente (ex.: "empregos para").
+    for idx in range(len(chunks)-1):
+        if not chunks[idx] or not chunks[idx+1]:
+            continue
+        last=_caption_clean_word(chunks[idx][-1])
+        nxt=_caption_clean_word(chunks[idx+1][0])
+        if last == 'para' and nxt not in bad_start_final and len(chunks[idx+1]) < max_words and len(chunks[idx]) > 3:
+            chunks[idx+1].insert(0,chunks[idx].pop())
+
+    # Intervalo temporal coberto pelos beats originais.
+    start_time=float(beats[0].get('start',0.0))
+    end_time=min(float(duration), max(float(b.get('end',0.0)) for b in beats))
+    if end_time<=start_time:
+        start_time=0.0; end_time=float(duration)
+    span=max(0.5,end_time-start_time)
+    weights=[max(1,len(c)) for c in chunks]
+    total=sum(weights) or 1
+
+    out=[]; cursor=start_time
+    for i,ch in enumerate(chunks):
+        d=span*(weights[i]/total)
+        ce=end_time if i==len(chunks)-1 else cursor+d
+        text=_clean_caption_phrase(' '.join(ch))
+        if not text: continue
+        ws=re.findall(r"[A-Za-zÀ-ÿ0-9']+",text)
+        preferred=[w for w in ws if w.lower() in {'gta','6','rockstar','jason','lucia','leonida','vice','city','cloud','gaming','xbox','realismo','novidades','microsoft'}]
+        highlight=preferred[0] if preferred else (ws[-1] if len(ws)>=5 else None)
+        out.append({'text':text,'highlight':highlight,'start':cursor,'end':ce,'duration':max(0.3,ce-cursor)})
+        cursor=ce
+
+    # Sem sobreposição e cobertura final estável.
+    for i in range(len(out)-1):
+        out[i]['end']=min(out[i]['end'],out[i+1]['start'])
+        out[i]['duration']=max(0.3,out[i]['end']-out[i]['start'])
+    if out:
+        out[-1]['end']=min(float(duration),max(out[-1]['end'],end_time))
+        out[-1]['duration']=max(0.3,out[-1]['end']-out[-1]['start'])
+    return out
+
+def _caption_visual_split_quality(text, W=540):
+    """Score line balance at the actual 540x960 export width."""
+    d=ImageDraw.Draw(Image.new('RGBA',(W,120),(0,0,0,0)))
+    f=font(24,True)
+    words=str(text or '').split()
+    if not words: return {'score':100,'lines':[]}
+    single=' '.join(words)
+    max_width=W-42
+    if d.textbbox((0,0),single,font=f,stroke_width=1)[2] <= max_width:
+        return {'score':100,'lines':[single.upper()]}
+    # Short captions should be evaluated by actual fit, not word count alone.
+    # Permit a balanced two-line split even for phrases of 2-4 words.
+    candidates=[]
+    for cut in range(1,len(words)):
+        a=' '.join(words[:cut]); b=' '.join(words[cut:])
+        wa=d.textbbox((0,0),a,font=f,stroke_width=1)[2]
+        wb=d.textbbox((0,0),b,font=f,stroke_width=1)[2]
+        if wa<=max_width and wb<=max_width:
+            candidates.append((abs(wa-wb)+abs(cut-(len(words)-cut))*18,cut,a,b))
+    if candidates:
+        _,cut,a,b=min(candidates,key=lambda x:x[0])
+        return {'score':100,'lines':[a.upper(),b.upper()]}
+    # Retry at smaller but still readable sizes before failing the caption audit.
+    for size in (22,20,18):
+        fs=font(size,True)
+        if d.textbbox((0,0),single,font=fs,stroke_width=1)[2] <= max_width:
+            return {'score':90,'lines':[single.upper()],'font_size':size}
+        smaller=[]
+        for cut in range(1,len(words)):
+            a=' '.join(words[:cut]); b=' '.join(words[cut:])
+            wa=d.textbbox((0,0),a,font=fs,stroke_width=1)[2]
+            wb=d.textbbox((0,0),b,font=fs,stroke_width=1)[2]
+            if wa<=max_width and wb<=max_width:
+                smaller.append((abs(wa-wb)+abs(cut-(len(words)-cut))*18,a,b))
+        if smaller:
+            _,a,b=min(smaller,key=lambda x:x[0])
+            return {'score':90,'lines':[a.upper(),b.upper()],'font_size':size}
+    return {'score':65,'lines':[str(text).upper()]}
+
+def _audit_caption_quality(beats):
+    bad_end=[]; bad_start=[]; long=[]; short=[]; visual_bad=[]; protected_splits=[]
+    bad_end_set={'e','de','do','da','em','no','na','que','um','uma','o','a','os','as','para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa','sobre','entre','até','sem','nem','esse','essa','esses','essas','este','esta','estes','estas','aquele','aquela','aqueles','aquelas','meu','minha','meus','minhas','seu','sua','seus','suas','nosso','nossa','nossos','nossas'}
+    bad_start_set={'e','mas','porque','porém','porem','então','entao','quando','enquanto','para','com','de','do','da','em','no','na','que'}
+    protected_phrases={
+        ('gta','6'),('gta','vi'),('vice','city'),('cloud','gaming'),
+        ('xbox','cloud','gaming'),('jason','e','lucia'),('playstation','5'),('xbox','series')
+    }
+    for bi,b in enumerate(beats or []):
+        words=_caption_words(b.get('text',''))
+        if not words: continue
+        if _caption_clean_word(words[-1]) in bad_end_set: bad_end.append(b['text'])
+        first=_caption_clean_word(words[0])
+        # Aceita "PARA" quando é continuação gramatical de "empregos para várias pessoas".
+        previous_words=_caption_words((beats[bi-1] or {}).get('text','')) if bi>0 else []
+        valid_para_continuation=(first=='para' and previous_words and _caption_clean_word(previous_words[-1])=='empregos')
+        if first in bad_start_set and not valid_para_continuation: bad_start.append(b['text'])
+        if len(words)>7: long.append(b['text'])
+        if len(words)<2: short.append(b['text'])
+        vs=_caption_visual_split_quality(b.get('text',''))
+        if vs['score']<85: visual_bad.append({'text':b.get('text',''),'lines':vs['lines']})
+
+    # Check phrase integrity across each caption boundary, not only inside a block.
+    clean_blocks=[
+        [_caption_clean_word(w) for w in _caption_words((b or {}).get('text',''))]
+        for b in (beats or [])
+    ]
+    for bi in range(len(clean_blocks)-1):
+        left=clean_blocks[bi]; right=clean_blocks[bi+1]
+        for phrase in protected_phrases:
+            for left_count in range(1,len(phrase)):
+                right_count=len(phrase)-left_count
+                if (len(left)>=left_count and len(right)>=right_count
+                    and tuple(left[-left_count:])==phrase[:left_count]
+                    and tuple(right[:right_count])==phrase[left_count:]):
+                    protected_splits.append({
+                        'phrase':' '.join(phrase),
+                        'left':(beats[bi] or {}).get('text',''),
+                        'right':(beats[bi+1] or {}).get('text','')
+                    })
+    total=max(1,len(beats or []))
+    texts=[re.sub(r'\s+',' ',str(b.get('text','')).strip().lower()) for b in (beats or []) if str(b.get('text','')).strip()]
+    repeated_adj=sum(1 for i in range(1,len(texts)) if texts[i] and texts[i]==texts[i-1])
+    repeated_total=max(0,len(texts)-len(set(texts))) if texts else 0
+    # A caption ending in a preposition or splitting a protected name is a stronger warning.
+    boundary_penalty=min(28, len(bad_end)*2 + len(bad_start)*2)
+    penalty=min(65,boundary_penalty + len(long)*3 + len(short)*2 + len(visual_bad)*3 + repeated_adj*8 + repeated_total*3 + min(30,len(protected_splits)*15))
+    return {
+        'score':max(0,100-penalty),
+        'bad_end':bad_end,'bad_start':bad_start,'long':long,'short':short,
+        'visual_bad':visual_bad,'protected_splits':protected_splits,
+        'repeated_adjacent':repeated_adj,'repeated_total':repeated_total
+    }
+
+
+MEDIA_VALIDATION_CACHE={}
+MEDIA_VALIDATION_LOCK=threading.RLock()
+
+def _probe_media(path):
+    """Probe media with ffprobe when available, falling back to FFmpeg itself.
+
+    Render images sometimes expose the FFmpeg binary without a sibling ffprobe.
+    Treating that environment difference as invalid media silently discarded
+    every official source and produced the misleading '0 valid segments' gate.
+    """
+    p=Path(path)
+    try:
+        ffprobe=shutil.which('ffprobe')
+        if ffprobe:
+            cmd=[ffprobe,'-v','error','-show_entries','format=duration,size:stream=index,codec_type,width,height,codec_name','-of','json',str(p)]
+            out=subprocess.check_output(cmd,stderr=subprocess.DEVNULL,text=True,timeout=30)
+            d=json.loads(out); streams=d.get('streams',[]); fmt=d.get('format',{})
+            video=[x for x in streams if x.get('codec_type')=='video']; audio=[x for x in streams if x.get('codec_type')=='audio']
+            duration=float(fmt.get('duration') or 0)
+            # ffprobe can successfully parse a container that has no video stream.
+            # Do not return ok=True in that case: include its actual signature and
+            # ffprobe's stream listing so the extraction format can be diagnosed.
+            if video and duration>0:
+                return {'ok':True,'duration':duration,'size':int(fmt.get('size') or (p.stat().st_size if p.exists() else 0)),'video':video,'audio':audio}
+            try:
+                with p.open('rb') as _src:
+                    _head=_src.read(96)
+                _magic=_head[:32].hex()
+                _ascii=''.join(chr(b) if 32<=b<127 else '.' for b in _head[:64])
+            except Exception as _e:
+                _magic='unreadable'; _ascii=str(_e)[:80]
+            raise RuntimeError(f'ffprobe não encontrou vídeo válido: duration={duration:.2f}s; streams={streams!r}; bytes={p.stat().st_size if p.exists() else 0}; magic={_magic}; head={_ascii}')
+        # FFmpeg prints stream metadata and duration to stderr even when ffprobe
+        # is not installed. -i intentionally exits non-zero without an output;
+        # that is expected and the diagnostic is what we parse.
+        ff=_ffmpeg_executable()
+        proc=subprocess.run([ff,'-hide_banner','-i',str(p)],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,text=True,timeout=30)
+        diagnostic=proc.stderr or ''
+        dm=re.search(r'Duration:\\s*(\\d+):(\\d+):(\\d+(?:\\.\\d+)?)',diagnostic)
+        if not dm:
+            raise RuntimeError('FFmpeg não encontrou duração legível: '+diagnostic[-250:])
+        duration=int(dm.group(1))*3600+int(dm.group(2))*60+float(dm.group(3))
+        video=[]; audio=[]
+        for line in diagnostic.splitlines():
+            if 'Video:' in line:
+                cm=re.search(r'Video:\\s*([^,\\s]+)',line)
+                sm=re.search(r'(\\d{2,5})x(\\d{2,5})',line)
+                video.append({'index':len(video),'codec_type':'video','codec_name':cm.group(1) if cm else 'unknown',
+                              'width':int(sm.group(1)) if sm else 0,'height':int(sm.group(2)) if sm else 0})
+            if 'Audio:' in line:
+                cm=re.search(r'Audio:\\s*([^,\\s]+)',line)
+                audio.append({'index':len(audio),'codec_type':'audio','codec_name':cm.group(1) if cm else 'unknown'})
+        if not video:
+            try:
+                with p.open('rb') as _src:
+                    _head=_src.read(96)
+                _magic=_head[:32].hex()
+                _ascii=''.join(chr(b) if 32<=b<127 else '.' for b in _head[:64])
+            except Exception as _e:
+                _magic='unreadable'; _ascii=str(_e)[:80]
+            raise RuntimeError('FFmpeg não detectou stream de vídeo; '
+                f'bytes={p.stat().st_size if p.exists() else 0}; magic={_magic}; head={_ascii}; '
+                f'diagnostic={diagnostic[-700:]}')
+        return {'ok':True,'duration':duration,'size':p.stat().st_size if p.exists() else 0,'video':video,'audio':audio}
+    except Exception as e:
+        return {'ok':False,'error':str(e)[:500]}
+
+def _job_output_is_valid(job):
+    """Count a job as produced only when its final MP4 exists and probes as real A/V media."""
+    rel=str((job or {}).get('video') or '').strip()
+    if not rel:
+        return False
+    try:
+        path=(WORK/rel).resolve()
+        path.relative_to(WORK.resolve())
+        st=path.stat()
+        if not path.is_file() or st.st_size < 50000:
+            return False
+        key=(str(path),st.st_mtime_ns,st.st_size)
+        with MEDIA_VALIDATION_LOCK:
+            cached=MEDIA_VALIDATION_CACHE.get(key)
+        if cached is not None:
+            return cached
+        probe=_probe_media(path)
+        videos=probe.get('video') or []
+        audios=probe.get('audio') or []
+        valid=bool(probe.get('ok') and probe.get('size',0)>=50000 and videos and audios and
+                   10 <= float(probe.get('duration') or 0) <= 65 and
+                   int(videos[0].get('height') or 0) > int(videos[0].get('width') or 0))
+        with MEDIA_VALIDATION_LOCK:
+            if len(MEDIA_VALIDATION_CACHE)>500:
+                MEDIA_VALIDATION_CACHE.clear()
+            MEDIA_VALIDATION_CACHE[key]=valid
+        return valid
+    except Exception:
+        return False
+
+
+
+def _log_visual_contact_sheet(video_path, jid):
+    """Emit a tiny sampled contact sheet to logs so remote visual QA can inspect frames."""
+    if os.getenv('GTA_VISUAL_QA_LOG','0').strip().lower() not in ('1','true','yes','on'):
+        return
+    tmp=Path(str(video_path)+'.visual_qa')
+    try:
+        import base64, io
+        tmp.mkdir(parents=True,exist_ok=True)
+        ff=_ffmpeg_executable()
+        cmd=[ff,'-hide_banner','-loglevel','error','-y','-i',str(video_path),
+             '-vf','fps=1/5,scale=80:142:force_original_aspect_ratio=decrease,pad=80:142:(ow-iw)/2:(oh-ih)/2',
+             '-frames:v','6','-q:v','10',str(tmp/'frame_%02d.jpg')]
+        subprocess.run(cmd,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,timeout=25,check=True)
+        frames=[]
+        for fp in sorted(tmp.glob('frame_*.jpg'))[:6]:
+            try:
+                with Image.open(fp) as im:
+                    frames.append(im.convert('RGB').copy())
+            except Exception:
+                pass
+        if not frames:
+            print(f'[VISUAL_QA] job={jid} no_frames_extracted',flush=True)
+            return
+        sheet=Image.new('RGB',(240,284),(10,12,16))
+        for i,im in enumerate(frames):
+            sheet.paste(im.resize((80,142)),((i%3)*80,(i//3)*142))
+        buf=io.BytesIO()
+        sheet.save(buf,format='JPEG',quality=28,optimize=True)
+        encoded=base64.b64encode(buf.getvalue()).decode('ascii')
+        # Split into small log records to avoid truncation by log transport.
+        chunks=[encoded[i:i+2800] for i in range(0,len(encoded),2800)]
+        print(f'[VISUAL_QA_BEGIN] job={jid} chunks={len(chunks)} width=240 height=284',flush=True)
+        for i,chunk in enumerate(chunks):
+            print(f'[VISUAL_QA_DATA] job={jid} part={i+1}/{len(chunks)} data={chunk}',flush=True)
+        print(f'[VISUAL_QA_END] job={jid}',flush=True)
+    except Exception as e:
+        print(f'[VISUAL_QA] job={jid} failed={type(e).__name__}: {str(e)[:250]}',flush=True)
+    finally:
+        try: shutil.rmtree(tmp,ignore_errors=True)
+        except Exception: pass
+
+
+def _visual_motion_audit(path):
+    """Audita o MP4 real em baixa resolução para detectar congelamento/repetição visual.
+    Não usa análise semântica: mede mudança real entre amostras do vídeo.
+    """
+    tmp=Path(str(path)+'.motion_audit')
+    tmp.mkdir(parents=True,exist_ok=True)
+    try:
+        ff=_ffmpeg_executable()
+        # One low-resolution sample per second catches 2-3s static image holds.
+        run_cmd([ff,'-loglevel','error','-y','-i',str(path),'-vf','fps=1,scale=48:85:flags=bilinear,format=gray',str(tmp/'frame_%04d.jpg')],25)
+        frames=sorted(tmp.glob('frame_*.jpg'))
+        if len(frames)<4:
+            return {'score':60,'frozen_ratio':0.0,'longest_still_seconds':0.0,'sample_count':len(frames),'stale_runs':[],'error':'amostras insuficientes'}
+        prev=None; diffs=[]
+        for fp in frames:
+            try:
+                im=Image.open(fp).convert('L')
+                if prev is not None:
+                    diff=ImageChops.difference(prev,im)
+                    stat=ImageStat.Stat(diff)
+                    diffs.append(float(stat.mean[0]))
+                prev=im
+            except Exception:
+                continue
+        # Em material H.264, valores abaixo de ~1.6 por vários segundos indicam quadro visualmente parado.
+        threshold=1.6
+        stale_runs=[]; run=0; start=0
+        for i,d in enumerate(diffs):
+            if d<threshold:
+                if run==0: start=i
+                run+=1
+            else:
+                if run>=2: stale_runs.append({'start_s':round(start+1,1),'end_s':round(start+run+1,1),'duration_s':round(run,1)})
+                run=0
+        if run>=2: stale_runs.append({'start_s':round(start+1,1),'end_s':round(start+run+1,1),'duration_s':round(run,1)})
+        longest=max([r['duration_s'] for r in stale_runs] or [0])
+        frozen=sum(1 for d in diffs if d<threshold)/max(1,len(diffs))
+        score=100
+        if longest>=10: score-=55
+        elif longest>=7: score-=42
+        elif longest>=5: score-=30
+        elif longest>=4: score-=18
+        if frozen>0.55: score-=25
+        elif frozen>0.40: score-=15
+        elif frozen>0.28: score-=8
+        score=max(0,min(100,score))
+        return {'score':score,'frozen_ratio':round(frozen,3),'longest_still_seconds':longest,'sample_count':len(frames),'stale_runs':stale_runs[:8],'threshold':threshold}
+    except Exception as e:
+        return {'score':75,'frozen_ratio':0.0,'longest_still_seconds':0.0,'sample_count':0,'stale_runs':[],'error':str(e)[:400]}
+    finally:
+        try: shutil.rmtree(tmp,ignore_errors=True)
+        except Exception: pass
+
+def _caption_narration_alignment(beats, narration):
+    """V55.8: validate captions against the *ordered narration sequence*.
+    The old multiset check could falsely reject valid captions when a spoken
+    word appeared more than once or when the caption engine skipped words.
+    Captions must be composed only of narration words, in spoken order, while
+    allowing omitted narration words between caption chunks.
+    """
+    def toks(s):
+        raw=re.findall(r"[A-Za-zÀ-ÿ0-9']+", str(s or '').lower())
+        return [re.sub(r'[^a-z0-9à-ÿ]', '', w) for w in raw if re.sub(r'[^a-z0-9à-ÿ]', '', w)]
+
+    n=toks(narration)
+    if not n:
+        return {'score':0,'bad':[],'coverage':0.0,'foreign_ratio':1.0,'caption_count':0}
+
+    # Normalize common typographic variants without changing words.
+    aliases={'gta6':'gta', 'gtavi':'gta'}
+    def norm(w): return aliases.get(w,w)
+    n_norm=[norm(w) for w in n]
+
+    bad=[]; total=0; foreign=0; cursor=0; matched=0
+    max_skip=14
+    for b in beats or []:
+        text=str(b.get('text','')).strip()
+        ct=[norm(w) for w in toks(text)]
+        total += len(ct)
+        if not ct: continue
+        local_bad=[]
+        for w in ct:
+            # Find the next occurrence in the narration after the previous
+            # matched token. We permit omitted spoken words between captions.
+            found=None
+            upper=min(len(n_norm), cursor+max_skip+1)
+            for j in range(cursor, upper):
+                if n_norm[j]==w:
+                    found=j; break
+            if found is None:
+                # A word can legitimately recur after a larger gap; search the
+                # rest of the narration before declaring it foreign.
+                for j in range(cursor, len(n_norm)):
+                    if n_norm[j]==w:
+                        found=j; break
+            if found is None:
+                local_bad.append(w); foreign += 1
+            else:
+                matched += 1
+                cursor=found+1
+        if local_bad:
+            bad.append({'text':text,'words':local_bad})
+
+    coverage=matched/max(1,total)  # share of displayed caption words found in narration
+    narration_coverage=matched/max(1,len(n))  # share of spoken words represented in captions
+    foreign_ratio=foreign/max(1,total)
+    score=100
+    if narration_coverage<0.55: score-=45
+    elif narration_coverage<0.72: score-=28
+    elif narration_coverage<0.85: score-=14
+    if foreign_ratio>0.15: score-=50
+    elif foreign_ratio>0.08: score-=35
+    elif foreign_ratio>0.03: score-=20
+    elif foreign_ratio>0: score-=8
+    if bad and any(len(x['words'])>=3 for x in bad): score-=20
+
+    return {
+        'score':max(0,min(100,score)),
+        'bad':bad[:12],
+        'coverage':round(coverage,3),
+        'narration_coverage':round(narration_coverage,3),
+        'foreign_ratio':round(foreign_ratio,3),
+        'caption_count':len([b for b in beats or [] if str(b.get('text','')).strip()])
+    }
+
+
+def _visual_repetition_audit(path):
+    """Detecta repetição de takes curtos e sequências quase idênticas no MP4 final.
+
+    A antiga auditoria comparava apenas janelas de quatro amostras (8 segundos).
+    Isso deixava passar um take de 1–2 segundos reutilizado em outro ponto do Short.
+    Agora combinamos comparação de sequência com hash perceptual de quadros isolados,
+    exigindo distância temporal para não penalizar frames vizinhos do mesmo take.
+    """
+    tmp=Path(str(path)+'.repeat_audit')
+    tmp.mkdir(parents=True,exist_ok=True)
+    try:
+        ff=_ffmpeg_executable()
+        run_cmd([ff,'-loglevel','error','-y','-i',str(path),'-vf','fps=0.5,scale=40:71:flags=bilinear,format=gray',str(tmp/'f_%04d.jpg')],60)
+        frames=sorted(tmp.glob('f_*.jpg'))
+        if len(frames)<8:
+            return {'score':70,'repeated_ratio':0.0,'longest_repeat_s':0.0,'pairs':[],'frame_repeat_pairs':[],'error':'amostras insuficientes'}
+        imgs=[]
+        for fp in frames:
+            try: imgs.append(Image.open(fp).convert('L').resize((48,85)))
+            except Exception: pass
+        if len(imgs)<8:
+            return {'score':70,'repeated_ratio':0.0,'longest_repeat_s':0.0,'pairs':[],'frame_repeat_pairs':[],'error':'quadros inválidos'}
+
+        # 1) Repetição de sequências longas (4 quadros, amostrados a cada 2s).
+        seq_len=4; min_gap=6; matches=[]
+        for i in range(0,min(24,max(1,len(imgs)-seq_len+1))):
+            for j in range(i+min_gap, min(len(imgs)-seq_len+1, i+32)):
+                ds=[]
+                for k in range(seq_len):
+                    stat=ImageStat.Stat(ImageChops.difference(imgs[i+k],imgs[j+k]))
+                    ds.append(float(stat.mean[0]))
+                avg=sum(ds)/len(ds)
+                if avg<8.0:
+                    matches.append((i,j,avg))
+
+        # 2) Repetição de takes isolados: average-hash numa grelha 8x8 reduz
+        # sensibilidade à cor/compressão, mas preserva composição e silhuetas.
+        # Só compara quadros separados por >=6s; takes vizinhos não contam como loop.
+        hashes=[]
+        for im in imgs:
+            tiny=im.resize((8,8))
+            values=list(tiny.getdata())
+            mean=sum(values)/max(1,len(values))
+            hashes.append(tuple(v>=mean for v in values))
+        frame_matches=[]
+        frame_marks=set()
+        for i in range(len(hashes)):
+            for j in range(i+3,len(hashes)):
+                distance=sum(a!=b for a,b in zip(hashes[i],hashes[j]))
+                if distance<=6:
+                    # Similaridade isolada precisa ser forte; GTA tem muitos frames
+                    # com silhuetas/contraste parecidos que não são o mesmo take.
+                    frame_matches.append((i,j,distance))
+                    frame_marks.add(i); frame_marks.add(j)
+
+        # União para cobertura/repetição geral. Runs consecutivos são medidos
+        # somente nas sequências longas: pares isolados em instantes distantes
+        # não devem ser interpretados como um take contínuo.
+        marks=set(frame_marks)
+        sequence_marks=set()
+        for i,j,_d in matches:
+            for k in range(seq_len):
+                marks.add(i+k); marks.add(j+k)
+                sequence_marks.add(i+k); sequence_marks.add(j+k)
+        ratio=len(marks)/max(1,len(imgs))
+        longest=0; cur=0
+        for k in range(len(imgs)):
+            if k in sequence_marks: cur+=1; longest=max(longest,cur)
+            else: cur=0
+        longest_s=longest*2.0
+        score=100
+        if ratio>=0.45: score-=45
+        elif ratio>=0.30: score-=32
+        elif ratio>=0.20: score-=20
+        elif ratio>=0.12: score-=10
+        if longest_s>=8: score-=40
+        elif longest_s>=6: score-=30
+        elif longest_s>=4: score-=18
+        return {
+            'score':max(0,min(100,score)),
+            'repeated_ratio':round(ratio,3),
+            'longest_repeat_s':round(longest_s,1),
+            'pairs':[{'a_s':round(i*2.0,1),'b_s':round(j*2.0,1),'diff':round(d,2),'kind':'sequence'} for i,j,d in matches[:12]],
+            'frame_repeat_pairs':[{'a_s':round(i*2.0,1),'b_s':round(j*2.0,1),'hash_distance':int(d)} for i,j,d in frame_matches[:20]],
+            'method':'sequence+perceptual-frame-hash',
+            'sequence_window_s':8.0
+        }
+    except Exception as e:
+        print(f'[VISUAL_REPEAT_AUDIT_ERROR] {type(e).__name__}: {str(e)[:500]}',flush=True)
+        return {'score':65,'repeated_ratio':0.0,'longest_repeat_s':0.0,'pairs':[],'frame_repeat_pairs':[],'error':f'{type(e).__name__}: {str(e)[:400]}'}
+    finally:
+        try: shutil.rmtree(tmp,ignore_errors=True)
+        except Exception: pass
+
+def _persistent_source_subtitle_audit(path):
+    """Detect persistent two-line source subtitles above the editor's own lower-third.
+    This deliberately uses only Pillow/stdlib: no OCR models or heavy runtime dependency.
+    A single frame is not enough (posters/shirt graphics can resemble text); the same
+    text-like two-line structure must appear in adjacent 0.5-second samples.
+    """
+    tmp=Path(str(path)+'.source_subtitle_audit')
+    tmp.mkdir(parents=True,exist_ok=True)
+    try:
+        ff=_ffmpeg_executable()
+        run_cmd([ff,'-loglevel','error','-y','-i',str(path),
+                 '-vf','fps=2,scale=270:480:flags=bilinear,format=gray',
+                 str(tmp/'frame_%04d.png')],60)
+        frame_paths=sorted(tmp.glob('frame_*.png'))
+        if len(frame_paths)<8:
+            return {
+                'embedded_subtitle':False,'sample_count':len(frame_paths),
+                'hit_times_s':[],'method':'persistent-two-line-source-text',
+                'error':'amostras insuficientes para auditar legendas-fonte'
+            }
+        hits=[]
+        for fi,fp in enumerate(frame_paths):
+            try:
+                im=Image.open(fp).convert('L')
+                iw,ih=im.size
+                # Exclude the app's designed caption card at the bottom. Check
+                # the left/lower video area where baked-in gameplay captions appear.
+                x0,y0,x1,y1=0,int(0.66*ih),int(0.46*iw),int(0.81*ih)
+                crop=im.crop((x0,y0,x1,y1))
+                cw,ch=crop.size
+                px=crop.load()
+                binary=bytearray(cw*ch)
+                for yy in range(ch):
+                    off=yy*cw
+                    for xx in range(cw):
+                        binary[off+xx]=1 if px[xx,yy]>185 else 0
+                visited=bytearray(cw*ch)
+                components=[]
+                for idx,val in enumerate(binary):
+                    if not val or visited[idx]:
+                        continue
+                    stack=[idx]
+                    visited[idx]=1
+                    minx=cw; miny=ch; maxx=0; maxy=0; area=0
+                    while stack:
+                        z=stack.pop()
+                        yy,xx=divmod(z,cw)
+                        area+=1
+                        if xx<minx: minx=xx
+                        if xx>maxx: maxx=xx
+                        if yy<miny: miny=yy
+                        if yy>maxy: maxy=yy
+                        ya=max(0,yy-1); yb=min(ch-1,yy+1)
+                        xa=max(0,xx-1); xb=min(cw-1,xx+1)
+                        for ny in range(ya,yb+1):
+                            base=ny*cw
+                            for nx in range(xa,xb+1):
+                                ni=base+nx
+                                if binary[ni] and not visited[ni]:
+                                    visited[ni]=1
+                                    stack.append(ni)
+                    ww=maxx-minx+1
+                    hh=maxy-miny+1
+                    # Small bright components arranged like glyphs; large
+                    # bright scene objects (shirts, car panels, sky) are ignored.
+                    if 2<=area<=100 and 1<=ww<=18 and 2<=hh<=16:
+                        components.append((minx,miny,ww,hh,area))
+                rows=[]
+                for comp in sorted(components,key=lambda z:z[1]+z[3]/2):
+                    cy=comp[1]+comp[3]/2
+                    target=None
+                    for row in rows:
+                        median_y=statistics.median([z[1]+z[3]/2 for z in row])
+                        if abs(cy-median_y)<=3.5:
+                            target=row
+                            break
+                    if target is None:
+                        rows.append([comp])
+                    else:
+                        target.append(comp)
+                text_rows=[]
+                for row in rows:
+                    xs=[z[0] for z in row]
+                    heights=[z[3] for z in row]
+                    span=max(z[0]+z[2] for z in row)-min(xs) if row else 0
+                    if len(row)>=4 and span>=25 and 3<=statistics.median(heights)<=15:
+                        text_rows.append({
+                            'count':len(row),
+                            'span':int(span),
+                            'y':float(statistics.median([z[1] for z in row]))
+                        })
+                paired=False
+                for ri in range(len(text_rows)):
+                    for rj in range(ri+1,len(text_rows)):
+                        separation=abs(text_rows[ri]['y']-text_rows[rj]['y'])
+                        if 7<=separation<=28 and min(text_rows[ri]['count'],text_rows[rj]['count'])>=4:
+                            paired=True
+                if paired:
+                    hits.append(fi)
+            except Exception:
+                continue
+        # Require at least two consecutive half-second frames to suppress
+        # isolated false positives from artwork, signs, or clothing logos.
+        has_persistent=False
+        for a,b in zip(hits,hits[1:]):
+            if b==a+1:
+                has_persistent=True
+                break
+        times=[round(i/2.0,1) for i in hits]
+        return {
+            'embedded_subtitle':has_persistent,
+            'sample_count':len(frame_paths),
+            'hit_times_s':times[:12],
+            'method':'persistent-two-line-source-text',
+            'error':''
+        }
+    except Exception as e:
+        return {
+            'embedded_subtitle':False,
+            'sample_count':0,
+            'hit_times_s':[],
+            'method':'persistent-two-line-source-text',
+            'error':f'{type(e).__name__}: {str(e)[:250]}'
+        }
+    finally:
+        try: shutil.rmtree(tmp,ignore_errors=True)
+        except Exception: pass
+
+
+def _visual_contamination_audit(path):
+    """Final gate for rating/disclaimer cards and baked-in source subtitles."""
+    bad=_video_contains_rating_disclaimer(path,sample_fps=2.0)
+    source_text=_persistent_source_subtitle_audit(path)
+    return {
+        'score':0 if bad or source_text.get('embedded_subtitle') or source_text.get('error') else 100,
+        'rating_disclaimer':bool(bad),
+        'embedded_subtitle':bool(source_text.get('embedded_subtitle')),
+        'subtitle_times':source_text.get('hit_times_s',[]),
+        'subtitle_audit_error':source_text.get('error',''),
+        'method':'horizontal-band-structure+persistent-source-text',
+        'ok':not bad and not source_text.get('embedded_subtitle') and not source_text.get('error')
+    }
+
+def audit_short(script, video, duration, beats, selected_videos, image_scenes):
+    """Auditor V41: checks editorial, captions and actual MP4 before delivery."""
+    issues=[]; checks={}
+    narration=str(script.get('narration',''))
+    words=len(re.findall(r"[A-Za-zÀ-ÿ0-9']+",narration))
+    checks['roteiro']=100 if words>=70 and script.get('evidence') else 0
+    if any(x in narration.lower() for x in ('radar','editor-chefe','score','confiança','fontes','matérias','produzir agora')):
+        checks['roteiro']=0; issues.append(('EDITORIAL_METADATA','roteiro contém metadado interno'))
+    if _editorial_noise_score(narration,str(script.get('title','')))>2:
+        checks['roteiro']=max(0,checks['roteiro']-20)
+        issues.append(('HEADLINE_CONTAMINATION','narração contém padrão de manchete ou metadado'))
+    evidence=script.get('evidence') or []
+    editorial_alignment=_editorial_topic_alignment(
+        script.get('title') or '', narration, evidence,
+        script.get('source_headline') or ''
+    )
+    checks['alinhamento_pauta']=editorial_alignment['score']
+    if not editorial_alignment['ok']:
+        issues.append(('HEADLINE_SCRIPT_MISMATCH',
+            'título, pauta e narração não estão alinhados: '+', '.join(editorial_alignment['issues'])))
+    if not evidence:
+        issues.append(('NO_EVIDENCE','roteiro sem evidência factual'))
+        checks['roteiro']=0
+    cap=_audit_caption_quality(beats); checks['legendas']=cap['score']
+    alignment=_caption_narration_alignment(beats,narration); checks['alinhamento_legendas']=alignment['score']
+    if cap.get('score',100)<85:
+        # Try to repair caption segmentation once before blocking the entire Short.
+        # Caption beats are derived from the narration, so reflowing word boundaries
+        # is safe and does not alter the spoken script or factual content.
+        try:
+            _rebuilt=_repair_caption_beats(beats, float(duration))
+            _rebuilt_audit=_audit_caption_quality(_rebuilt)
+            _current_bad=len(cap.get('bad_end',[]))+len(cap.get('bad_start',[]))+len(cap.get('long',[]))+len(cap.get('short',[]))
+            _rebuilt_bad=len(_rebuilt_audit.get('bad_end',[]))+len(_rebuilt_audit.get('bad_start',[]))+len(_rebuilt_audit.get('long',[]))+len(_rebuilt_audit.get('short',[]))
+            if _rebuilt_audit.get('score',0)>cap.get('score',0) or _rebuilt_bad<_current_bad:
+                beats=_rebuilt
+                cap=_rebuilt_audit
+                checks['legendas']=cap['score']
+        except Exception as _caption_repair_error:
+            print(f'[CAPTION_REPAIR] safe reflow failed: {str(_caption_repair_error)[:180]}',flush=True)
+        if cap.get('score',100)<85:
+            issues.append(('CAPTIONS_LOW_QUALITY',f'qualidade visual/segmentação das legendas abaixo do mínimo: {cap.get("score",0)}/100'))
+    if alignment.get('narration_coverage',1.0)<0.85:
+        issues.append(('CAPTIONS_INCOMPLETE',f'legendas representam apenas {alignment.get("narration_coverage",0)*100:.0f}% da narração'))
+    boundary_bad_count=len(cap.get('bad_end',[]))+len(cap.get('bad_start',[]))
+    # V55.5: only actual semantic boundary violations can trigger this issue.
+    # Visual wrapping, caption length and line balance are quality signals, not semantic-boundary failures.
+    boundary_severe=(boundary_bad_count>=max(4,int(len(beats or [])*0.55)))
+    protected_splits=cap.get('protected_splits',[]) or []
+    if boundary_severe or protected_splits:
+        detail=('; termos divididos: '+', '.join(sorted({x.get('phrase','') for x in protected_splits if x.get('phrase')}))) if protected_splits else ''
+        issues.append(('CAPTIONS_BAD_BOUNDARY','legendas com cortes semanticamente ruins'+detail))
+    if alignment.get('foreign_ratio',0)>0.03 or alignment.get('score',100)<85:
+        issues.append(('CAPTIONS_NOT_FROM_NARRATION',f'legendas contêm palavras fora da narração: {alignment.get("foreign_ratio",0)*100:.0f}%'))
+    if cap.get('repeated_adjacent',0)>0: issues.append(('CAPTIONS_REPEATED','legenda repetida em blocos consecutivos'))
+    media=_probe_media(video); checks['mp4']=100 if media.get('ok') else 0
+    if not media.get('ok'): issues.append(('MEDIA_UNREADABLE',media.get('error','MP4 inválido')))
+    else:
+        dur=media['duration']; v=media['video']; a=media['audio']
+        if not v: checks['mp4']-=50; issues.append(('NO_VIDEO_STREAM','MP4 sem vídeo'))
+        if not a: checks['mp4']-=50; issues.append(('NO_AUDIO_STREAM','MP4 sem áudio'))
+        actual_dims=(int(v[0].get('width',0)),int(v[0].get('height',0))) if v else (0,0)
+        allowed_dims={(540,960),(720,1280),(1080,1920)}
+        if v and actual_dims not in allowed_dims:
+            checks['mp4']-=15; issues.append(('WRONG_ASPECT',f'dimensão do vídeo fora dos perfis verticais suportados: {actual_dims[0]}x{actual_dims[1]}'))
+        if abs(dur-float(duration))>1.5: checks['mp4']-=10; issues.append(('DURATION_DRIFT',f'duração final {dur:.2f}s vs áudio {duration:.2f}s'))
+        if media['size']<150000: checks['mp4']-=15; issues.append(('TINY_OUTPUT','MP4 suspeito: arquivo muito pequeno'))
+    visual_safety=_visual_contamination_audit(video)
+    checks['seguranca_visual']=visual_safety.get('score',0)
+    if visual_safety.get('rating_disclaimer'):
+        issues.append(('VISUAL_CONTAMINATION','tela ESRB/disclaimer detectada no vídeo final'))
+    if visual_safety.get('embedded_subtitle'):
+        times=', '.join(f'{t:.1f}s' for t in visual_safety.get('subtitle_times',[])[:4])
+        issues.append(('VISUAL_SOURCE_SUBTITLE',
+            'texto/legenda embutido no clipe-fonte foi detectado acima das legendas do editor'
+            +(f' em {times}' if times else '')))
+    if visual_safety.get('subtitle_audit_error'):
+        issues.append(('VISUAL_SUBTITLE_AUDIT_FAILED',
+            'a checagem de legendas embutidas não conseguiu concluir: '
+            +str(visual_safety.get('subtitle_audit_error'))[:200]))
+    checks['visuais']=100
+    unique=len({str(x) for x in selected_videos})
+    unique_images=len({str(x) for x in image_scenes})
+    # A healthy fallback may contain only 2 official video clips plus a large
+    # pool of unique researched/official frames. Count the combined visual pool.
+    visual_pool=unique*2+unique_images
+    if unique<4 and visual_pool<12:
+        checks['visuais']-=15; issues.append(('LOW_VIDEO_VARIETY',f'apenas {unique} clipes únicos e {unique_images} imagens distintas'))
+    # Image variety is optional on Render Free: never reject a healthy
+    # video merely because the research returned fewer than four usable images.
+    if len(images_available if 'images_available' in locals() else []) >= 4 and len(image_scenes)<2:
+        checks['visuais']-=5; issues.append(('LOW_IMAGE_VARIETY','poucas imagens auxiliares'))
+    # V67: Inspect the actual final MP4 by default. Asset-count-only motion
+    # proxies missed 2-3s static holds. Sampling is downscaled to keep this bounded.
+    # GTA_DEEP_VISUAL_AUDIT=0 is available only as a temporary resource fallback.
+    deep_visual=os.getenv('GTA_DEEP_VISUAL_AUDIT','1').strip().lower() in {'1','true','yes','on'}
+    if media.get('ok'):
+        # A auditoria de repetição é obrigatória: deixar essa checagem atrás de
+        # GTA_DEEP_VISUAL_AUDIT permitia que o plano Free aprovasse takes repetidos
+        # com base apenas na contagem de arquivos distintos. A varredura é leve
+        # (quadros pequenos em baixa frequência) e sempre roda no MP4 final.
+        repetition=_visual_repetition_audit(video)
+        print(
+            f"[VISUAL_REPEAT_AUDIT] method={repetition.get('method','unknown')} "
+            f"score={repetition.get('score',0)} ratio={repetition.get('repeated_ratio',0)} "
+            f"pairs={len(repetition.get('frame_repeat_pairs',[])) + len(repetition.get('pairs',[]))} "
+            f"error={str(repetition.get('error',''))[:180]}",
+            flush=True
+        )
+        if deep_visual:
+            motion=_visual_motion_audit(video)
+        else:
+            unique_visual_assets=len({str(x) for x in selected_videos})
+            scene_assets=unique_visual_assets + len({str(x) for x in image_scenes})
+            motion_score=94 if unique_visual_assets>=4 and scene_assets>=7 else (80 if unique_visual_assets>=3 else 60)
+            motion={
+                'score':motion_score,'frozen_ratio':0.0,'longest_still_seconds':0.0,
+                'sample_count':0,'method':'timeline_structure',
+                'note':'Proxy estrutural; auditoria quadro a quadro de movimento desativada no plano Free'
+            }
+    else:
+        unique_visual_assets=len({str(x) for x in selected_videos})
+        scene_assets=unique_visual_assets + len({str(x) for x in image_scenes})
+        motion_score=94 if unique_visual_assets>=4 and scene_assets>=7 else (80 if unique_visual_assets>=3 else 60)
+        repetition_score=94 if unique_visual_assets>=5 else (84 if unique_visual_assets>=3 else 65)
+        motion={
+            'score':motion_score,'frozen_ratio':0.0,'longest_still_seconds':0.0,
+            'sample_count':0,'method':'timeline_structure',
+            'note':'Proxy estrutural; mídia inválida; varredura visual não executada'
+        }
+        repetition={
+            'score':repetition_score,'repeated_ratio':0.0,'longest_repeat_s':0.0,
+            'pairs':[],'method':'asset_diversity',
+            'note':'Proxy estrutural; mídia inválida; varredura visual não executada'
+        }
+    checks['movimento']=int(motion.get('score',0))
+    if repetition.get('error'):
+        checks['repeticao_visual']=0
+        issues.append(('VISUAL_AUDIT_FAILED','auditoria de repetição visual não conseguiu inspecionar o MP4: '+str(repetition.get('error'))[:240]))
+    else:
+        checks['repeticao_visual']=int(repetition.get('score',0))
+    if motion.get('longest_still_seconds',0)>=2:
+        issues.append(('VISUAL_STAGNATION',f'visual praticamente parado por {motion.get("longest_still_seconds",0):.0f}s'))
+    if motion.get('frozen_ratio',0)>=0.28:
+        issues.append(('HIGH_FROZEN_RATIO',f'{motion.get("frozen_ratio",0)*100:.0f}% das transições amostradas com pouca mudança visual'))
+    if not repetition.get('error') and (repetition.get('repeated_ratio',0)>=0.24 or repetition.get('longest_repeat_s',0)>=4):
+        issues.append(('VISUAL_REPETITION',f'repetição visual detectada: {repetition.get("repeated_ratio",0)*100:.0f}% das amostras / trecho repetido até {repetition.get("longest_repeat_s",0):.1f}s'))
+    final=max(0,round((checks['roteiro']+checks['alinhamento_pauta']+checks['legendas']+checks['alinhamento_legendas']+checks['mp4']+checks['visuais']+checks['movimento']+checks['repeticao_visual'])/8))
+    return {'score':final,'checks':checks,'issues':[{'code':c,'message':m} for c,m in issues],'media':media,'caption_audit':cap,'motion_audit':motion,'repetition_audit':repetition}
+
+def self_heal(jid, script, video, duration, beats, selected_videos, image_scenes, topic, audio):
+    """Run bounded safe repairs. No endless retry and no self-modifying source code."""
+    audit=audit_short(script,video,duration,beats,selected_videos,image_scenes)
+    if audit['score']>=92 and not any(x['code'] in {'CAPTIONS_BAD_BOUNDARY','CAPTIONS_NOT_FROM_NARRATION','CAPTIONS_REPEATED','CAPTIONS_INCOMPLETE','CAPTIONS_LOW_QUALITY','VISUAL_REPETITION','VISUAL_STAGNATION','HIGH_FROZEN_RATIO','VISUAL_SOURCE_SUBTITLE','VISUAL_SUBTITLE_AUDIT_FAILED'} for x in audit.get('issues',[])): return audit,beats,False
+    repaired=False
+    codes={x['code'] for x in audit['issues']}
+    if 'VISUAL_STAGNATION' in codes or 'HIGH_FROZEN_RATIO' in codes or 'VISUAL_REPETITION' in codes or 'VISUAL_SOURCE_SUBTITLE' in codes:
+        # V66.9: o vídeo final é o objeto de QA. Se a auditoria real encontrar
+        # repetição/congelamento, refazemos UMA única vez com outra combinação
+        # de assets e movimento. Isso elimina a necessidade de o proprietário
+        # baixar/enviar o MP4 para inspeção manual a cada produção.
+        _learn_event(
+            'VISUAL_REPETITION',
+            'auditor detectou repetição/congelamento visual',
+            're-render automático único com variante visual + motion boost',
+            None
+        )
+        repair_path=Path(str(video)+'.visual_repair.mp4')
+        try:
+            update_job(
+                jid,
+                stage='AVALIAÇÃO',
+                progress=95,
+                log='🧠 AUDITOR IA: repetição/congelamento detectado. Refazendo a edição automaticamente (1/1)...'
+            )
+            beats=make_multimedia_video(
+                selected_videos,
+                image_scenes,
+                audio,
+                repair_path,
+                duration,
+                [b.get('text','') for b in beats],
+                script=script,
+                topic_title=topic.get('title','GTA 6'),
+                beats=beats,
+                motion_boost=True,
+                asset_variant=1
+            )
+            repaired_probe=_probe_media(repair_path)
+            if not repaired_probe.get('ok'):
+                raise RuntimeError('reparo visual gerou MP4 inválido')
+            # Auditar o arquivo temporário ANTES de substituir o vídeo original.
+            # Se a variante não resolver a repetição, preservamos o MP4 original
+            # para diagnóstico e o gate final bloqueia a entrega.
+            repaired_audit=audit_short(script,repair_path,duration,beats,selected_videos,image_scenes)
+            if any(x.get('code') in {'VISUAL_REPETITION','VISUAL_STAGNATION','HIGH_FROZEN_RATIO','VISUAL_SOURCE_SUBTITLE'} for x in repaired_audit.get('issues',[])):
+                raise RuntimeError('a reedição ainda apresenta repetição/congelamento visual')
+            os.replace(repair_path,video)
+            audit=repaired_audit
+            repaired=True
+            update_job(
+                jid,
+                stage='AVALIAÇÃO',
+                progress=95,
+                log=f'🧠 AUDITOR IA: reedição automática concluída e aprovada ({audit.get("score",0)}/100).'
+            )
+        except Exception as visual_repair_error:
+            try:
+                if repair_path.exists():
+                    repair_path.unlink()
+            except Exception:
+                pass
+            _learn_event(
+                'VISUAL_REPAIR_FAILED',
+                'reparo visual automático não conseguiu eliminar o problema',
+                str(visual_repair_error)[:500],
+                False
+            )
+            update_job(
+                jid,
+                stage='AVALIAÇÃO',
+                progress=95,
+                log='🛑 AUDITOR IA: repetição visual permaneceu após a única reedição automática. Produção será bloqueada.'
+            )
+    caption_codes={'CAPTIONS_BAD_BOUNDARY','CAPTIONS_REPEATED','CAPTIONS_NOT_FROM_NARRATION','CAPTIONS_LOW_QUALITY','CAPTIONS_INCOMPLETE'}
+    if any(x['code'] in caption_codes for x in audit['issues']):
+        _learn_event(
+            'CAPTIONS_BAD_BOUNDARY',
+            'auditor detectou legenda que exige correção',
+            'resegmentação semântica e uma única renderização corretiva antes do gate final',
+            None
+        )
+        repair_path=Path(str(video)+'.caption_repair.mp4')
+        try:
+            update_job(
+                jid,
+                stage='AVALIAÇÃO',
+                progress=95,
+                log='🧠 AUDITOR IA: corrigindo a segmentação das legendas e renderizando novamente (1/1)...'
+            )
+            repaired_beats=_repair_caption_beats(beats,duration,max_words=6)
+            if not repaired_beats:
+                raise RuntimeError('resegmentação não produziu blocos de legenda')
+            repaired_captions=[str(b.get('text','')).strip() for b in repaired_beats]
+            if any(not caption for caption in repaired_captions):
+                raise RuntimeError('resegmentação produziu legenda vazia')
+            repaired_beats=make_multimedia_video(
+                selected_videos,
+                image_scenes,
+                audio,
+                repair_path,
+                duration,
+                repaired_captions,
+                script=script,
+                topic_title=topic.get('title','GTA 6'),
+                beats=repaired_beats,
+                motion_boost=False,
+                asset_variant=0
+            )
+            repair_probe=_probe_media(repair_path)
+            if not repair_probe.get('ok') or not repair_probe.get('video') or not repair_probe.get('audio'):
+                raise RuntimeError('renderização corretiva gerou mídia inválida')
+            repaired_audit=audit_short(script,repair_path,duration,repaired_beats,selected_videos,image_scenes)
+            remaining_caption_issues=[i.get('code') for i in repaired_audit.get('issues',[]) if i.get('code') in caption_codes]
+            if remaining_caption_issues:
+                raise RuntimeError('auditoria ainda reprova legendas: '+', '.join(remaining_caption_issues))
+            # Preserve the original until the corrected MP4 passes caption QA.
+            os.replace(repair_path,video)
+            audit=repaired_audit
+            beats=repaired_beats
+            repaired=True
+            _learn_event(
+                'CAPTIONS_REPAIR_SUCCEEDED',
+                'resegmentação e renderização corretiva passaram pela auditoria de legendas',
+                'resegmentação semântica max_words=6 + auditoria do MP4 renderizado',
+                True
+            )
+            update_job(
+                jid,
+                stage='AVALIAÇÃO',
+                progress=95,
+                log=f'🧠 AUDITOR IA: legendas corrigidas e revalidadas ({audit.get("checks",{}).get("legendas",0)}/100).'
+            )
+        except Exception as caption_repair_error:
+            try:
+                if repair_path.exists():
+                    repair_path.unlink()
+            except Exception:
+                pass
+            _learn_event(
+                'CAPTIONS_REPAIR_FAILED',
+                'renderização corretiva de legendas não passou na auditoria',
+                str(caption_repair_error)[:500],
+                False
+            )
+            update_job(
+                jid,
+                stage='AVALIAÇÃO',
+                progress=95,
+                log='🛑 AUDITOR IA: legendas continuam reprovadas após uma tentativa de correção; mantendo o bloqueio.'
+            )
+    return audit,beats,repaired
+
+def evaluate(script,duration,scene_count,visual_quality,beats=None,video_count=0,image_count=0):
+    """V25 quality gate: checks pacing, caption density, visual variety and hook."""
+    score=100
+    narration=str(script.get('narration','')).strip()
+    words=re.findall(r"[A-Za-zÀ-ÿ0-9']+",narration)
+    if duration<24 or duration>38: score-=7
+    if len(words)<70: score-=8
+    if '?' not in narration[:210]: score-=4
+    if scene_count<10: score-=10
+    if video_count<4: score-=8
+    if image_count<2: score-=4
+    if visual_quality<60: score-=12
+    elif visual_quality<70: score-=7
+    elif visual_quality<80: score-=3
+    if beats:
+        avg=sum(b.get('duration',0) for b in beats)/max(1,len(beats))
+        if avg>3.3: score-=5
+        if avg<1.9: score-=3
+        # Penalize very long caption phrases.
+        long_caps=sum(1 for b in beats if len(str(b.get('text','')).split())>6)
+        score-=min(8,long_caps*2)
+    return max(0,min(100,score))
+
+def produce_job(jid):
+    global PROCESSING
+    print(f'[JOB {jid}] START production worker',flush=True)
+    try:
+        update_job(jid,status='RUNNING',stage='PESQUISA',progress=5,log='V64.9: pesquisa limitada a 2 feeds RSS (6s cada) + Newswire opcional (5s).')
+        print(f'[JOB {jid}] stage=RESEARCH start',flush=True)
+        topics,urls,_=research_official(); topics=topics or FALLBACK_TOPICS
+        print(f'[JOB {jid}] stage=RESEARCH done topics={len(topics)} visual_urls={len(urls)}',flush=True)
+        radar_status=_load_radar()
+        update_job(jid,progress=12,log='V64.9: pesquisa encerrada; fontes_ok={} status={} erro={}'.format(radar_status.get('sources_ok',0),radar_status.get('status','?'),radar_status.get('error') or radar_status.get('diagnostic','sem detalhe')))
+        job=load_jobs()[jid]; topic=editor_chief_select([job['opportunity']]) or job['opportunity']; job['opportunity']=topic; jobs=load_jobs(); jobs[jid]['opportunity']=topic; save_jobs(jobs)
+        update_job(jid,stage='ANÁLISE',progress=16,log=f'EDITOR-CHEFE: {topic.get("editorial_decision","PRODUZIR")} — {topic["title"]} | ângulo: {topic.get("editorial_angle","")}')
+        update_job(jid,stage='ROTEIRO',progress=28,log='EDITOR-CHEFE → AGENTE AUTÔNOMO: validando corpo original, tentando estratégias e recuperando a pauta se necessário...')
+        print(f'[JOB {jid}] stage=SCRIPT start topic={topic.get("title","")[:100]}',flush=True)
+        topic, script = _autonomous_make_script(jid, topic, topics)
+        print(f'[JOB {jid}] stage=SCRIPT done words={script.get("word_count",0)}',flush=True)
+        # Keep the rest of the proven rendering pipeline synchronized with the
+        # topic actually selected by the autonomous recovery agent.
+        job=load_jobs().get(jid,{})
+        job['opportunity']=topic
+        job['title']=topic.get('title',job.get('title','GTA 6'))
+        jobs=load_jobs(); jobs[jid]=job; save_jobs(jobs)
+        jobdir=WORK/jid; jobdir.mkdir(parents=True,exist_ok=True)
+        update_job(jid,script=script,stage='VISUAIS',progress=40,log='Baixando visuais oficiais e montando cenas verticais...')
+        print(f'[JOB {jid}] stage=VISUALS download start',flush=True)
+        # Prefer real official motion clips, but prepare a bounded image fallback up front.
+        # Rockstar's own VI pages provide permitted visual references; selecting them
+        # semantically lets a Short finish when the remote ZIP clip extraction is broken.
+        image_candidates=download_visuals(urls,jobdir/'official_images',topic.get('title','GTA 6'))
+        # The audit of real renders found that a large still-image pool let the timeline become slideshow-like.
+        # Keep only two auxiliary images; the timeline must use motion sources for the remaining beats.
+        image_scenes=select_visuals(image_candidates,topic.get('title','GTA 6'),count=2)
+        update_job(jid,progress=44,log=f'Plano visual: {len(image_scenes)} imagens de apoio (máximo 2); priorizando vídeos reais.')
+        update_job(jid,stage='NARRAÇÃO',progress=60,log='Gerando narração PT-BR e capturando timestamps reais da fala...')
+        print(f'[JOB {jid}] stage=TTS start',flush=True)
+        audio=jobdir/'narracao.mp3'; word_cues=asyncio.run(make_tts(script['narration'],audio)); audio,word_cues=_compress_long_tts_pauses(audio,word_cues); duration=duration_of_audio(audio)
+        print(f'[JOB {jid}] stage=TTS done audio_bytes={audio.stat().st_size if audio.exists() else 0} duration={duration:.1f}',flush=True)
+        (jobdir/'word_cues.json').write_text(json.dumps(word_cues,ensure_ascii=False,indent=2),encoding='utf-8')
+        # Editorial pacing: use more short beats so stills do not linger for 3-4 seconds.
+        # Keep the narration duration unchanged; only increase the visual/caption beat density.
+        timeline_count=max(14,_learned_timeline_count(duration,14))
+        beats=build_short_timeline(script,topic,duration,timeline_count,word_cues=word_cues)
+        # V63: corrigir a segmentação antes do encode final. Evita re-renderizações
+        # completas posteriores no Render Free sem abrir mão do gate de legendas.
+        _pre_cap=_audit_caption_quality(beats)
+        _pre_align=_caption_narration_alignment(beats,script.get('narration',''))
+        # If TTS word-boundary events omitted or corrupted words, rebuild captions from
+        # the complete approved narration instead of repeatedly repairing incomplete text.
+        if (_pre_align.get('foreign_ratio',0)>0.0 or _pre_align.get('narration_coverage',1.0)<0.98) and script.get('narration'):
+            _complete_beats=build_short_timeline(script,topic,duration,_learned_timeline_count(duration,14),word_cues=None)
+            if _complete_beats:
+                beats=_complete_beats
+            _pre_cap=_audit_caption_quality(beats)
+            _pre_align=_caption_narration_alignment(beats,script.get('narration',''))
+        if beats and (_pre_cap.get('score',100)<92 or _pre_cap.get('bad_start') or _pre_cap.get('bad_end') or _pre_cap.get('long') or _pre_cap.get('repeated_adjacent',0)):
+            # Corrige também falhas pontuais de fronteira; nota alta não deve deixar uma legenda começar por 'de', 'para', 'e' etc.
+            _fixed_beats=_repair_caption_beats(beats,duration,7)
+            if _fixed_beats:
+                beats=_fixed_beats
+        _pre_cap=_audit_caption_quality(beats)
+        _pre_align=_caption_narration_alignment(beats,script.get('narration',''))
+        print(
+            f"[CAPTION_PRECHECK] job={jid} score={_pre_cap.get('score',0)} "
+            f"bad_end={len(_pre_cap.get('bad_end',[]))} "
+            f"bad_start={len(_pre_cap.get('bad_start',[]))} "
+            f"protected_splits={len(_pre_cap.get('protected_splits',[]))} "
+            f"visual_bad={len(_pre_cap.get('visual_bad',[]))} "
+            f"long={len(_pre_cap.get('long',[]))} short={len(_pre_cap.get('short',[]))} "
+            f"repeated_adjacent={_pre_cap.get('repeated_adjacent',0)}",
+            flush=True
+        )
+        # V68: fronteiras gramaticais são um sinal de qualidade, mas a heurística
+        # pode marcar continuações naturais (ex.: demonstrativos/possessivos). Bloquear
+        # qualquer ocorrência deixa a fila em ERROR sem produzir vídeo. Só falha fechado
+        # quando os fragmentos dominam a timeline; problemas residuais leves são registrados.
+        _boundary_count=len(_pre_cap.get('bad_end',[]))+len(_pre_cap.get('bad_start',[]))
+        _boundary_limit=max(4,int(len(beats or [])*0.55))
+        if _boundary_count>=_boundary_limit:
+            raise ValueError(f'GATE CAPTIONS: fragmentos gramaticais graves após autocorreção ({_boundary_count}/{len(beats or [])} blocos).')
+        if _boundary_count:
+            print(f'[CAPTION_QA] job={jid} warning residual_boundaries={_boundary_count} blocks={len(beats or [])}; continuing to alignment/score gates',flush=True)
+        if _pre_cap.get('score',100)<85:
+            raise ValueError(f'GATE CAPTIONS: qualidade das legendas abaixo de 85/100 após autocorreção ({_pre_cap.get("score",0)}/100).')
+        if _pre_align.get('foreign_ratio',0)>0.03 or _pre_align.get('narration_coverage',1.0)<0.85:
+            raise ValueError('GATE CAPTIONS: as legendas não representam corretamente a narração após autocorreção.')
+        caps=[b['text'] for b in beats]
+        sync_mode='timestamps reais do Edge-TTS' if word_cues else 'fallback editorial pela duração real do áudio'
+        update_job(jid,progress=66,log=f'Narração pronta: {script.get("word_count",0)} palavras / {duration:.1f}s. Legendas em {len(beats)} blocos — {sync_mode}.')
+        update_job(jid,stage='EDIÇÃO',progress=74,log=f'Obtendo vídeos oficiais da Rockstar e montando timeline com movimento real / {duration:.1f}s...')
+        print(f'[JOB {jid}] stage=OFFICIAL_VIDEO_DOWNLOAD start',flush=True)
+        try:
+            official_videos=download_official_video_clips(jobdir/'official_videos', jid)
+        except Exception as _video_source_error:
+            raise RuntimeError(
+                f'GATE VISUAL: não foi possível obter vídeos oficiais com movimento suficiente; '
+                f'não vou publicar um slideshow como substituto. {str(_video_source_error)[:700]}'
+            )
+        print(f'[JOB {jid}] stage=OFFICIAL_VIDEO_DOWNLOAD done count={len(official_videos)}',flush=True)
+        # Do not mix stills extracted from the same clips with their moving footage.
+        selected_videos=_expand_video_clips_into_distinct_windows(
+            official_videos,jobdir,windows_per_clip=3
+        ) if official_videos else []
+        # Fallback seguro: se o recorte em janelas falhar, usar as fontes de vídeo
+        # originais que passaram no probe. Cada fonte continua sendo movimento real;
+        # a montagem recorta a duração de cada cena sem inventar quadros repetidos.
+        if official_videos and len(selected_videos)<4:
+            valid_sources=[]
+            for _clip in official_videos or []:
+                try:
+                    _probe=_probe_media(Path(_clip))
+                    if _probe.get('ok') and _probe.get('video') and float(_probe.get('duration') or 0)>=2.0:
+                        valid_sources.append(Path(_clip))
+                except Exception:
+                    continue
+            if len(valid_sources)>=4:
+                print(f'[VIDEO_WINDOWS_FALLBACK] using {len(valid_sources)} validated original motion sources; segmented_windows={len(selected_videos)}',flush=True)
+                selected_videos=valid_sources
+            else:
+                raise RuntimeError(
+                    f'GATE VISUAL: recorte gerou {len(selected_videos)} segmentos utilizáveis e só {len(valid_sources)} fontes '
+                    f'com movimento de pelo menos 2s; imagens disponíveis={len(image_scenes)}. '
+                    'A produção foi bloqueada para não entregar um slideshow no lugar de vídeo.'
+                )
+        source_video_count=len(selected_videos)
+        update_job(
+            jid,
+            log=f'{len(official_videos)} fontes oficiais divididas em {source_video_count} segmentos com movimento; '
+                'frames estáticos das mesmas fontes excluídos para evitar repetição. '
+                f'Editando em 9:16 / {duration:.1f}s...'
+        )
+        # Fit the edit to the actual one-use visual pool before rendering.
+        # Timeline selection permits each original official source once and each
+        # unique still once; counting two windows per source overstated capacity.
+        available_slots=_visual_source_capacity(selected_videos)+len(set(map(str,image_scenes)))
+        if available_slots < len(beats) and available_slots >= 6:
+            fallback_count=min(available_slots,16)
+            beats=build_short_timeline(script,topic,duration,fallback_count,word_cues=None)
+            if len(beats)>fallback_count:
+                raise RuntimeError(
+                    f'GATE CAPTIONS: {len(beats)} semantic captions exceed the {fallback_count}-scene visual pool; '
+                    'refusing to split narration by raw word counts.'
+                )
+            _fallback_cap=_audit_caption_quality(beats)
+            if any(_fallback_cap.get(key) for key in ('bad_end','bad_start','protected_splits','long','short','visual_bad')):
+                raise RuntimeError(f'GATE CAPTIONS: visual fallback captions failed final audit: {_fallback_cap}')
+            caps=[b['text'] for b in beats]
+            print(f'[JOB {jid}] visual fallback scenes={len(beats)} images={len(image_scenes)} videos={len(selected_videos)}',flush=True)
+            update_job(jid,log=f'Fallback controlado: {len(selected_videos)} vídeos + {len(image_scenes)} visuais únicos; timeline reduzida para {len(beats)} cenas sem reciclagem.')
+        if available_slots<len(beats):
+            raise RuntimeError(f'GATE VISUAL: só {available_slots} slots visuais distintos para {len(beats)} cenas; não vou reciclar planos.')
+        video=jobdir/'GTA_OCULTO_SHORT.mp4'
+        print(f'[JOB {jid}] stage=RENDER start',flush=True)
+        beats=make_multimedia_video(selected_videos,image_scenes,audio,video,duration,caps,script,topic['title'],beats)
+        print(f'[JOB {jid}] stage=RENDER done exists={video.exists()} bytes={video.stat().st_size if video.exists() else 0}',flush=True)
+        # Nunca deixe a capa derrubar uma produção já renderizada.
+        print(f'[JOB {jid}] stage=POST_RENDER cover start',flush=True)
+        if not image_scenes:
+            fallback_cover=jobdir/'cover_fallback.jpg'
+            make_fallback(fallback_cover,0,topic['title'])
+            image_scenes=[fallback_cover]
+        cover=jobdir/'CAPA.jpg'; make_cover(image_scenes[0],topic['title'],cover)
+        print(f'[JOB {jid}] stage=POST_RENDER cover done exists={cover.exists()} bytes={cover.stat().st_size if cover.exists() else 0}',flush=True)
+        update_job(jid,stage='AVALIAÇÃO',progress=92,log='Avaliando hook, ritmo, duração e sincronização real das legendas...')
+        # V63.3: os mesmos arquivos já foram avaliados na seleção de visuais.
+        # Não reler/redimensionar todos antes da auditoria final no Render Free.
+        _unique_motion_sources=_visual_source_capacity(selected_videos)
+        visual_quality=94 if _unique_motion_sources>=10 else (88 if _unique_motion_sources>=8 else (78 if _unique_motion_sources>=6 else 60))
+        update_job(jid,stage='AVALIAÇÃO',progress=93,log='QA 1/3: integridade do MP4, codecs, áudio e duração...')
+        # V41: auditor automático examina o MP4 real e tenta correções seguras antes do gate final.
+        print(f'[JOB {jid}] stage=QA start',flush=True)
+        audit,beats,repaired=self_heal(jid,script,video,duration,beats,selected_videos,image_scenes,topic,audio)
+        print(f'[JOB {jid}] stage=QA done score={audit.get("score",0)} issues={len(audit.get("issues",[]))}',flush=True)
+        update_job(jid,stage='AVALIAÇÃO',progress=94,log='QA 2/3 concluído: auditor editorial, legenda e mídia.')
+
+        # V42: second independent bounded audit. It never replaces the proven
+        # V41.3 renderer; it only gets one safe caption-repair attempt when the
+        # independent audit detects weak caption segmentation.
+        v42_audit = None
+        if v42_full_audit and os.getenv('GTA_V42_AUDIT','0').strip().lower() in {'1','true','yes','on'}:
+            try:
+                update_job(jid,stage='AVALIAÇÃO',progress=95,log='QA 3/3: auditor independente V42 opcional...')
+                v42_audit = v42_full_audit(video, [b.get('text','') for b in beats], script.get('narration',''))
+            except Exception as _v42e:
+                v42_audit={'score':None,'error':str(_v42e)[:500]}
+
+        print(f'[JOB {jid}] stage=EVALUATE start',flush=True)
+        score=evaluate(script,duration,len(beats),visual_quality,beats,len(selected_videos),len(image_scenes))
+        print(f'[JOB {jid}] stage=EVALUATE done score={score}',flush=True)
+        score=min(score,audit.get('score',score))
+        if v42_audit and isinstance(v42_audit.get('score'),(int,float)):
+            score=min(score,int(v42_audit['score']))
+        audit['v42_independent']=v42_audit
+        (jobdir/'audit.json').write_text(json.dumps(audit,ensure_ascii=False,indent=2),encoding='utf-8')
+        update_job(jid,stage='AVALIAÇÃO',progress=96,log='🧠 AUDITOR IA: {}/100 | alinhamento pauta/roteiro: {}/100 | reparo automático: {} | problemas: {}.'.format(audit.get('score',0), audit.get('checks',{}).get('alinhamento_pauta',0), 'SIM' if repaired else 'NÃO', len(audit.get('issues',[]))))
+        hard_issues={
+            'HEADLINE_SCRIPT_MISMATCH','LOW_VIDEO_VARIETY',
+            'CAPTIONS_NOT_FROM_NARRATION','CAPTIONS_BAD_BOUNDARY','CAPTIONS_REPEATED',
+            'CAPTIONS_LOW_QUALITY','CAPTIONS_INCOMPLETE',
+            'VISUAL_REPETITION','VISUAL_STAGNATION','HIGH_FROZEN_RATIO','VISUAL_AUDIT_FAILED','MEDIA_UNREADABLE',
+            'NO_VIDEO_STREAM','NO_AUDIO_STREAM','WRONG_ASPECT','VISUAL_CONTAMINATION'
+        }
+        blocking=[i for i in audit.get('issues',[]) if i.get('code') in hard_issues]
+        if (len(selected_videos)<4 and len(image_scenes)>=8) or (len(selected_videos)>=2 and len(image_scenes)>=8):
+            blocking=[i for i in blocking if i.get('code')!='LOW_VIDEO_VARIETY']
+        # V55.4: a mild boundary warning cannot block an otherwise aligned caption track.
+        if any(i.get('code')=='CAPTIONS_BAD_BOUNDARY' for i in blocking):
+            cap_a=audit.get('caption_audit',{}) or {}
+            align_a=_caption_narration_alignment(beats,script.get('narration',''))
+            severe_boundary=((len(cap_a.get('bad_end',[]))+len(cap_a.get('bad_start',[])))>=max(4,int(len(beats or [])*0.55)))
+            if align_a.get('foreign_ratio',0)<=0.03 and align_a.get('score',100)>=85 and cap_a.get('repeated_adjacent',0)==0 and not severe_boundary:
+                blocking=[i for i in blocking if i.get('code')!='CAPTIONS_BAD_BOUNDARY']
+                audit.setdefault('notes',[]).append('V55.4: boundary leve aceito com alinhamento íntegro à narração.')
+        if audit.get('score',0)<85 or blocking:
+            for issue in audit.get('issues',[]): _learn_event(issue['code'],issue['message'])
+            # V55.6: nunca ocultar o motivo quando o score reprova sem hard-block.
+            all_codes=[]
+            for issue in (audit.get('issues',[]) or []):
+                code=str(issue.get('code','')).strip()
+                if code and code not in all_codes:
+                    all_codes.append(code)
+            names=', '.join(i.get('code','') for i in blocking[:6])
+            if not names:
+                names=', '.join(all_codes[:10])
+            details=[]
+            for issue in (audit.get('issues',[]) or [])[:6]:
+                code=str(issue.get('code','')).strip()
+                msg=str(issue.get('message','')).strip()
+                if code:
+                    details.append(f'{code}: {msg[:180]}')
+            detail_text=' | '.join(details)
+            raise ValueError(
+                'AUDITOR IA: gate estrito reprovou o vídeo após correções seguras'
+                + (f' — score={audit.get("score",0)}; problemas: {names}' if names else f' — score={audit.get("score",0)}; nenhum código de problema registrado')
+                + (f' — detalhes: {detail_text}' if detail_text else '')
+                + '.'
+            )
+        # V52 strict caption gate: never approve captions that are not derived from the actual narration.
+        cap_alignment=_caption_narration_alignment(beats,script.get('narration',''))
+        if cap_alignment.get('foreign_ratio',0)>0.03 or cap_alignment.get('score',100)<85:
+            raise ValueError('GATE CAPTIONS: legendas contêm texto que não pertence à narração. Produção bloqueada para autocorreção.')
+        # V33 hard gate: rendering is not enough; reject editorially contaminated/weak scripts.
+        banned_editorial=('radar','editor-chefe','score','confiança','fontes','matérias','produzir agora')
+        low=narration_check=str(script.get('narration','')).lower()
+        if any(x in low for x in banned_editorial):
+            raise ValueError('GATE EDITORIAL: narração contém metadado interno.')
+        if int(script.get('word_count',0) or 0) < 70:
+            raise ValueError('GATE EDITORIAL: roteiro factual curto demais para um Short consistente.')
+        if not script.get('evidence'):
+            raise ValueError('GATE EDITORIAL: nenhuma evidência da matéria principal.')
+        if str(script.get('source','')).lower().find('news.google.com') >= 0:
+            raise ValueError('GATE SOURCE-LOCK: a URL final ainda é Google News.')
+        if str(script.get('extraction_method','')).startswith('BLOCKED_'):
+            raise ValueError('GATE SOURCE-LOCK: extração da matéria original não confiável.')
+        meta={'title':topic['title'].upper()+' 👀','description':script['narration']+'\n\n🔎 GTA Oculto — onde os segredos vêm à tona.','hashtags':['#GTA6','#GTAVI','#GTAOculto','#RockstarGames','#GTA'],'tags':['GTA 6','GTA VI','GTA 6 Brasil','GTA 6 teorias','GTA 6 segredos','Rockstar Games','GTA Oculto'],'score':score,'audit_score':audit.get('score',0),'audit':audit,'script_version':script.get('script_version','V33.0-MAIN-ARTICLE-LOCKED')}
+        (jobdir/'metadata.json').write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding='utf-8')
+        final_video=jobdir/'GTA_OCULTO_SHORT.mp4'
+        print(f'[JOB {jid}] stage=FINAL_VALIDATION start',flush=True)
+        final_probe=_probe_media(final_video)
+        print(f'[JOB {jid}] stage=FINAL_VALIDATION probe ok={final_probe.get("ok")} size={final_probe.get("size")} duration={final_probe.get("duration")}',flush=True)
+        final_videos=final_probe.get('video') or []
+        final_audios=final_probe.get('audio') or []
+        if not (final_probe.get('ok') and final_probe.get('size',0)>=50000 and final_videos and final_audios and
+                10 <= float(final_probe.get('duration') or 0) <= 65 and
+                int(final_videos[0].get('height') or 0) > int(final_videos[0].get('width') or 0)):
+            raise RuntimeError('VALIDAÇÃO FINAL: MP4 não passou no ffprobe (arquivo, vídeo vertical, áudio ou duração). Detalhe: '+json.dumps(final_probe,ensure_ascii=False)[:1200])
+        meta['media_validation']={'ok':True,'size':final_probe['size'],'duration':final_probe['duration'],'video_codec':final_videos[0].get('codec_name'),'audio_codec':final_audios[0].get('codec_name'),'width':final_videos[0].get('width'),'height':final_videos[0].get('height')}
+        (jobdir/'metadata.json').write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding='utf-8')
+        update_job(jid,status='DONE',stage='PRONTO',progress=100,log=f'PRONTO — MP4 validado (vídeo + áudio + duração + vertical), nota {score}/100.',video=f'{jid}/GTA_OCULTO_SHORT.mp4',cover=f'{jid}/CAPA.jpg',score=score,metadata=meta,media_validation=meta['media_validation'])
+        _log_visual_contact_sheet(final_video,jid)
+        if AUTONOMOUS_ENGINE:
+            try: AUTONOMOUS_ENGINE.on_done(jid,sys.modules[__name__])
+            except Exception as _pub_e: update_job(jid,log=f'PRONTO — publicação automática aguardando configuração: {str(_pub_e)[:300]}')
+    except Exception as e:
+        import traceback
+        tb=traceback.format_exc()
+        print(f'[JOB {jid}] ERROR {type(e).__name__}: {str(e)[:1800]}',flush=True)
+        recovered=None
+        if AUTONOMOUS_ENGINE:
+            try:
+                recovered=AUTONOMOUS_ENGINE.on_error(jid,str(e)+'\n'+tb[-5000:],sys.modules[__name__])
+            except Exception as _ae:
+                recovered={'action':'QUARANTINE','reason':str(_ae)}
+        if not recovered or recovered.get('action')=='QUARANTINE':
+            update_job(jid,status='ERROR',stage='ERRO',progress=100,log='ERRO: '+str(e)+'\n'+tb[-3200:])
+        else:
+            update_job(jid,log=f'🤖 AUTO-RECUPERAÇÃO: {recovered.get("action")}. O agente continuará sem intervenção manual.')
+    finally: PROCESSING=False
+
+
+# V64.13: disparo de produção de teste controlado pelo servidor.
+# Útil para validar uma versão recém-publicada sem depender de POST externo.
+BOOT_PRODUCE_ONCE = os.getenv('GTA_BOOT_PRODUCE_ONCE','0').strip().lower() in ('1','true','yes','on')
+BOOT_PRODUCE_TAG = os.getenv('GTA_BOOT_PRODUCE_TAG','legacy').strip() or 'legacy'
+BOOT_PRODUCE_MARKER = WORK / ('.boot_produce_once_done' if BOOT_PRODUCE_TAG == 'legacy' else '.boot_produce_once_done_' + BOOT_PRODUCE_TAG.replace('/','_').replace('\\\\','_').replace(' ','_'))
+
+def boot_produce_once():
+    if not BOOT_PRODUCE_ONCE or BOOT_PRODUCE_MARKER.exists():
+        return
+    time.sleep(12)
+    try:
+        with APP.test_request_context('/api/produce', method='POST', json={}):
+            response = produce()
+        if getattr(response, 'status_code', 500) < 300:
+            BOOT_PRODUCE_MARKER.write_text(now_iso(), encoding='utf-8')
+            print('[BOOT_PRODUCE] Test production queued successfully.', flush=True)
+        else:
+            print(f'[BOOT_PRODUCE] Queue returned status {getattr(response, "status_code", "?")}; will retry on next server restart.', flush=True)
+    except Exception as e:
+        print(f'[BOOT_PRODUCE] Failed: {type(e).__name__}: {e}', flush=True)
+
+def processor_loop():
+    global PROCESSING
+    # A Render deploy/restart can terminate the production thread without giving
+    # it a chance to mark the job as finished. Recover RUNNING jobs immediately
+    # on the first queue scan after boot; never do this again while this process
+    # is alive, otherwise the watchdog could requeue its own active job.
+    startup_recovery_pending=True
+    while True:
+        try:
+            pending_files=[]
+            pending_jobs=[]
+            for pending_path in sorted(PENDING_QUEUE_DIR.glob('*.json'))[:20]:
+                try:
+                    pending_job=json.loads(pending_path.read_text(encoding='utf-8'))
+                    if isinstance(pending_job,dict) and pending_job.get('id'):
+                        pending_files.append(pending_path)
+                        pending_jobs.append(pending_job)
+                except Exception:
+                    continue
+            with LOCK:
+                jobs=load_jobs()
+                for pending_job in pending_jobs:
+                    jobs.setdefault(str(pending_job['id']),pending_job)
+                # If Render restarts after a long encode, a previous RUNNING job
+                # is recovered instead of disappearing from the queue. Startup
+                # recovery is safe because it only runs once per process lifetime.
+                now=time.time()
+                if startup_recovery_pending:
+                    for j in jobs.values():
+                        if j.get('status')=='RUNNING':
+                            j['status']='QUEUED'; j['stage']='FILA'; j['progress']=0
+                            j['log']='Watchdog de inicialização: Render reiniciou durante a produção. Job recuperado automaticamente para nova execução.'
+                            j['recovered_at']=now_iso()
+                    startup_recovery_pending=False
+                for j in jobs.values():
+                    if j.get('status')=='RUNNING':
+                        try:
+                            age=now-datetime.fromisoformat(j.get('updated_at','')).timestamp()
+                        except Exception:
+                            age=0
+                        # V61 watchdog: a produção cloud não pode prender a fila
+                        # indefinidamente se a thread morrer ou ficar órfã.
+                        # 20 min é acima do tempo normal de pesquisa/TTS/render
+                        # no plano Free, mas curto o bastante para recuperar a fila.
+                        if age>1200:
+                            j['status']='QUEUED'; j['stage']='FILA'; j['progress']=0
+                            j['log']='Watchdog V61: produção RUNNING ficou sem atualização por 20 min. Job recuperado automaticamente.'
+                            j['recovered_at']=now_iso()
+                save_jobs(jobs)
+                target=next((j for j in jobs.values() if j.get('status')=='QUEUED'),None)
+            for pending_path in pending_files:
+                try: pending_path.unlink(missing_ok=True)
+                except Exception: pass
+            if target and not PROCESSING:
+                PROCESSING=True
+                threading.Thread(target=produce_job,args=(target['id'],),daemon=True).start()
+            time.sleep(2)
+        except Exception:
+            time.sleep(5)
+
+@APP.get('/')
+def home(): return render_template_string(PAGE)
+@APP.get('/health')
+def health():
+    auto=AUTONOMOUS_ENGINE.status() if AUTONOMOUS_ENGINE else {'mode':'DEGRADED'}
+    return jsonify(ok=True,app='GTA Oculto AI',version=BUILD_VERSION,commit=os.environ.get('RENDER_GIT_COMMIT','unknown'),processor='cloud',autonomous_mode=AUTONOMOUS_MODE,max_topic_recovery=AUTONOMOUS_MAX_TOPIC_RECOVERY,autonomy=auto)
+@APP.get('/api/autonomy')
+def autonomy_status():
+    return jsonify(AUTONOMOUS_ENGINE.status() if AUTONOMOUS_ENGINE else {'mode':'DEGRADED'})
+
+@APP.get('/api/state')
+def state():
+    # IMPORTANT: never wait on the production LOCK here. The producer/render
+    # runs in a background thread inside the Gunicorn worker and may legitimately
+    # spend minutes downloading/encoding media. Waiting for LOCK makes the
+    # dashboard polling request hang until Gunicorn kills the worker with
+    # WORKER TIMEOUT, which in turn kills the production thread.
+    # jobs.json is written with atomic os.replace(), so a lock-free read is safe:
+    # readers see either the previous complete JSON or the next complete JSON.
+    js=list(load_jobs().values())[-30:]
+    topics,updated,radar_status,radar_error,sources_ok=current_opportunities()
+    editor_pick=editor_chief_select(topics) if topics else None
+
+    # V40: NEVER execute the full editorial/source resolver inside /api/state.
+    # The dashboard polls this endpoint repeatedly. make_script() can perform
+    # external network resolution (Google News decoder/search) and could make
+    # the browser appear to load forever. The real script is generated only
+    # after /api/produce starts the production job.
+    if editor_pick:
+        editor_pick['script_preview'] = {
+            'word_count': 0,
+            'estimated_seconds': 0,
+            'sections': {
+                'hook': editor_pick.get('editorial_hook',''),
+                'context': '',
+                'proof': '',
+                'payoff': editor_pick.get('editorial_angle',''),
+                'cta': ''
+            }
+        }
+
+    produced=sum(1 for x in js if x.get('status')=='DONE' and _job_output_is_valid(x))
+    return jsonify(opportunities=topics,jobs=js,produced=produced,queue=sum(x.get('status') in ('QUEUED','RUNNING') for x in js),radar_updated=updated,radar_status=radar_status,radar_error=radar_error,radar_sources_ok=sources_ok,editor_pick=editor_pick)
+@APP.post('/api/research')
+def research():
+    try:
+        radar=radar_scan(); return jsonify(ok=True,message=f'Radar atualizado: {len(radar.get("opportunities",[]))} oportunidades encontradas. Editor-Chefe pronto.',opportunities=radar.get('opportunities',[]),radar_updated=radar.get('updated_at'))
+    except Exception as e: return jsonify(error=str(e)),502
+@APP.route('/api/produce', methods=['GET','POST'])
+def produce():
+    # V64.2: enqueue through an isolated one-file queue; do not contend with
+    # the processor's jobs-state lock while a video is being rendered.
+    data=request.get_json(silent=True) or {}
+    try:
+        radar=_load_radar()
+        topics=radar.get('opportunities') or FALLBACK_TOPICS
+    except Exception:
+        topics=FALLBACK_TOPICS
+    topic=None
+    requested_id=str(data.get('id') or '').strip()
+    if requested_id:
+        topic=next((dict(x) for x in topics if str(x.get('id',''))==requested_id),None)
+    custom=str(data.get('topic') or '').strip()
+    if topic is None and custom:
+        topic={'id':'custom','score':88,'priority':'ALTA','title':custom,'source':'Pesquisa editorial','url':ROCKSTAR_VI,'radar':False}
+    if topic is None:
+        topic=max((dict(x) for x in topics),key=lambda x:(float(x.get('trend_score',0) or 0),float(x.get('score',0) or 0)))
+    jid=uuid.uuid4().hex[:10]
+    job={'id':jid,'title':topic['title'],'opportunity':topic,'status':'QUEUED','stage':'FILA','progress':0,'log':'Tarefa recebida. A produção cloud começará automaticamente.','video':None,'cover':None,'created_at':now_iso()}
+    try:
+        _atomic_write_json(PENDING_QUEUE_DIR / f'{jid}.json',job)
+    except Exception as e:
+        print(f'[PRODUCE_API] queue write failed: {type(e).__name__}: {e}',flush=True)
+        return jsonify(ok=False,error='Não foi possível colocar o job na fila: '+str(e)[:300]),500
+    print(f'[PRODUCE_API] queued job={jid} via pending file',flush=True)
+    return jsonify(ok=True,job_id=jid,title=topic['title'])
+
+@APP.get('/api/analytics/summary')
+def analytics_summary():
+    if not AUTONOMOUS_ENGINE:
+        return jsonify(ok=False,reason='AUTONOMOUS_ENGINE_UNAVAILABLE'),503
+    engine=AUTONOMOUS_ENGINE
+    if request.args.get('refresh') == '1':
+        try: engine.collect_analytics()
+        except Exception as e: return jsonify(ok=False,reason='ANALYTICS_COLLECTION_FAILED: '+str(e)[:250]),502
+    try: raw=(engine.memory.summary().get('metrics',{}) or {}).get('latest_analytics') or {}
+    except Exception: raw={}
+    last=getattr(engine,'last_analytics_result',None) or {}
+    if not raw or not raw.get('ok'):
+        return jsonify(ok=False,reason=last.get('reason') or 'Ainda não há coleta válida. Confira a configuração OAuth e as permissões do YouTube Analytics.',checked_at=last.get('checked_at')),503
+    headers=[str(x.get('name','')).lower().replace(' ','') if isinstance(x,dict) else str(x).lower().replace(' ','') for x in (raw.get('headers') or [])]
+    videos=[]
+    for row in raw.get('rows') or []:
+        if not isinstance(row,(list,tuple)): continue
+        item={headers[i]:row[i] for i in range(min(len(headers),len(row)))}
+        vid=str(item.get('video','') or '')
+        if not vid: continue
+        def num(key):
+            try: return float(item.get(key,0) or 0)
+            except (ValueError,TypeError): return 0.0
+        videos.append({'video_id':vid,'title':vid,'views':int(num('views')),'likes':int(num('likes')),'likes_available':'likes' in headers,'comments':int(num('comments')),'comments_available':'comments' in headers,'subscribers_gained':int(num('subscribersgained')),'subscribers_available':'subscribersgained' in headers and raw.get('mode')!='public_stats_fallback','average_view_duration':num('averageviewduration'),'estimated_minutes_watched':num('estimatedminuteswatched')})
+    try:
+        token=os.getenv('YOUTUBE_TOKEN_JSON','').strip()
+        if token and videos:
+            import base64
+            from google.oauth2.credentials import Credentials
+            from googleapiclient.discovery import build
+            if token.startswith('base64:'): token=base64.b64decode(token[7:]).decode()
+            creds=Credentials.from_authorized_user_info(json.loads(token),['https://www.googleapis.com/auth/youtube.upload'])
+            yt=build('youtube','v3',credentials=creds,cache_discovery=False); byid={v['video_id']:v for v in videos}
+            for i in range(0,len(videos),50):
+                ids=[v['video_id'] for v in videos[i:i+50]]
+                for item in yt.videos().list(part='snippet,statistics',id=','.join(ids)).execute().get('items',[]):
+                    v=byid.get(item.get('id'))
+                    if v:
+                        v['title']=(item.get('snippet') or {}).get('title') or v['title']; st=item.get('statistics') or {}
+                        if 'likes' not in headers and 'likeCount' in st: v['likes']=int(st.get('likeCount',0) or 0);v['likes_available']=True
+                        if 'comments' not in headers and 'commentCount' in st: v['comments']=int(st.get('commentCount',0) or 0);v['comments_available']=True
+    except Exception: pass
+    total=sum(v['views'] for v in videos); avg=round(total/len(videos)) if videos else 0
+    likes_avail=any(v['likes_available'] for v in videos); subs_avail=any(v['subscribers_available'] for v in videos); comments_avail=any(v['comments_available'] for v in videos)
+    watch_avail='estimatedminuteswatched' in headers; duration_avail='averageviewduration' in headers; source=raw.get('mode','youtube_analytics')
+    recommendation='Ainda não há dados suficientes para recomendar um padrão.'
+    if videos:
+        top=max(videos,key=lambda v:v['views']); recommendation=f"Entre os vídeos retornados, ‘{top['title']}’ lidera com {top['views']} visualizações. Use o assunto e o gancho como hipótese para novos testes; isso não garante repetir o resultado."
+    return jsonify(ok=True,start=raw.get('start'),end=raw.get('end'),source=source,video_count=len(videos),total_views=total,average_views=avg,total_likes=sum(v['likes'] for v in videos),likes_available=likes_avail,subscribers_gained=sum(v['subscribers_gained'] for v in videos),subscribers_available=subs_avail,total_comments=sum(v['comments'] for v in videos),comments_available=comments_avail,watch_minutes=sum(v['estimated_minutes_watched'] for v in videos),watch_minutes_available=watch_avail,average_view_duration=(sum(v['average_view_duration'] for v in videos)/len(videos) if videos else 0),duration_available=duration_avail,videos=sorted(videos,key=lambda v:v['views'],reverse=True)[:20],recommendation=recommendation,checked_at=last.get('checked_at'))
+
+@APP.get('/api/youtube/status')
+def youtube_status():
+    if not AUTONOMOUS_ENGINE:
+        return jsonify(enabled=False, configured=False, reason='AUTONOMOUS_ENGINE_UNAVAILABLE')
+    pub=getattr(AUTONOMOUS_ENGINE,'publisher',None)
+    if not pub:
+        return jsonify(enabled=False, configured=False, reason='YOUTUBE_PUBLISHER_UNAVAILABLE')
+    return jsonify(
+        enabled=bool(getattr(pub,'enabled',False)),
+        configured=bool(getattr(pub,'token_json','')),
+        privacy=os.getenv('YOUTUBE_PRIVACY','private'),
+        analytics_enabled=bool(getattr(getattr(AUTONOMOUS_ENGINE,'analytics',None),'enabled',False)),
+    )
+
+@APP.post('/api/publish/<jid>')
+def publish_existing(jid):
+    """Manually publish one validated DONE job; useful for the first private test."""
+    if not AUTONOMOUS_ENGINE:
+        return jsonify(ok=False,error='AUTONOMOUS_ENGINE indisponível.'),503
+    job=load_jobs().get(jid)
+    if not job:
+        return jsonify(ok=False,error='job não encontrado'),404
+    if job.get('status')!='DONE':
+        return jsonify(ok=False,error='O job precisa estar DONE antes da publicação.'),409
+    rel=str(job.get('video') or '').strip()
+    if not rel:
+        return jsonify(ok=False,error='Este job não possui vídeo final.'),409
+    try:
+        video=(WORK/rel).resolve()
+        if WORK.resolve() not in video.parents:
+            return jsonify(ok=False,error='caminho de vídeo inválido'),400
+    except Exception:
+        return jsonify(ok=False,error='caminho de vídeo inválido'),400
+    if not video.exists() or video.stat().st_size < 50000:
+        return jsonify(ok=False,error='MP4 final não encontrado ou inválido no workspace.'),409
+    meta=job.get('metadata') or {}
+    pub=AUTONOMOUS_ENGINE.publisher.upload(video,meta)
+    if pub.get('ok'):
+        try:
+            if AUTONOMOUS_ENGINE.trend_brain:
+                AUTONOMOUS_ENGINE.trend_brain.record_publication(job.get('opportunity') or {},meta,pub.get('video_id'))
+        except Exception:
+            pass
+        update_job(jid,stage='PUBLICAÇÃO',log=f'▶️ YouTube: publicação manual concluída ({pub.get("video_id")}).',youtube=pub)
+        return jsonify(ok=True,youtube=pub)
+    update_job(jid,log=f'⚠️ YouTube: publicação não concluída — {pub.get("reason","erro desconhecido")}',youtube=pub)
+    return jsonify(ok=False,youtube=pub),502
+
+@APP.get('/api/job/<jid>')
+def one(jid):
+    j=load_jobs().get(jid)
+    if j: return jsonify(j)
+    pending=PENDING_QUEUE_DIR / f'{jid}.json'
+    if pending.exists():
+        try: return jsonify(json.loads(pending.read_text(encoding='utf-8')))
+        except Exception: pass
+    return jsonify(error='not found'),404
+LIVE_JOBS_FILE = WORK / 'live_jobs.json'
+LIVE_JOBS_LOCK = threading.RLock()
+
+def _live_jobs():
+    try:
+        return json.loads(LIVE_JOBS_FILE.read_text(encoding='utf-8'))
+    except Exception:
+        return {}
+
+def _save_live_jobs(d):
+    tmp=LIVE_JOBS_FILE.with_suffix('.tmp')
+    tmp.write_text(json.dumps(d,ensure_ascii=False,indent=2),encoding='utf-8')
+    os.replace(tmp,LIVE_JOBS_FILE)
+
+def _live_update(jid, **fields):
+    with LIVE_JOBS_LOCK:
+        d=_live_jobs(); j=d.setdefault(jid,{'id':jid}); j.update(fields); j['updated_at']=now_iso(); _save_live_jobs(d)
+
+def _live_analyze_worker(jid, source, max_clips):
+    try:
+        _live_update(jid,status='RUNNING',stage='ANALISANDO',progress=5,log='Analisando a live em blocos, sem carregar o vídeo inteiro na memória.')
+        result=LiveClipper(WORK).analyze(source,max_clips=max_clips,job_id=jid)
+        _live_update(jid,status='DONE',stage='CORTES_ENCONTRADOS',progress=100,result=result,clips=result.get('clips',[]),log=f'Encontrados {len(result.get("clips",[]))} cortes candidatos.')
+    except Exception as e:
+        _live_update(jid,status='ERROR',stage='ERRO',progress=100,error=str(e)[:2500])
+
+def _live_render_worker(jid, source, clips):
+    try:
+        _live_update(jid,status='RUNNING',stage='RENDERIZANDO',progress=5,log='Renderizando os melhores cortes em vertical 9:16.')
+        jobdir=WORK/'live_clips'/jid; jobdir.mkdir(parents=True,exist_ok=True)
+        engine=LiveClipper(WORK); outputs=[]
+        total=min(20,len(clips))
+        for i,clip in enumerate(clips[:20],1):
+            out=engine.render_clip(source,clip,jobdir,i); outputs.append(str(out.relative_to(WORK)))
+            _live_update(jid,progress=int(5+(i/total)*90),log=f'Corte {i}/{total} renderizado.')
+        _live_update(jid,status='DONE',stage='PRONTO',progress=100,outputs=outputs,log=f'{len(outputs)} cortes prontos.')
+    except Exception as e:
+        _live_update(jid,status='ERROR',stage='ERRO',progress=100,error=str(e)[:2500])
+
+@APP.post('/api/live/analyze')
+def live_analyze():
+    if not LiveClipper: return jsonify(error='Live Clipper indisponível no servidor.'),503
+    data=request.get_json(silent=True) or {}
+    source=str(data.get('url') or data.get('source') or '').strip()
+    try: max_clips=max(1,min(20,int(data.get('max_clips',10) or 10)))
+    except Exception: max_clips=10
+    if not source: return jsonify(error='Informe a URL pública ou caminho do arquivo da live.'),400
+    jid='live-'+uuid.uuid4().hex[:10]
+    _live_update(jid,status='QUEUED',stage='FILA',progress=0,source=source,max_clips=max_clips)
+    threading.Thread(target=_live_analyze_worker,args=(jid,source,max_clips),daemon=True).start()
+    return jsonify(ok=True,job_id=jid)
+
+@APP.post('/api/live/render')
+def live_render():
+    if not LiveClipper: return jsonify(error='Live Clipper indisponível no servidor.'),503
+    data=request.get_json(silent=True) or {}
+    source=str(data.get('url') or data.get('source') or '').strip()
+    clips=data.get('clips') or []
+    if not source or not isinstance(clips,list) or not clips: return jsonify(error='Informe source e clips.'),400
+    jid='live-'+uuid.uuid4().hex[:10]
+    _live_update(jid,status='QUEUED',stage='FILA_RENDER',progress=0,source=source,clips=clips[:20])
+    threading.Thread(target=_live_render_worker,args=(jid,source,clips[:20]),daemon=True).start()
+    return jsonify(ok=True,job_id=jid)
+
+@APP.get('/api/live/job/<jid>')
+def live_job(jid):
+    j=_live_jobs().get(jid)
+    return (jsonify(j) if j else (jsonify(error='not found'),404))
+
+@APP.get('/output/<path:p>')
+def output(p):
+    full=(WORK/p).resolve(); base=WORK.resolve()
+    if not str(full).startswith(str(base)):
+        return 'Not found',404
+    if full.exists():
+        return send_from_directory(full.parent,full.name,as_attachment=False)
+    # Render Free has ephemeral local storage. If a published MP4 was removed
+    # after a restart/redeploy, recover transparently through the durable YouTube copy.
+    parts=Path(p).parts
+    jid=parts[0] if parts else ''
+    try:
+        job=load_jobs().get(jid,{})
+        yt=job.get('youtube') or {}
+        vid=str(yt.get('video_id') or '').strip()
+        if vid:
+            return redirect(f'https://www.youtube.com/watch?v={quote(vid)}',code=302)
+    except Exception:
+        pass
+    return 'Not found',404
+
+def radar_loop():
+    time.sleep(8)
+    while True:
+        try: radar_scan()
+        except Exception: pass
+        time.sleep(15*60)
+
+def autonomy_loop():
+    if not AUTONOMOUS_ENGINE: return
+    # Run one early diagnostic after boot, then retain the six-hour cadence.
+    # This confirms whether the configured OAuth token really has Analytics scope.
+    time.sleep(45)
+    while True:
+        try:
+            AUTONOMOUS_ENGINE.collect_analytics()
+        except Exception as e:
+            print(f'[AUTONOMY] analytics loop error: {type(e).__name__}: {str(e)[:300]}', flush=True)
+        time.sleep(6*60*60)
+
+threading.Thread(target=processor_loop,daemon=True).start()
+threading.Thread(target=boot_produce_once,daemon=True).start()
+threading.Thread(target=radar_loop,daemon=True).start()
+threading.Thread(target=autonomy_loop,daemon=True).start()
+if __name__=='__main__': APP.run(host='0.0.0.0',port=int(os.environ.get('PORT',5000))),q.name).group(1)) if re.search(r'_(\d+)\.mp4
+            # two distinct 2s scenes and were silently looped by the renderer.
+            if p.stat().st_size <= 20000:
+                p.unlink(missing_ok=True)
+                continue
+            probe=_probe_media(p)
+            seconds=float(probe.get('duration') or 0)
+            if not probe.get('ok') or not probe.get('video') or seconds < 4.0:
+                print(f'[VIDEO_CACHE] removing_short={p.name} duration={seconds:.2f}s minimum=4.0s error={probe.get("error","no video or too short")}',flush=True)
+                p.unlink(missing_ok=True)
+                continue
+            # Revalidate cached clips cheaply on every run; only complete motion
+            # sources may be reused in a new Short.
+            cached.append(p)
+        except Exception as e:
+            print(f'[VIDEO_CACHE] removing_unreadable={p.name} error={str(e)[:180]}',flush=True)
+            try: p.unlink(missing_ok=True)
+            except Exception: pass
+    # Prefer eight independent motion sources for Shorts. Four sources proved
+    # insufficient in real renders: extracted frames were technically distinct
+    # but kept showing the same characters/shots. Build a broader official pool
+    # before falling back to still frames or blocking the timeline.
+    target_clips = 13
+    if len(cached) >= target_clips:
+        return cached[:target_clips]
+    try:
+        if jid:
+            update_job(jid,log='Lendo catálogo oficial da Rockstar e filtrando telas ESRB/disclaimers...')
+        total,entries=_remote_zip_entries(ROCKSTAR_VIDEO_ZIP)
+        media=[e for e in entries if e['name'].lower().endswith(('.mp4','.mov','.m4v'))]
+        if len(media) < 2:
+            raise RuntimeError(f'O pacote oficial possui apenas {len(media)} vídeos utilizáveis; são necessários pelo menos 2.')
+
+        preferred=[]
+        for key in ('Jason','Lucia','Cal','Boobie','Raul','Brian','Real','Dre'):
+            preferred += [e for e in media if key.lower() in Path(e['name']).stem.lower() and e not in preferred]
+        candidates=preferred+[e for e in media if e not in preferred]
+
+        ff=_ffmpeg_executable()
+        safe=list(cached)
+        used_names={p.name for p in safe}
+        candidate_failures=[]
+        next_index=0
+        for p in cache.glob('rockstar_real_v251_*.mp4'):
+            m=re.search(r'_(\d+)\.mp4$',p.name)
+            if m:
+                next_index=max(next_index,int(m.group(1))+1)
+
+        for entry in candidates:
+            if len(safe) >= target_clips:
+                break
+            idx=next_index
+            next_index += 1
+            target=cache/f'rockstar_real_v251_{idx}.mp4'
+            raw=cache/f'raw_v251_{idx}.mp4'
+            try:
+                if jid:
+                    update_job(jid,log=f'Baixando clipe oficial para revisão visual: {Path(entry["name"]).stem}...')
+                _remote_zip_extract(ROCKSTAR_VIDEO_ZIP,entry,raw)
+                raw_probe=_probe_media(raw)
+                raw_duration=float(raw_probe.get('duration') or 0)
+                if not raw_probe.get('ok') or not raw_probe.get('video') or raw_duration < 4.0:
+                    raise RuntimeError(f'fonte extraída curta/inválida: duration={raw_duration:.2f}s; mínimo 4.0s; bytes={raw.stat().st_size if raw.exists() else 0}; {raw_probe.get("error","sem stream de vídeo")}')
+                if jid:
+                    update_job(jid,log=f'Convertendo fonte validada ({raw_duration:.1f}s) para proxy leve 320x568...')
+                # First try accurate output-side seeking. Some MP4 sources in the
+                # official ZIP have edit lists/keyframes that make input-side
+                # -ss return a tiny 0.2–0.7s proxy despite a longer source.
+                proxy_errors=[]
+                for attempt in range(2):
+                    target.unlink(missing_ok=True)
+                    seek_args=(['-ss','0.8'] if attempt==0 else [])
+                    cmd=[
+                        ff,'-hide_banner','-loglevel','error','-y','-threads:v','1',
+                        *seek_args,'-i',str(raw),'-t','8.5',
+                        '-vf','scale=320:568:force_original_aspect_ratio=increase,crop=320:568,setsar=1,fps=12',
+                        '-an','-c:v','libx264','-preset','ultrafast','-crf','31',
+                        '-threads','1','-filter_threads','1','-filter_complex_threads','1',
+                        '-x264-params','threads=1:lookahead-threads=1:rc-lookahead=0:sync-lookahead=0',
+                        '-pix_fmt','yuv420p','-movflags','+faststart',str(target)
+                    ]
+                    run_cmd(cmd,90)
+                    proxy_probe=_probe_media(target) if target.exists() else {'ok':False,'duration':0,'video':[],'error':'arquivo não criado'}
+                    proxy_duration=float(proxy_probe.get('duration') or 0)
+                    if target.exists() and target.stat().st_size>20000 and proxy_probe.get('ok') and proxy_probe.get('video') and proxy_duration>=4.0:
+                        break
+                    proxy_errors.append(f'tentativa {attempt+1}: {proxy_duration:.2f}s; {proxy_probe.get("error","sem stream de vídeo")}')
+                if not target.exists() or target.stat().st_size<=20000 or not proxy_probe.get('ok') or not proxy_probe.get('video') or proxy_duration<4.0:
+                    raise RuntimeError(f'proxy curto/inválido após 2 tentativas; proxy={proxy_duration:.2f}s, mínimo=4.0s; fonte={raw_duration:.2f}s; '+ ' | '.join(proxy_errors))
+                if _video_contains_rating_disclaimer(target):
+                    if jid:
+                        update_job(jid,log=f'Filtro visual: descartando clipe com tela ESRB/disclaimer — {Path(entry["name"]).stem}')
+                    target.unlink(missing_ok=True)
+                    continue
+                safe.append(target)
+                used_names.add(target.name)
+            except Exception as e:
+                reason=f'{Path(entry["name"]).stem}: {str(e)[:260]}'
+                candidate_failures.append(reason)
+                print(f'[OFFICIAL_CLIP_REJECTED] {reason}',flush=True)
+                if jid:
+                    update_job(jid,log=f'Clipe oficial ignorado: {reason[:300]}')
+                try:
+                    target.unlink(missing_ok=True)
+                except Exception:
+                    pass
+                # The official ZIP has repeatedly returned extracted assets without
+                # a valid video stream. Stop probing the whole catalogue after a few
+                # failures and switch to the ranged-download CDN path.
+                if len(candidate_failures) >= 4 and len(safe) < target_clips:
+                    print(
+                        f'[OFFICIAL_VIDEO_ZIP] early_fallback invalid_candidates={len(candidate_failures)} '
+                        f'valid_cached={len(safe)} target={target_clips}',
+                        flush=True
+                    )
+                    break
+            finally:
+                try:
+                    raw.unlink(missing_ok=True)
+                except Exception:
+                    pass
+
+        safe=[p for p in safe if p.exists() and p.stat().st_size>20000]
+        if len(safe) < target_clips:
+            details=' | '.join(candidate_failures[-6:]) or 'nenhum detalhe de rejeição registrado'
+            raise RuntimeError(
+                f'Apenas {len(safe)} de {target_clips} fontes oficiais com vídeo válido foram preparadas. '
+                f'Acionando fallback para obter material em movimento. Últimas falhas: {details}'
+            )
+        return safe[:target_clips]
+    except Exception as e:
+        zip_error=str(e)[:900]
+        print(f'[OFFICIAL_VIDEO_ZIP] insufficient valid motion clips: {zip_error}; trying Rockstar official CDN range-download fallback',flush=True)
+        try:
+            return _download_official_rockstar_cdn_proxies(cache,jid=jid,limit_per_video=13)
+        except Exception as rockstar_error:
+            raise RuntimeError(
+                'Não foi possível obter vídeos oficiais utilizáveis. '
+                f'Pacote de downloads: {zip_error}. Fallback CDN oficial: {str(rockstar_error)[:900]}'
+            )
+
+
+def _video_relevance(path,title):
+    text=(path.stem+' '+title).lower()
+    score=0
+    groups=[('jason',12),('lucia',12),('vice',8),('leonida',8),('cal',4),('boobie',4),('raul',4),('brian',4),('real',4),('dre',4),('cover',1)]
+    for k,v in groups:
+        if k in text:
+            score += v
+    return score
+
+
+def select_video_clips(videos,title,count=5):
+    ranked=sorted(videos,key=lambda p:_video_relevance(p,title),reverse=True)
+    return ranked[:count]
+
+
+def _expand_video_clips_into_distinct_windows(video_clips, jobdir, windows_per_clip=3):
+    """Split each source into valid, non-overlapping motion segments.
+
+    Calculate segment count from the actual source duration instead of assuming
+    every downloaded proxy is 8.5s. Seeking is input-side so FFmpeg extracts
+    the intended section, and each segment is probed before it enters the pool.
+    """
+    ff=_ffmpeg_executable()
+    outdir=Path(jobdir)/'video_windows'
+    outdir.mkdir(parents=True,exist_ok=True)
+    clips=[Path(p) for p in (video_clips or []) if p]
+    expanded=[]
+    for ci,clip in enumerate(clips):
+        try:
+            source_probe=_probe_media(clip)
+            source_duration=float(source_probe.get('duration') or 0)
+            if not source_probe.get('ok') or not source_probe.get('video') or source_duration < 4.0:
+                print(
+                    f'[VIDEO_WINDOWS] source_rejected={clip.name} duration={source_duration:.2f}s minimum=4.0s '
+                    f'error={source_probe.get("error","no video or clip too short")}',
+                    flush=True
+                )
+                continue
+            # Create distinct 2–4.3s motion segments. Never reuse a clip too short
+            # for two independent scenes: looping 1s sources creates visible repetition.
+            count=min(max(1,int(windows_per_clip)),max(1,int(source_duration//2.0)))
+            if count < 2:
+                print(f'[VIDEO_WINDOWS] source_too_short={clip.name} duration={source_duration:.2f}s; skipped',flush=True)
+                continue
+            window_seconds=source_duration/count
+            for wi in range(count):
+                start=wi*window_seconds
+                dst=outdir/f'{clip.stem}_window_{wi+1:02d}.mp4'
+                try:
+                    # Always recreate to avoid stale files from a different segmentation rule.
+                    dst.unlink(missing_ok=True)
+                    run_cmd([
+                        ff,'-loglevel','error','-y',
+                        '-ss',f'{start:.3f}','-i',str(clip),'-t',f'{window_seconds:.3f}',
+                        '-vf','scale=320:568:force_original_aspect_ratio=increase,crop=320:568,setsar=1,fps=12',
+                        '-an','-c:v','libx264','-preset','ultrafast','-crf','28',
+                        '-threads','1','-filter_threads','1','-filter_complex_threads','1',
+                        '-x264-params','threads=1:lookahead-threads=1:rc-lookahead=0:sync-lookahead=0',
+                        '-pix_fmt','yuv420p','-movflags','+faststart',str(dst)
+                    ],45)
+                    if not dst.exists() or dst.stat().st_size < 5000:
+                        raise RuntimeError('arquivo do segmento ausente ou pequeno')
+                    segment_probe=_probe_media(dst)
+                    segment_duration=float(segment_probe.get('duration') or 0)
+                    if segment_probe.get('ok') and segment_probe.get('video') and segment_duration >= 2.0:
+                        expanded.append(dst)
+                    else:
+                        dst.unlink(missing_ok=True)
+                        print(
+                            f'[VIDEO_WINDOWS] segment_rejected={dst.name} duration={segment_duration:.2f}s '
+                            f'error={segment_probe.get("error","invalid or too-short segment")}',
+                            flush=True
+                        )
+                except Exception as e:
+                    print(
+                        f'[VIDEO_WINDOWS] skip source={clip.name} window={wi+1} '
+                        f'error={type(e).__name__}:{str(e)[:180]}',
+                        flush=True
+                    )
+                    dst.unlink(missing_ok=True)
+                    continue
+        except Exception as e:
+            print(f'[VIDEO_WINDOWS] source_probe_failed={clip.name} error={type(e).__name__}:{str(e)[:180]}',flush=True)
+            continue
+    # Interleave windows from different source moments. Source-first ordering
+    # left 4–6 seconds from the same shot family together; round-robin creates
+    # a change of footage every scene without recycling the same window.
+    def _window_round_robin_key(path):
+        stem=Path(path).stem
+        parts=stem.rsplit('_window_',1)
+        if len(parts)!=2 or not parts[1].isdigit():
+            return (0,0,stem)
+        source_stem=parts[0]
+        source_tail=source_stem.rsplit('_',1)[-1]
+        source_index=int(source_tail) if source_tail.isdigit() else 0
+        return (int(parts[1]),source_index,source_stem)
+    expanded.sort(key=_window_round_robin_key)
+    print(f'[VIDEO_WINDOWS] expanded {len(clips)} source clips into {len(expanded)} valid windows; order=round_robin',flush=True)
+    return expanded
+
+def _frame_visual_hash(path):
+    """Small dependency-light perceptual hash for near-duplicate frame rejection."""
+    try:
+        from PIL import Image, ImageOps
+        with Image.open(path) as im:
+            gray=ImageOps.grayscale(im).resize((8,8))
+            vals=list(gray.getdata())
+        mean=sum(vals)/max(1,len(vals))
+        return tuple(v >= mean for v in vals)
+    except Exception:
+        return None
+
+def _visually_distinct_from_pool(candidate, existing, max_distance=10):
+    """Reject nearly identical frames even when filenames/timestamps differ."""
+    h=_frame_visual_hash(candidate)
+    if h is None:
+        return True
+    for prior in existing:
+        ph=_frame_visual_hash(prior)
+        if ph is None:
+            continue
+        if sum(a != b for a,b in zip(h,ph)) <= max_distance:
+            return False
+    return True
+
+def _augment_scenes_with_real_video_frames(video_clips, image_scenes, jobdir, target=24):
+    """Extract a wider set of genuine official-video frames as moving stills."""
+    out=list(image_scenes or [])
+    if len(out)>=target:
+        return out[:target]
+    ff=_ffmpeg_executable()
+    clips=list(video_clips or [])
+    # Round-robin across sources: the previous source-first loop could fill the
+    # target from only the first two clips (12 frames each), concentrating the
+    # entire Short on Lucia or the same armed character despite a larger pool.
+    # Sample each source at one timestamp before taking a second sample from any
+    # source, so the initial pool spans all available official clips.
+    source_durations=[]
+    for clip in clips:
+        try:
+            probe=_probe_media(Path(clip))
+            duration=max(0.8,float(probe.get('duration') or 8.5))
+        except Exception:
+            duration=8.5
+        source_durations.append(duration)
+    sample_count=12
+    for fi in range(sample_count):
+        for idx,clip in enumerate(clips):
+            if len(out)>=target:
+                break
+            duration=source_durations[idx]
+            timestamp=min(max(0.05,0.05 + fi*max(0.0,duration-0.10)/(sample_count-1)),max(0.05,duration-0.05))
+            dst=Path(jobdir)/f'official_frame_{idx:02d}_{fi:02d}.jpg'
+            try:
+                run_cmd([ff,'-loglevel','error','-y','-ss',f'{timestamp:.2f}','-i',str(clip),
+                         '-frames:v','1','-vf','scale=540:960:force_original_aspect_ratio=increase,crop=540:960',
+                         '-q:v','3',str(dst)],20)
+                if dst.exists() and dst.stat().st_size>4000:
+                    # Distinct timestamps can still show the same character/shot.
+                    # Compare image content against the pool before accepting it.
+                    if _visually_distinct_from_pool(dst, out):
+                        out.append(dst)
+                    else:
+                        print(f'[VISUAL_POOL] rejected_near_duplicate={dst.name}',flush=True)
+            except Exception:
+                continue
+        if len(out)>=target:
+            break
+    print(f'[VISUAL_POOL] official_video_sources={len(video_clips or [])} unique_frames={max(0,len(out)-len(image_scenes or []))} total_images={len(out)} target={target}',flush=True)
+    return out[:target]
+
+
+def _caption_overlay(path,caption,idx,total,W=320,H=568,highlight=None):
+    """V41.1 — legenda editorial com quebra visual equilibrada.
+    O texto continua sendo exatamente a fala; só a disposição em 1–2 linhas muda.
+    Evita linhas com uma única palavra e quebras visualmente tortas.
+    """
+    im=Image.new('RGBA',(W,H),(0,0,0,0)); d=ImageDraw.Draw(im)
+
+    # GTA OCULTO watermark: small, fixed, low opacity.
+    wm=font(11,True)
+    wm_text='GTA OCULTO'
+    wb=d.textbbox((0,0),wm_text,font=wm)
+    wx=W-wb[2]-14; wy=H-wb[3]-10
+    d.text((wx,wy),wm_text,font=wm,fill=(255,255,255,105))
+
+    f=font(24,True)
+    text=re.sub(r'\s+',' ',str(caption)).strip().upper()
+    words=text.split()
+    if not words:
+        im.save(path); return
+
+    max_width=W-42
+
+    # Build all valid 1/2-line splits and choose the most balanced one.
+    # Never create a one-word second line when there is a better alternative.
+    lines=[]
+    if len(words)<=4:
+        # Short phrases stay on one line when they fit.
+        test=' '.join(words)
+        if d.textbbox((0,0),test,font=f,stroke_width=1)[2] <= max_width:
+            lines=[test]
+        else:
+            lines=[test]
+    else:
+        candidates=[]
+        for cut in range(1,len(words)):
+            a=' '.join(words[:cut]); b=' '.join(words[cut:])
+            wa=d.textbbox((0,0),a,font=f,stroke_width=1)[2]
+            wb2=d.textbbox((0,0),b,font=f,stroke_width=1)[2]
+            if wa>max_width or wb2>max_width:
+                continue
+            # Prefer balanced visual width and 2+ words on each line.
+            balance=abs(wa-wb2)
+            count_balance=abs(len(words[:cut])-len(words[cut:]))*18
+            candidates.append((balance+count_balance,cut,a,b))
+        if candidates:
+            _,cut,a,b=min(candidates,key=lambda x:x[0])
+            lines=[a,b]
+        else:
+            # Fallback greedy wrap, still forbidding a lone final word.
+            cur=''
+            for w in words:
+                test=(cur+' '+w).strip()
+                if cur and d.textbbox((0,0),test,font=f,stroke_width=1)[2] > max_width:
+                    lines.append(cur); cur=w
+                else:
+                    cur=test
+            if cur: lines.append(cur)
+            if len(lines)>2:
+                # Merge the last line backwards where possible.
+                tail=lines[-1]
+                prev=lines[-2]
+                merged=(prev+' '+tail).strip()
+                if d.textbbox((0,0),merged,font=f,stroke_width=1)[2] <= max_width:
+                    lines=lines[:-2]+[merged]
+            if len(lines)==2 and len(lines[1].split())==1 and len(lines[0].split())>2:
+                w=lines[1]
+                parts=lines[0].split()
+                candidate=' '.join(parts[-2:] + [w])
+                first=' '.join(parts[:-2])
+                if first and d.textbbox((0,0),candidate,font=f,stroke_width=1)[2] <= max_width:
+                    lines=[first,candidate]
+
+    lines=[x for x in lines if x.strip()]
+    if not lines:
+        im.save(path); return
+
+    line_h=30
+    box_h=22+len(lines)*line_h
+    y=H-box_h-45
+    d.rounded_rectangle((18,y,W-18,H-45),radius=13,fill=(3,5,9,210),outline=(255,255,255,70),width=1)
+
+    yy=y+8
+    hi=str(highlight or '').strip().upper()
+    for line in lines[:2]:
+        # Render the complete line at once for stable visual rhythm.
+        d.text((W/2,yy),line,font=f,anchor='ma',fill='white',
+               stroke_width=1,stroke_fill=(0,0,0,220))
+        yy += line_h
+    im.save(path)
+
+def _clean_caption_phrase(text):
+    text=re.sub(r"\s+", " ", str(text)).strip(" .!?,:;-")
+    text=re.sub(r"^(?:gta\s*6\s*[:\-]\s*)", "", text, flags=re.I)
+    return text.upper()
+
+
+def _caption_phrases_from_sentence(sentence, max_words=7):
+    """Divide a frase em blocos contíguos e naturais, priorizando 3–7 palavras.
+    Nunca remove palavras importantes nem cria legendas com palavras fora da fala.
+    """
+    s=re.sub(r'\s+',' ',str(sentence)).strip(' .!?,:;-')
+    if not s: return []
+    words=s.split()
+    if len(words)<=max_words:
+        return [_clean_caption_phrase(s)] if len(words)>=3 else []
+
+    # Pontos naturais de corte. Preferimos pontuação/conjunções antes de cortar no meio.
+    boundary=set('e mas porque porém porem então entao quando enquanto se que para'.split())
+    out=[]; i=0
+    while i<len(words):
+        remaining=len(words)-i
+        if remaining<=max_words:
+            chunk=words[i:]
+            if len(chunk)>=3: out.append(_clean_caption_phrase(' '.join(chunk)))
+            break
+        target=min(max_words, max(4, round(remaining/2)))
+        lo=max(i+3,target-2); hi=min(i+max_words,target+2,len(words)-1)
+        cut=None
+        # Procura uma conjunção no final do primeiro bloco, mantendo a conjunção no próximo.
+        for j in range(hi,lo-1,-1):
+            if words[j].lower().strip('.,!?;:') in boundary:
+                if j-i>=3:
+                    cut=j; break
+        if cut is None:
+            cut=i+target
+        chunk=words[i:cut]
+        if len(chunk)<3:
+            cut=min(i+max_words,len(words)); chunk=words[i:cut]
+        out.append(_clean_caption_phrase(' '.join(chunk)))
+        i=cut
+    return [x for x in out if 3<=len(x.split())<=max_words]
+
+
+def _caption_words(text):
+    """Tokeniza preservando pontuação para decidir cortes linguísticos naturais."""
+    return re.findall(r"[^\s]+", re.sub(r'\s+', ' ', str(text)).strip())
+
+
+def _caption_clean_word(word):
+    return re.sub(r'^[\"“”‘’(\[]+|[\"“”‘’),.;:!?\]]+$', '', word).lower()
+
+
+def _caption_is_bad_start(word):
+    return _caption_clean_word(word) in {
+        'e','de','do','da','em','no','na','que','um','uma','o','a','os','as',
+        'para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa'
+    }
+
+
+def _caption_is_bad_end(word):
+    return _caption_clean_word(word) in {
+        'e','de','do','da','em','no','na','que','um','uma','o','a','os','as',
+        'para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa','nem'
+    }
+
+
+def _semantic_caption_chunks(sentence, min_words=3, max_words=7):
+    """V51: segmenta legendas por unidade de sentido, preservando a ordem exata da fala.
+    O objetivo é impedir cortes do tipo 'EM UMA' / 'NOVA' ou finais em preposição.
+    Pontuação e conectores recebem prioridade; cortes ruins ficam muito caros.
+    """
+    raw=re.sub(r'\s+', ' ', str(sentence or '')).strip()
+    if not raw: return []
+    tokens=_caption_words(raw)
+    if len(tokens)<=max_words:
+        return [tokens] if len(tokens)>=min_words else [tokens]
+    norm=lambda w:_caption_clean_word(w)
+    bad_end={'e','de','do','da','em','no','na','que','um','uma','o','a','os','as','para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa','sobre','entre','até','sem','como','pelo','pela','pelos','pelas','porém','porem','então','entao','nem'}
+    bad_start={'e','mas','porque','porém','porem','então','entao','quando','enquanto','que','para','com','de','do','da','em','no','na'}
+    preferred={'e','mas','porque','porém','porem','então','entao','quando','enquanto','porque','nem'}
+    protected={('gta','6'),('gta','vi'),('vice','city'),('cloud','gaming'),('xbox','cloud','gaming'),('jason','e','lucia'),('playstation','5'),('xbox','series')}
+    def protected_cut(cut):
+        # A cut is protected only when it splits a protected expression across
+        # its two sides (for example VICE | CITY), not when the whole phrase is
+        # safely contained in one caption.
+        left=[norm(x) for x in tokens[max(0,cut-3):cut]]
+        right=[norm(x) for x in tokens[cut:cut+3]]
+        for ph in protected:
+            n=len(ph)
+            for left_count in range(1,n):
+                right_count=n-left_count
+                if (len(left)>=left_count and len(right)>=right_count
+                    and tuple(left[-left_count:])==ph[:left_count]
+                    and tuple(right[:right_count])==ph[left_count:]):
+                    return True
+        return False
+    out=[]; i=0
+    while i<len(tokens):
+        rem=len(tokens)-i
+        if rem<=max_words:
+            out.append(tokens[i:]); break
+        lo=i+min_words
+        hi=min(i+max_words, len(tokens)-min_words)
+        best=None
+        target=min(max_words, 6 if rem>=10 else 5)
+        for cut in range(lo,hi+1):
+            if protected_cut(cut):
+                continue
+            left=tokens[i:cut]; right=tokens[cut:]
+            if not right: continue
+            lw=norm(left[-1]); rw=norm(right[0])
+            score=abs(len(left)-target)*2.0
+            if re.search(r'[.!?;:]$', left[-1]): score-=30
+            elif re.search(r'[,)]$', left[-1]): score-=12
+            if lw in bad_end: score+=45
+            if rw in bad_start: score+=32
+            if rw in preferred: score-=8
+            # Evita blocos visualmente curtos demais.
+            if len(left)<min_words: score+=25
+            if len(right)<min_words and rem>max_words+min_words: score+=25
+            cand=(score,cut)
+            if best is None or cand<best: best=cand
+        if best:
+            cut=best[1]
+        else:
+            fallback=min(i+target,len(tokens))
+            safe=[c for c in range(lo,hi+1) if not protected_cut(c)]
+            cut=min(safe,key=lambda c:abs(c-fallback)) if safe else fallback
+        out.append(tokens[i:cut]); i=cut
+    # Último passe: junta um fragmento curto ao vizinho sem criar corte ruim.
+    fixed=[]
+    for ch in out:
+        if fixed and len(ch)<min_words and len(fixed[-1])+len(ch)<=max_words:
+            fixed[-1].extend(ch)
+        else:
+            fixed.append(ch)
+    return fixed
+
+def _caption_phrase_chunks(sentence, min_words=3, max_words=10):
+    """V30 — divide by meaning and punctuation, preserving the complete spoken phrase."""
+    raw=re.sub(r'\s+',' ',str(sentence)).strip()
+    if not raw: return []
+    tokens=_caption_words(raw)
+    if len(tokens)<=max_words:
+        return [tokens] if len(tokens)>=min_words else ([tokens] if tokens else [])
+
+    def norm(w):
+        return _caption_clean_word(w).lower()
+    bad_end={'e','de','do','da','em','no','na','que','um','uma','o','a','os','as','para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa','sobre','entre','até','sem','como','pelo','pela','pelos','pelas'}
+    bad_start=bad_end | {'porque','porém','porem','então','entao','quando','enquanto'}
+    connectors={'e','mas','porque','porém','porem','então','entao','quando','enquanto'}
+    protected={
+        ('gta','6'),('gta','vi'),('vice','city'),('cloud','gaming'),('xbox','cloud'),('xbox','cloud','gaming'),
+        ('jason','e','lucia'),('nível','inédito','de','realismo'),('nivel','inedito','de','realismo'),
+        ('sistema','de','moral'),('mecânica','de','relacionamento'),('mecanica','de','relacionamento'),
+        ('playstation','5'),('xbox','series')
+    }
+    def protected_cut(cut):
+        # Prevent cutting inside a protected multiword phrase.
+        left=[norm(x) for x in tokens[max(0,cut-4):cut]]
+        right=[norm(x) for x in tokens[cut:cut+4]]
+        for ph in protected:
+            n=len(ph)
+            for left_count in range(1,n):
+                right_count=n-left_count
+                if (len(left)>=left_count and len(right)>=right_count
+                    and tuple(left[-left_count:])==ph[:left_count]
+                    and tuple(right[:right_count])==ph[left_count:]):
+                    return True
+        return False
+
+    chunks=[]; i=0
+    while i<len(tokens):
+        rem=len(tokens)-i
+        if rem<=max_words:
+            chunks.append(tokens[i:]); break
+        target=7 if rem>=15 else max(5,round(rem/2))
+        lo=i+min_words
+        hi=min(len(tokens)-1,i+max_words)
+        candidates=[]
+        for cut in range(lo,hi+1):
+            if protected_cut(cut):
+                continue
+            left=tokens[i:cut]; right=tokens[cut:]
+            if len(right)>0 and len(right)<min_words and rem>max_words+min_words: continue
+            lw=norm(left[-1]); rw=norm(right[0]) if right else ''
+            score=abs(len(left)-target)*1.4
+            if re.search(r'[,:;.!?]$',left[-1]): score-=18
+            if lw in bad_end: score+=35
+            if rw in bad_start: score+=35
+            if rw in connectors: score-=8
+            if len(left)>=8: score+=1
+            candidates.append((score,cut))
+        if candidates:
+            cut=min(candidates)[1]
+        else:
+            fallback=min(i+target,len(tokens))
+            safe=[c for c in range(lo,hi+1) if not protected_cut(c)]
+            cut=min(safe,key=lambda c:abs(c-fallback)) if safe else fallback
+        chunks.append(tokens[i:cut]); i=cut
+
+    # Merge tiny chunks without crossing protected expressions.
+    out=[]
+    for ch in chunks:
+        if not ch: continue
+        if out and len(ch)<min_words and len(out[-1])+len(ch)<=max_words:
+            out[-1].extend(ch)
+        else: out.append(ch)
+    return out
+
+
+def _merge_caption_chunks(chunks, target_count=10, max_words=12):
+    """Reduz a quantidade de blocos sem destruir unidades de sentido."""
+    chunks=[list(c) for c in chunks if c]
+    while len(chunks)>target_count:
+        best_idx=None; best_score=None
+        for i in range(len(chunks)-1):
+            merged=chunks[i]+chunks[i+1]
+            if len(merged)>max_words:
+                continue
+            score=abs(len(merged)-8)
+            last=_caption_clean_word(chunks[i][-1])
+            first=_caption_clean_word(chunks[i+1][0])
+            if last in {'e','de','do','da','em','no','na','que','para','com','por','mas'}: score-=4
+            if first in {'e','mas','porque','porém','porem','então','entao'}: score-=2
+            if re.search(r'[.!?;:]$',str(chunks[i][-1])): score+=8
+            if best_score is None or score<best_score:
+                best_score=score; best_idx=i
+        if best_idx is None:
+            # Preserve short readable captions rather than violating the word limit.
+            break
+        chunks[best_idx:best_idx+2]=[chunks[best_idx]+chunks[best_idx+1]]
+    return chunks
+
+
+def _cue_clean(w):
+    return re.sub(r'\s+',' ',str(w or '')).strip()
+
+
+def _cue_bad_end(w):
+    return re.sub(r'[^A-Za-zÀ-ÿ]','',str(w or '')).lower() in {
+        'e','de','do','da','em','no','na','que','um','uma','o','a','os','as','para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa','sobre','entre','até','sem','nem'
+    }
+
+
+def _cue_bad_start(w):
+    return re.sub(r'[^A-Za-zÀ-ÿ]','',str(w or '')).lower() in {
+        'e','mas','porque','porém','porem','então','entao','quando','enquanto','para','com','de','do','da','em','no','na','que'
+    }
+
+
+def _protected_pair(left,right):
+    a=re.sub(r'[^a-z0-9à-ÿ]','',left.lower())
+    b=re.sub(r'[^a-z0-9à-ÿ]','',right.lower())
+    return (a,b) in {('gta','6'),('gta','vi'),('vice','city'),('cloud','gaming'),('xbox','cloud')}
+
+
+def _protected_caption_boundary(current_cues,next_word):
+    """Avoid cuts in protected names and paired terms across timed captions."""
+    left=[re.sub(r'[^a-z0-9à-ÿ]','',_cue_clean(x.get('word','')).lower()) for x in (current_cues or [])[-3:]]
+    right=re.sub(r'[^a-z0-9à-ÿ]','',_cue_clean(next_word).lower())
+    seq=left+[right]
+    protected={
+        ('gta','6'),('gta','vi'),('vice','city'),('cloud','gaming'),
+        ('xbox','cloud'),('jason','e','lucia'),('playstation','5'),('xbox','series')
+    }
+    for phrase in protected:
+        n=len(phrase)
+        if len(seq)>=n and tuple(seq[-n:])==phrase:
+            return True
+    return False
+
+
+def _build_timed_caption_beats(word_cues, duration, count=10):
+    """V31: legendas derivadas dos WordBoundary reais do TTS, não de janelas estimadas."""
+    cues=[c for c in (word_cues or []) if _cue_clean(c.get('word'))]
+    if not cues:
+        return []
+    beats=[]; cur=[]
+    max_words=7; min_words=3
+    for i,c in enumerate(cues):
+        cur.append(c)
+        word=_cue_clean(c['word'])
+        nextc=cues[i+1] if i+1<len(cues) else None
+        punct=bool(re.search(r'[.!?;:]$',word))
+        pause=(float(nextc['start'])-float(c['start'])) if nextc else 0
+        need=False
+        if len(cur)>=max_words: need=True
+        if punct and len(cur)>=min_words: need=True
+        if nextc and pause>=0.42 and len(cur)>=min_words: need=True
+        # Não corta expressões importantes nem deixa preposição/conjunção isolada.
+        if need and nextc:
+            # Keep conjunctions/prepositions attached to their phrase even when
+            # the normal limit is reached; eight words is the absolute cap.
+            protected=_protected_caption_boundary(cur,nextc['word']) or _protected_pair(word,nextc['word'])
+            hard_split=len(cur)>=max_words+1
+            if protected:
+                need=False
+            elif (_cue_bad_end(word) or _cue_bad_start(nextc['word'])) and not hard_split:
+                need=False
+        if need:
+            beats.append(cur); cur=[]
+    if cur: beats.append(cur)
+
+    # Une blocos muito curtos sem apagar nenhuma palavra.
+    merged=[]
+    for b in beats:
+        if merged and len(b)<min_words and len(merged[-1])+len(b)<=max_words:
+            merged[-1].extend(b)
+        else: merged.append(b)
+    beats=merged
+
+    # Se houver blocos demais, funde pares vizinhos somente quando o sentido e o tamanho permitem.
+    while len(beats)>max(1,count):
+        best=None
+        for i in range(len(beats)-1):
+            a,b=beats[i],beats[i+1]
+            if len(a)+len(b)>max_words: continue
+            score=abs((len(a)+len(b))-6)
+            if _cue_bad_end(a[-1]['word']): score-=5
+            if _cue_bad_start(b[0]['word']): score-=3
+            gap=float(b[0]['start'])-float(a[-1]['start'])
+            if re.search(r'[.!?;:]$',str(a[-1].get('word',''))): score+=8
+            if gap>=0.6: score+=2
+            elif gap<0.6: score-=2
+            if best is None or score<best[0]: best=(score,i)
+        if best is None: break
+        i=best[1]; beats[i:i+2]=[beats[i]+beats[i+1]]
+
+    out=[]
+    for b in beats:
+        text=' '.join(_cue_clean(x['word']) for x in b)
+        text=_clean_caption_phrase(text)
+        start=float(b[0]['start']); end=max(start+0.35,float(b[-1]['start'])+max(0.25,float(b[-1].get('duration',0.25))))
+        end=min(duration,end)
+        ws=re.findall(r"[A-Za-zÀ-ÿ0-9']+",text)
+        preferred=[w for w in ws if w.lower() in {'gta','6','rockstar','jason','lucia','leonida','vice','city','cloud','gaming','xbox','realismo','novidades','microsoft'}]
+        highlight=preferred[0] if preferred else (ws[-1] if len(ws)>=5 else None)
+        out.append({'text':text,'highlight':highlight,'start':start,'end':end,'duration':max(0.35,end-start)})
+    # Corrige gaps/overlaps e garante cobertura até o fim real da fala.
+    for i in range(len(out)-1):
+        out[i]['end']=min(out[i]['end'],out[i+1]['start'])
+        out[i]['duration']=max(0.3,out[i]['end']-out[i]['start'])
+    if out:
+        out[-1]['end']=max(out[-1]['end'],min(duration,float(cues[-1]['start'])+float(cues[-1].get('duration',0.25))))
+        out[-1]['end']=min(duration,out[-1]['end'])
+        out[-1]['duration']=max(0.3,out[-1]['end']-out[-1]['start'])
+    return out
+
+
+def _learned_timeline_count(duration, fallback=10):
+    """Map an Analytics-learned winning duration bucket to pacing density."""
+    try:
+        profile=TREND_BRAIN.recommend_editorial_profile() if TREND_BRAIN else {}
+        pref=(profile or {}).get('preferred_duration') or {}
+        bucket=str(pref.get('bucket') or '')
+        s=float(duration or 0)
+        actual='24-29s' if 24 <= s < 30 else ('30-38s' if 30 <= s < 39 else 'UNSUPPORTED')
+        if bucket != actual: return fallback
+        return {'24-29s':8,'30-38s':10}.get(bucket,fallback)
+    except Exception:
+        return fallback
+
+def _partition_caption_tokens_for_count(tokens, target_count, max_words=7, min_words=3):
+    """Find a low-cost full-coverage caption partition under the scene-count ceiling."""
+    tokens=list(tokens or [])
+    if not tokens:
+        return []
+    max_words=max(2,int(max_words)); min_words=max(1,int(min_words))
+    requested=max(1,int(target_count))
+    min_count=max(1,(len(tokens)+max_words-1)//max_words)
+    max_count=min(requested,max(1,len(tokens)//min_words))
+    if min_count>max_count:
+        raise RuntimeError(
+            f'GATE CAPTIONS: {len(tokens)} words cannot fit in <= {requested} captions '
+            f'of {min_words}-{max_words} words.'
+        )
+
+    protected={
+        ('gta','6'),('gta','vi'),('vice','city'),('cloud','gaming'),
+        ('xbox','cloud','gaming'),('jason','e','lucia'),
+        ('playstation','5'),('xbox','series')
+    }
+    bad_end={
+        'e','de','do','da','em','no','na','que','um','uma','o','a','os','as',
+        'para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa',
+        'sobre','entre','até','sem','como','pelo','pela','pelos','pelas','porém','porem','nem',
+        'esse','essa','esses','essas','este','esta','estes','estas','aquele','aquela',
+        'aqueles','aquelas','meu','minha','meus','minhas','seu','sua','seus','suas',
+        'nosso','nossa','nossos','nossas'
+    }
+    bad_start={
+        'e','mas','porque','porém','porem','então','entao','quando','enquanto',
+        'que','para','com','de','do','da','em','no','na'
+    }
+    def norm(word):
+        return _caption_clean_word(word)
+    def protected_cut(cut):
+        left=[norm(x) for x in tokens[max(0,cut-3):cut]]
+        right=[norm(x) for x in tokens[cut:cut+3]]
+        for phrase in protected:
+            for left_count in range(1,len(phrase)):
+                right_count=len(phrase)-left_count
+                if (len(left)>=left_count and len(right)>=right_count
+                    and tuple(left[-left_count:])==phrase[:left_count]
+                    and tuple(right[:right_count])==phrase[left_count:]):
+                    return True
+        return False
+
+    def solve(target):
+        # Dynamic programming across token offsets finds globally valid cuts.
+        # A local greedy choice can otherwise strand a preposition or connector
+        # at the beginning/end of the last caption, even when another partition exists.
+        n=len(tokens)
+        dp=[[None]*(target+1) for _ in range(n+1)]
+        dp[0][0]=(0.0,[])
+        ideal_words=n/target
+        for offset in range(n):
+            for used in range(target):
+                state=dp[offset][used]
+                if state is None:
+                    continue
+                base_score,parts=state
+                if used>0 and norm(tokens[offset]) in bad_start:
+                    continue
+                for size in range(min_words,max_words+1):
+                    end=offset+size
+                    if end>n:
+                        break
+                    remaining_slots=target-(used+1)
+                    remaining=n-end
+                    if remaining_slots==0:
+                        if remaining:
+                            continue
+                    elif not (min_words*remaining_slots <= remaining <= max_words*remaining_slots):
+                        continue
+                    if norm(tokens[end-1]) in bad_end:
+                        continue
+                    if end<n and protected_cut(end):
+                        continue
+                    tail=tokens[end-1]
+                    score=base_score + abs(size-ideal_words)*2.0
+                    if re.search(r'[.!?;:]$',tail):
+                        score-=12
+                    elif re.search(r'[,)]$',tail):
+                        score-=4
+                    if end<n and norm(tokens[end]) in {'e','mas','porque','porém','porem','então','entao'}:
+                        score-=2
+                    candidate=(score,parts+[tokens[offset:end]])
+                    old=dp[end][used+1]
+                    if old is None or candidate[0]<old[0]:
+                        dp[end][used+1]=candidate
+        final=dp[n][target]
+        if final is None:
+            return None
+        chunks=final[1]
+        audit=_audit_caption_quality([{'text':_clean_caption_phrase(' '.join(c))} for c in chunks])
+        if any(audit.get(key) for key in ('bad_end','bad_start','protected_splits','long','short','visual_bad')):
+            return None
+        return chunks
+
+    for target in range(max_count,min_count-1,-1):
+        chunks=solve(target)
+        if chunks is not None:
+            return chunks
+    raise RuntimeError(
+        f'GATE CAPTIONS: no grammatically safe partition fits <= {requested} captions; '
+        'refusing to split a protected phrase or strand a preposition.'
+    )
+
+
+
+def build_short_timeline(script, topic, duration, count=10, word_cues=None):
+    """V31: se houver WordBoundary, usa timestamps reais da voz; caso contrário usa fallback editorial."""
+    if word_cues:
+        # Edge-TTS pode devolver timestamps que cobrem apenas parte do áudio.
+        # Nesse caso, nunca estenda o último bloco até o fim do MP3 (isso cria
+        # legendas repetidas + uma cena congelada). Só usamos timestamps reais
+        # quando eles cobrem praticamente toda a narração.
+        try:
+            cues_ok=[c for c in (word_cues or []) if _cue_clean(c.get('word'))]
+            last_end=0.0
+            if cues_ok:
+                last=cues_ok[-1]
+                last_end=float(last.get('start',0))+float(last.get('duration',0.25))
+            coverage=last_end/max(0.1,float(duration))
+        except Exception:
+            coverage=0.0
+        if coverage>=0.82:
+            timed=_build_timed_caption_beats(word_cues,duration,count)
+            if timed: return timed
+    narration=re.sub(r'\s+',' ',str(script.get('narration','')).strip())
+    if not narration:
+        return [{'text':'GTA 6','duration':duration,'highlight':'GTA','start':0,'end':duration}]
+    sentences=[s.strip() for s in re.split(r'(?<=[.!?])\s+',narration) if s.strip()]
+    all_chunks=[]
+    # Seven words is the audited maximum and gives enough flexibility to fit
+    # the actual visual-slot count without losing protected word groups.
+    for sent in sentences: all_chunks.extend(_semantic_caption_chunks(sent,3,7))
+    if not all_chunks: all_chunks=[_caption_words(narration)]
+    all_chunks=_merge_caption_chunks(all_chunks,target_count=max(1,count),max_words=7)
+    if len(all_chunks)>max(1,int(count)):
+        all_chunks=_partition_caption_tokens_for_count(_caption_words(narration),max(1,int(count)),max_words=7,min_words=3)
+    phrases=[]
+    for ch in all_chunks:
+        phrase=_clean_caption_phrase(' '.join(ch))
+        if phrase and len(re.findall(r"[A-Za-zÀ-ÿ0-9']+",phrase))>=2: phrases.append(phrase)
+    if not phrases: phrases=[_clean_caption_phrase(narration)]
+    weights=[max(2,len(re.findall(r"[A-Za-zÀ-ÿ0-9']+",p))) for p in phrases]
+    total=sum(weights) or 1
+    raw=[duration*w/total for w in weights]
+    if len(raw)>1:
+        raw=[max(1.25,min(4.8,x)) for x in raw]; scale=duration/sum(raw); raw=[x*scale for x in raw]
+    beats=[]; t=0
+    for phrase,d in zip(phrases,raw):
+        ws=re.findall(r"[A-Za-zÀ-ÿ0-9']+",phrase); preferred=[w for w in ws if w.lower() in {'gta','rockstar','jason','lucia','leonida','vice','city','cloud','gaming','xbox','realismo','novidades'}]
+        h=preferred[0] if preferred else (ws[-1] if len(ws)>=5 else None)
+        beats.append({'text':phrase,'highlight':h,'duration':d,'start':t,'end':t+d}); t+=d
+    return beats
+
+def _beat_keywords(text, topic_title):
+    blob=(str(text)+' '+str(topic_title)).lower()
+    groups=[
+        ('lucia',['lucia']),
+        ('jason',['jason']),
+        ('vice',['vice city','vice']),
+        ('leonida',['leonida']),
+        ('carro',['car','carro','veículo','veiculo','road','estrada']),
+        ('noite',['night','noite','sunset']),
+        ('mapa',['map','mapa','cidade','city']),
+        ('rockstar',['rockstar','confirm','oficial']),
+        ('gta',['gta 6','gta vi','gta'])
+    ]
+    return [name for name,ks in groups if any(k in blob for k in ks)]
+
+def _asset_relevance(path, title, beat_text, kind):
+    txt=(str(path)+' '+str(title)+' '+str(beat_text)).lower()
+    score=0
+    for k,v in [('jason',16),('lucia',16),('vice',12),('leonida',12),('car',7),('night',6),('map',7),('city',5),('rockstar',4),('gta',3)]:
+        if k in txt: score+=v
+    # Video filenames are more informative than generic image filenames.
+    if kind=='video': score+=3
+    return score
+
+VIDEO_SOURCE_MAX_USES=1
+
+
+def _visual_source_key(path):
+    """Return the original clip stem so cropped windows cannot masquerade as new sources."""
+    stem=Path(path).stem
+    return re.sub(r'_window_[0-9]+$','',stem,flags=re.I)
+
+
+def _visual_source_capacity(paths, max_per_source=VIDEO_SOURCE_MAX_USES):
+    """Count how many video windows can be used without exceeding the per-source budget."""
+    counts={}
+    for path in (paths or []):
+        if not path:
+            continue
+        key=_visual_source_key(path)
+        counts[key]=counts.get(key,0)+1
+    return sum(min(max(0,int(max_per_source)),count) for count in counts.values())
+
+
+def _choose_timeline_assets(video_clips, image_paths, beats, topic_title, variant=0):
+    """V57: editor video-first.
+    Prioriza material em movimento e usa imagens apenas como apoio editorial.
+    Evita repetição imediata e garante variedade sem transformar o Short em slideshow.
+    """
+    videos=[p for p in video_clips if p]
+    images=[p for p in image_paths if p]
+    pool=[('video',p) for p in videos]+[('image',p) for p in images]
+    chosen=[]; used=set(); asset_counts={}; source_counts={}
+    def source_group(path):
+        # Three windows cut from one trailer still count as one editorial source.
+        return _visual_source_key(path)
+    video_sources={source_group(p) for p in videos}
+    # V61: repetition is now a hard budget, not just a score penalty.
+    # The pool can shrink on Render Free after a restart, so the reuse budget is
+    # calculated from the assets actually available. With 8 videos + 4 images
+    # this yields 16 video + 8 image scenes; with 4 + 4 it yields 12 + 12.
+    asset_total=max(1,len(videos)+len(images))
+    # Images are supporting assets, not loopable footage: each still may appear
+    # at most once in a Short. Video sources can repeat only because each proxy
+    # is now 8.5s long and the renderer seeks to a materially different offset.
+    image_max_reuse=1
+    # V68: a amostra de QA (14/10) mostrou repetição perceptível mesmo com
+    # janelas tecnicamente diferentes do mesmo trailer. Não contar _window_N como
+    # nova cena editorial: limitar cada fonte original a UMA aparição por Short.
+    # Se o pool de fontes oficiais for insuficiente, o gate deve bloquear em vez
+    # de publicar um vídeo com o mesmo personagem/plano reciclado.
+    video_max_reuse=VIDEO_SOURCE_MAX_USES
+    max_reuse=max(image_max_reuse,video_max_reuse)
+    video_capacity=_visual_source_capacity(videos,video_max_reuse) if videos else 0
+    target_video=min(len(beats),video_capacity) if beats and videos else 0
+    target_images=min(len(images), max(0, len(beats)-target_video)) if beats and images else 0
+    print(f'[TIMELINE_VARIETY] videos={len(videos)} images={len(images)} video_max_reuse={video_max_reuse} target_video={target_video} target_images={target_images}',flush=True)
+    if len(beats or []) > video_capacity + len(images):
+        raise RuntimeError(
+            f'GATE VISUAL: pool insuficiente para evitar repetição '
+            f'({video_capacity} janelas de vídeo utilizáveis + {len(images)} imagens únicas '
+            f'para {len(beats)} cenas). Buscar mais material oficial antes de renderizar.'
+        )
+    video_used=0
+
+    def recent_penalty(p, bi):
+        pen=0
+        recent=[x[1] for x in chosen[-8:]]
+        if p in recent: pen += 420
+        if chosen and chosen[-1][1]==p: pen += 1000
+        if beats and bi >= max(0, int(len(beats)*0.80)) and p in [x[1] for x in chosen[:2]]:
+            pen += 180
+        # Strongly prefer sources that have not been used yet.
+        pen += asset_counts.get(p,0) * 180
+        return pen
+
+    def under_reuse_budget(p):
+        # Images are one-shot support assets; video windows share a budget by
+        # original source so cutting a trailer into windows cannot bypass it.
+        kind='video' if p in videos else 'image'
+        budget=video_max_reuse if kind=='video' else image_max_reuse
+        count=source_counts.get(source_group(p),0) if kind=='video' else asset_counts.get(p,0)
+        return count < budget
+
+    for bi,beat in enumerate(beats):
+        remaining=[(idx,kind,p) for idx,(kind,p) in enumerate(pool) if idx not in used]
+        remaining_videos=[x for x in remaining if x[1]=='video']
+        reusable_videos=[(idx,kind,p) for idx,(kind,p) in enumerate(pool) if kind=='video' and under_reuse_budget(p)]
+        reusable_images=[(idx,kind,p) for idx,(kind,p) in enumerate(pool) if kind=='image' and under_reuse_budget(p)]
+        target_image_count=max(0, len(beats)-target_video)
+        image_slots={int(round((i+1)*len(beats)/(target_image_count+1)))-1 for i in range(target_image_count)} if target_image_count else set()
+        image_due=(bi in image_slots) and bool(images)
+
+        # V65: FRESH-FIRST é uma regra dura. Se ainda existe uma fonte de vídeo
+        # que nunca apareceu, ela vence qualquer fonte já exibida. A penalidade
+        # numérica anterior podia ser superada pela relevância semântica (Jason/
+        # Lucia), causando o carrossel dos mesmos 4-5 planos.
+        fresh_videos=[x for x in remaining_videos if under_reuse_budget(x[2])]
+        fresh_images=[x for x in remaining if x[1]=='image' and under_reuse_budget(x[2])]
+        remaining_slots=len(beats)-bi-1
+        remaining_video_capacity=sum(1 for _idx,_kind,p in reusable_videos)
+        can_use_image=image_due and (video_used + remaining_slots >= target_video) and bool(fresh_images or reusable_images)
+        force_video=bool(videos) and video_used < target_video and not can_use_image and bool(reusable_videos)
+
+        if can_use_image:
+            candidates=fresh_images or reusable_images
+        elif force_video:
+            # Enquanto houver vídeo inédito, não aceite um vídeo reciclado.
+            candidates=fresh_videos or reusable_videos
+        elif fresh_videos:
+            candidates=fresh_videos
+        elif fresh_images:
+            candidates=fresh_images
+        elif reusable_videos:
+            candidates=reusable_videos
+        elif reusable_images:
+            candidates=reusable_images
+        else:
+            candidates=remaining or [(idx,kind,p) for idx,(kind,p) in enumerate(pool)]
+
+        # V62: balance source usage before semantic ranking. This prevents
+        # one character/shot from winning repeatedly just because its filename
+        # matches the topic better than the other clips.
+        if force_video and candidates:
+            min_count=min(source_counts.get(source_group(p),0) for _idx,_kind,p in candidates)
+            candidates=[x for x in candidates if source_counts.get(source_group(x[2]),0)==min_count] or candidates
+        ranked=[]
+        for idx,kind,p in candidates:
+            if force_video and kind!='video':
+                continue
+            score=_asset_relevance(p,topic_title,beat.get('text',''),kind)
+
+            # Movimento é prioridade editorial: vídeos recebem grande vantagem.
+            if kind=='video':
+                score += 55
+                if bi==0: score += 20
+                if bi>=2: score += 12
+            else:
+                score -= 10
+
+            # Nunca repetir o mesmo visual imediatamente.
+            score -= recent_penalty(p,bi)
+
+            # Relevância semântica continua valendo, mas não supera a prioridade
+            # de movimento quando o vídeo é utilizável.
+            if variant and idx % 4 == (bi+variant)%4:
+                score += 6
+
+            ranked.append((score,kind,p,idx))
+
+        # Fallback caso a cota tenha acabado ou só existam imagens restantes.
+        if not ranked:
+            ranked=[]
+            for idx,kind,p in candidates:
+                score=_asset_relevance(p,topic_title,beat.get('text',''),kind)
+                score += 40 if kind=='video' else -5
+                score -= recent_penalty(p,bi)
+                ranked.append((score,kind,p,idx))
+
+        ranked.sort(key=lambda x:x[0],reverse=True)
+        _,kind,p,idx=ranked[0]
+        chosen.append((kind,p))
+        asset_counts[p]=asset_counts.get(p,0)+1
+        if kind=='video':
+            source=source_group(p)
+            source_counts[source]=source_counts.get(source,0)+1
+        used.add(idx)
+        if kind=='video':
+            video_used += 1
+
+    return chosen
+
+def _normalize_visual_beats(beats, duration, max_scene=3.2):
+    """Garante que nenhuma cena visual fique longa demais.
+    O texto só permanece no intervalo real da fala; gaps de áudio viram
+    cenas de apoio sem repetir a última legenda.
+    """
+    src=list(beats or [])
+    if not src:
+        return [{'text':'','highlight':None,'start':0.0,'end':float(duration),'duration':float(duration),'captionless':True}]
+    out=[]
+    cursor=0.0
+    for b in src:
+        start=max(0.0,float(b.get('start',cursor)))
+        end=min(float(duration),float(b.get('end',start+float(b.get('duration',1.0)))))
+        if start>cursor+0.12:
+            gap=start-cursor
+            while gap>0.05:
+                d=min(max_scene,gap)
+                out.append({'text':'','highlight':None,'start':cursor,'end':cursor+d,'duration':d,'captionless':True})
+                cursor+=d; gap-=d
+        if end<=start: continue
+        span=end-start
+        pieces=max(1,int(__import__('math').ceil(span/max_scene)))
+        d=span/pieces
+        for i in range(pieces):
+            a=start+i*d; z=end if i==pieces-1 else start+(i+1)*d
+            out.append({'text':str(b.get('text','')) if i==0 else '',
+                        'highlight':b.get('highlight') if i==0 else None,
+                        'start':a,'end':z,'duration':max(0.35,z-a),
+                        'captionless':i>0})
+        cursor=end
+    if cursor<float(duration)-0.05:
+        gap=float(duration)-cursor
+        while gap>0.05:
+            d=min(max_scene,gap)
+            out.append({'text':'','highlight':None,'start':cursor,'end':cursor+d,'duration':d,'captionless':True})
+            cursor+=d; gap-=d
+    return out
+
+
+def make_multimedia_video(video_clips, image_paths, audio, out, duration, captions, script=None, topic_title='GTA 6', beats=None, motion_boost=False, asset_variant=0):
+    # FFmpeg/yuv420p requires even width/height. Keep per-scene intermediates at 540x960 for Render Free memory,
+    # then upscale only the final concatenated master to the required 1080x1920 delivery dimensions.
+    INTER_W, INTER_H = 540, 960
+    if INTER_W % 2 or INTER_H % 2:
+        raise RuntimeError(f'Dimensões intermediárias inválidas: {INTER_W}x{INTER_H}.')
+    """V57 editor: narration-driven video-first timeline, short beats, real clips + limited images.
+    Still optimized for Render Free by encoding one scene at a time.
+    """
+    ff=_ffmpeg_executable()
+    work=out.parent/'timeline'; work.mkdir(exist_ok=True)
+    if len(video_clips)<3 and len(image_paths)<8:
+        raise RuntimeError('A edição precisa de 3 vídeos reais ou pelo menos 8 visuais únicos de fallback.')
+    if script is None:
+        script={'narration':' '.join(captions)}
+    beats=beats or build_short_timeline(script, {'title':topic_title}, duration, count=10)
+    # Cap scene count before normalization so the renderer cannot recreate more
+    # scenes than the unique visual pool can support.
+    if video_clips:
+        visual_capacity=_visual_source_capacity(video_clips)+len(set(map(str,image_paths)))
+        if 6 <= visual_capacity < len(beats):
+            beats=build_short_timeline(script,{'title':topic_title},duration,count=visual_capacity,word_cues=None)
+            if len(beats)>visual_capacity:
+                raise RuntimeError(
+                    f'GATE CAPTIONS: {len(beats)} semantic captions exceed the {visual_capacity}-scene visual pool; '
+                    'refusing to split narration by raw word counts.'
+                )
+            print(f'[VISUAL_POOL] timeline_capped={len(beats)} capacity={visual_capacity}',flush=True)
+    # Video-first timelines are normalized to short beats. In the controlled
+    # image-only fallback, preserve one unique image per beat instead of splitting
+    # each 2.5s beat into duplicates that would recycle the same stills.
+    if video_clips:
+        # Preserve the capped timeline exactly when it fits the unique visual pool.
+        # Calling the normalizer here can split long beats and recreate the same
+        # visual-capacity failure we just avoided.
+        unique_pool=_visual_source_capacity(video_clips)+len(set(map(str,image_paths)))
+        if len(beats) <= unique_pool:
+            n=max(1,len(beats))
+            beats=[dict(b, start=i*duration/n, end=(i+1)*duration/n, duration=duration/n) for i,b in enumerate(beats)]
+        else:
+            max_scene=2.0 if len(video_clips)<3 and len(image_paths)>=8 else 1.8
+            beats=_normalize_visual_beats(beats,duration,max_scene=max_scene)
+    else:
+        n=max(1,len(beats))
+        beats=[dict(b, start=i*duration/n, end=(i+1)*duration/n, duration=duration/n) for i,b in enumerate(beats)]
+    # Last-mile gate: inspect the exact caption beats that will be painted onto
+    # the output frames. Earlier prechecks ran before renderer compaction/retiming.
+    _render_cap=_audit_caption_quality(beats)
+    print(
+        f"[RENDER_CAPTION_AUDIT] before score={_render_cap.get('score',0)} "
+        f"bad_end={len(_render_cap.get('bad_end',[]))} "
+        f"bad_start={len(_render_cap.get('bad_start',[]))} "
+        f"protected_splits={len(_render_cap.get('protected_splits',[]))}",
+        flush=True
+    )
+    if (_render_cap.get('bad_end') or _render_cap.get('bad_start')
+        or _render_cap.get('protected_splits') or _render_cap.get('long')
+        or _render_cap.get('short') or _render_cap.get('visual_bad')):
+        _render_fixed=_repair_caption_beats(beats,float(duration),max_words=6)
+        _render_fixed_cap=_audit_caption_quality(_render_fixed)
+        if (_render_fixed_cap.get('bad_end') or _render_fixed_cap.get('bad_start')
+            or _render_fixed_cap.get('protected_splits') or _render_fixed_cap.get('long')
+            or _render_fixed_cap.get('short') or _render_fixed_cap.get('visual_bad')
+            or not _render_fixed):
+            raise RuntimeError(
+                "RENDER_CAPTION_GATE: a segmentação final das legendas continua inválida: "
+                f"{_render_fixed_cap}"
+            )
+        beats=_render_fixed
+        print(
+            f"[RENDER_CAPTION_AUDIT] repaired score={_render_fixed_cap.get('score',0)} "
+            f"scenes={len(beats)}",
+            flush=True
+        )
+    else:
+        print(f"[RENDER_CAPTION_AUDIT] accepted score={_render_cap.get('score',0)}",flush=True)
+    # Use todos os assets disponíveis; quando há poucos, o renderer aplica
+    # enquadramentos diferentes em cada reutilização em vez de congelar a tela.
+    # Keep all unique frames produced by the official-video extractor. The old [:18]
+    # cap silently discarded frames even when augmentation had built a larger pool,
+    # causing the visual gate to reject otherwise viable timelines.
+    imgs=list(image_paths)[:24]
+    assets=_choose_timeline_assets(video_clips,imgs,beats,topic_title,variant=asset_variant)
+    scene_files=[]
+    render_use_counts={}
+    print(f'[RENDER] start title={topic_title[:100]} scenes={len(beats)} videos={len(videos) if (videos:=list(video_clips)) else 0} images={len(imgs)} duration={duration:.1f}s', flush=True)
+    for i,(beat,(kind,src)) in enumerate(zip(beats,assets)):
+        print(f'[RENDER] scene {i+1}/{len(beats)} start kind={kind} duration={float(beat.get("duration",0)):.2f}s source={Path(src).name}', flush=True)
+        scene=work/f'scene_{i:02d}.mp4'; overlay=work/f'overlay_{i:02d}.png'
+        _caption_overlay(overlay,beat['text'],i,len(beats),540,960,beat.get('highlight'))
+        if kind=='video':
+            # Movimento leve em todas as cenas. Em reparos, aumenta a amplitude.
+            amp=28 if motion_boost else 10
+            vf=f"scale=574:1020:force_original_aspect_ratio=increase,crop=540:960:x='10+{amp}*sin(n/18)':y='18+{max(4,amp//2)}*cos(n/23)',setsar=1,fps=30"
+            # Reused clips start at different offsets so the same source is
+            # not perceived as the exact same shot on every occurrence.
+            reuse_n=render_use_counts.get(str(src),0)
+            # V62: use six distinct windows across the 8.5s proxy. The previous
+            # 6.4s cap caused the 5th/6th reuse to collapse onto nearly the same
+            # opening, which is exactly the "same video came back" problem.
+            # V65: em uma segunda aparição, desloca o trecho de forma clara.
+            # O limite de 2 usos torna este offset determinístico e evita que
+            # a mesma abertura do proxy volte praticamente igual.
+            offset=(3.6 if asset_variant>0 else 0.0) if reuse_n==0 else 3.6
+            zoom_variant=reuse_n % 2
+            crop_w=540 + zoom_variant*10
+            crop_h=960 + zoom_variant*18
+            scale_w=574 + zoom_variant*18
+            scale_h=1020 + zoom_variant*30
+            vf=f"scale={scale_w}:{scale_h}:force_original_aspect_ratio=increase,crop={crop_w}:{crop_h}:x='10+{10+zoom_variant*8}*sin(n/18)':y='18+{max(4,10+zoom_variant*5)}*cos(n/23)',scale=540:960,setsar=1,fps=30"
+            inp=['-stream_loop','-1','-threads:v','1','-probesize','1M','-analyzeduration','1M','-ss',f'{offset:.2f}','-i',str(src)]
+        else:
+            # Apply edge-safe preprocessing in the actual render path. Previously
+            # the crop helper existed and its unit test passed, but image rendering
+            # bypassed it and retained clipped source-edge lettering.
+            prepared_source=work/f'image_safe_{i:02d}.jpg'
+            prepare_scene(src,prepared_source,beat.get('text',''),i,len(beats))
+            # V67.1: keep image motion alive for the whole beat. The former
+            # zoom+0.003/frame hit the 1.06 cap in ~20 frames (~0.67 s), then
+            # visually held still for most of a 2.14 s scene.
+            zoom_rate='0.0014' if motion_boost else '0.00125'
+            zoom_cap='1.09' if motion_boost else '1.085'
+            vf=f"scale=540:960:force_original_aspect_ratio=increase,crop=540:960,setsar=1,zoompan=z='min(1+{zoom_rate}*on,{zoom_cap})':x='(iw-iw/zoom)/2+((iw-iw/zoom)/4)*sin(on/18)':y='(ih-ih/zoom)/2+((ih-ih/zoom)/4)*cos(on/23)':d=1:s=540x960:fps=30"
+            inp=['-loop','1','-threads:v','1','-i',str(prepared_source)]
+        cmd=[ff,'-loglevel','error','-y']+inp+['-threads:v','1','-loop','1','-i',str(overlay),'-t',f'{beat["duration"]:.3f}',
+             '-filter_complex',f'[0:v]{vf}[v];[1:v]format=rgba[o];[v][o]overlay=0:0:shortest=1[outv]',
+             '-map','[outv]','-an','-c:v','libx264','-preset','ultrafast','-crf','21',
+             '-threads','1','-filter_threads','1','-filter_complex_threads','1',
+             '-x264-params','threads=1:lookahead-threads=1:rc-lookahead=0:sync-lookahead=0','-pix_fmt','yuv420p','-movflags','+faststart',str(scene)]
+        run_cmd(cmd,75)
+        scene_files.append(scene)
+        render_use_counts[str(src)]=render_use_counts.get(str(src),0)+1
+        print(f'[RENDER] scene {i+1}/{len(beats)} done bytes={scene.stat().st_size if scene.exists() else 0}', flush=True)
+        try: overlay.unlink()
+        except Exception: pass
+    listfile=work/'timeline.txt'
+    with listfile.open('w',encoding='utf-8') as f:
+        for sf in scene_files: f.write(f"file '{sf.as_posix()}'\n")
+    print(f'[RENDER] concat start scenes={len(scene_files)} audio_bytes={Path(audio).stat().st_size if Path(audio).exists() else 0}', flush=True)
+    run_cmd([ff,'-loglevel','error','-y','-f','concat','-safe','0','-i',str(listfile),'-i',str(audio),
+             '-t',f'{duration:.2f}','-vf','scale=1080:1920:flags=lanczos,setsar=1,format=yuv420p','-r','30',
+             '-c:v','libx264','-preset','ultrafast','-crf','20','-threads','1','-filter_threads','1','-filter_complex_threads','1',
+             '-x264-params','threads=1:lookahead-threads=1:rc-lookahead=0:sync-lookahead=0','-force_key_frames','expr:gte(t,n_forced*2)','-c:a','aac','-b:a','160k',
+             '-movflags','+faststart','-shortest',str(out)],300)
+    print(f'[RENDER] concat done exists={out.exists()} bytes={out.stat().st_size if out.exists() else 0}', flush=True)
+    for p in scene_files:
+        try: p.unlink()
+        except Exception: pass
+    for p in work.glob('image_safe_*.jpg'):
+        try: p.unlink()
+        except Exception: pass
+    try: listfile.unlink()
+    except Exception: pass
+    # Return exact caption beats painted into the MP4 for downstream post-render QA.
+    return beats
+
+def make_video(scenes,audio,out,duration):
+    # Corte mais rápido: 12 cenas em ~2–3 s cada. A troca de enquadramento já foi
+    # preparada nas imagens; o concat continua leve o bastante para o Render Free.
+    listfile=out.parent/'scenes.txt'; per=duration/len(scenes)
+    with listfile.open('w',encoding='utf-8') as f:
+        for p in scenes:
+            f.write(f"file '{p.as_posix()}'\nduration {per:.3f}\n")
+        f.write(f"file '{scenes[-1].as_posix()}'\n")
+    ff=_ffmpeg_executable()
+    run_cmd([ff,'-y','-f','concat','-safe','0','-i',str(listfile),'-i',str(audio),
+             '-t',f'{duration:.2f}','-r','24','-c:v','libx264','-preset','ultrafast',
+             '-crf','22','-threads','2','-profile:v','high','-pix_fmt','yuv420p',
+             '-c:a','aac','-b:a','128k','-movflags','+faststart','-shortest',str(out)],300)
+
+
+def make_cover(scene,title,out):
+    im=Image.open(scene).convert('RGB')
+    im=im.resize((540,960),Image.Resampling.BILINEAR)
+    d=ImageDraw.Draw(im,'RGBA')
+    d.rectangle((22,250,518,665),fill=(0,0,0,175),outline=(225,25,45),width=3)
+    f=font(36,True); y=305
+    for line in wrap_text(d,title,f,440)[:6]:
+        d.text((50,y),line,font=f,fill='white',stroke_width=1,stroke_fill='black'); y+=44
+    d.text((50,60),'GTA OCULTO',font=font(18,True),fill=(255,255,255,180))
+    im.save(out,quality=92)
+
+def _load_learning():
+    with LEARNING_LOCK:
+        if not LEARNING_FILE.exists():
+            return {'version':'V42.2','errors':{},'strategies':{},'experiments':[],'updated_at':now_iso()}
+        try:
+            d=json.loads(LEARNING_FILE.read_text(encoding='utf-8'))
+            if not isinstance(d,dict): raise ValueError('learning inválido')
+            d.setdefault('version','V41.3'); d.setdefault('errors',{}); d.setdefault('strategies',{}); d.setdefault('experiments',[])
+            return d
+        except Exception:
+            return {'version':'V42.2','errors':{},'strategies':{},'experiments':[],'updated_at':now_iso()}
+
+def _save_learning(data):
+    data['updated_at']=now_iso()
+    _atomic_write_json(LEARNING_FILE,data)
+
+def _learn_event(code, message, strategy=None, success=None):
+    try:
+        with LEARNING_LOCK:
+            d=_load_learning()
+            e=d['errors'].setdefault(code,{'count':0,'last':'','messages':[]})
+            e['count']=int(e.get('count',0))+1; e['last']=now_iso()
+            msgs=e.setdefault('messages',[]); msgs.append(str(message)[:500]); e['messages']=msgs[-8:]
+            if strategy:
+                st=d['strategies'].setdefault(code,{'uses':0,'success':0,'last':'','strategy':strategy})
+                st['uses']=int(st.get('uses',0))+1; st['last']=now_iso(); st['strategy']=strategy
+                if success is True: st['success']=int(st.get('success',0))+1
+            _save_learning(d)
+    except Exception:
+        pass
+
+def _repair_caption_beats(beats, duration, max_words=7):
+    """V55.3: reconstrução semântica das legendas usando somente as palavras já faladas.
+    Em vez de apenas juntar blocos ruins, achata a fala existente, resegmenta por
+    unidades de sentido e redistribui o tempo proporcionalmente. Isso elimina falsos
+    positivos como blocos terminando em preposição/conjunção.
+    """
+    if not beats:
+        return []
+
+    # Preserva exatamente o texto que já veio da narração; não cria palavras novas.
+    raw_parts=[re.sub(r'\s+',' ',str(b.get('text','')).strip()) for b in beats if str(b.get('text','')).strip()]
+    full=' '.join(raw_parts).strip()
+    if not full:
+        return []
+
+    # Recria frases a partir de pontuação quando ela ainda existir; caso contrário,
+    # usa a segmentação semântica existente no motor.
+    sentences=[x.strip() for x in re.split(r'(?<=[.!?;:])\s+',full) if x.strip()]
+    chunks=[]
+    for sent in sentences:
+        chunks.extend(_semantic_caption_chunks(sent, min_words=3, max_words=max_words))
+    if not chunks:
+        chunks=[_caption_words(full)]
+
+    # Corrige fragmentos e limita a quantidade de blocos sem alterar a sequência.
+    chunks=[list(c) for c in chunks if c]
+    fixed=[]
+    for ch in chunks:
+        if fixed and len(ch)<3 and len(fixed[-1])+len(ch)<=max_words:
+            fixed[-1].extend(ch)
+        else:
+            fixed.append(ch)
+    chunks=_merge_caption_chunks(fixed,target_count=max(1,min(16,len(fixed))),max_words=max_words)
+
+    # Repair semantic boundaries without creating very long captions.
+    bad_end={'e','de','do','da','em','no','na','que','um','uma','o','a','os','as','para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa','sobre','entre','até','sem','nem','esse','essa','esses','essas','este','esta','estes','estas','aquele','aquela','aqueles','aquelas','meu','minha','meus','minhas','seu','sua','seus','suas','nosso','nossa','nossos','nossas'}
+    bad_start={'e','mas','porque','porém','porem','então','entao','quando','enquanto','para','com','de','do','da','em','no','na','que'}
+    i=0
+    while i < len(chunks)-1:
+        last=_caption_clean_word(chunks[i][-1]); first=_caption_clean_word(chunks[i+1][0])
+        if (last in bad_end or first in bad_start) and len(chunks[i])+len(chunks[i+1])<=max_words:
+            chunks[i:i+2]=[chunks[i]+chunks[i+1]]
+            i=max(0,i-1)
+        else:
+            i+=1
+
+    # Gate final de início de legenda: nenhum bloco pode começar com conector/preposição.
+    # Se não houver espaço no bloco anterior, desloca uma palavra do fim anterior para
+    # preservar a sequência falada e evitar cortes como "DE EMPREGOS..." isolados.
+    bad_start_final={'e','mas','porque','porém','porem','então','entao','quando','enquanto','para','com','de','do','da','em','no','na','que'}
+    changed=True
+    guard=0
+    while changed and guard < 32:
+        changed=False
+        guard+=1
+        for idx in range(1,len(chunks)):
+            if not chunks[idx]:
+                continue
+            first=_caption_clean_word(chunks[idx][0])
+            if first not in bad_start_final:
+                continue
+            prev=chunks[idx-1]
+            # "PARA" pode iniciar a continuação natural de "empregos para várias pessoas";
+            # nesse caso, é melhor que a legenda anterior termine em "PARA".
+            if first == 'para' and prev and _caption_clean_word(prev[-1]) == 'empregos':
+                continue
+            if len(prev)+1 <= max_words:
+                prev.append(chunks[idx].pop(0))
+                changed=True
+            elif len(prev)>3 and len(chunks[idx])>3:
+                chunks[idx].insert(0,prev.pop())
+                changed=True
+            if not chunks[idx]:
+                chunks.pop(idx)
+                break
+
+    # Evita deixar preposição pendurada no fim de uma legenda quando a seguinte
+    # comporta a palavra e a construção continua naturalmente (ex.: "empregos para").
+    for idx in range(len(chunks)-1):
+        if not chunks[idx] or not chunks[idx+1]:
+            continue
+        last=_caption_clean_word(chunks[idx][-1])
+        nxt=_caption_clean_word(chunks[idx+1][0])
+        if last == 'para' and nxt not in bad_start_final and len(chunks[idx+1]) < max_words and len(chunks[idx]) > 3:
+            chunks[idx+1].insert(0,chunks[idx].pop())
+
+    # Intervalo temporal coberto pelos beats originais.
+    start_time=float(beats[0].get('start',0.0))
+    end_time=min(float(duration), max(float(b.get('end',0.0)) for b in beats))
+    if end_time<=start_time:
+        start_time=0.0; end_time=float(duration)
+    span=max(0.5,end_time-start_time)
+    weights=[max(1,len(c)) for c in chunks]
+    total=sum(weights) or 1
+
+    out=[]; cursor=start_time
+    for i,ch in enumerate(chunks):
+        d=span*(weights[i]/total)
+        ce=end_time if i==len(chunks)-1 else cursor+d
+        text=_clean_caption_phrase(' '.join(ch))
+        if not text: continue
+        ws=re.findall(r"[A-Za-zÀ-ÿ0-9']+",text)
+        preferred=[w for w in ws if w.lower() in {'gta','6','rockstar','jason','lucia','leonida','vice','city','cloud','gaming','xbox','realismo','novidades','microsoft'}]
+        highlight=preferred[0] if preferred else (ws[-1] if len(ws)>=5 else None)
+        out.append({'text':text,'highlight':highlight,'start':cursor,'end':ce,'duration':max(0.3,ce-cursor)})
+        cursor=ce
+
+    # Sem sobreposição e cobertura final estável.
+    for i in range(len(out)-1):
+        out[i]['end']=min(out[i]['end'],out[i+1]['start'])
+        out[i]['duration']=max(0.3,out[i]['end']-out[i]['start'])
+    if out:
+        out[-1]['end']=min(float(duration),max(out[-1]['end'],end_time))
+        out[-1]['duration']=max(0.3,out[-1]['end']-out[-1]['start'])
+    return out
+
+def _caption_visual_split_quality(text, W=540):
+    """Score line balance at the actual 540x960 export width."""
+    d=ImageDraw.Draw(Image.new('RGBA',(W,120),(0,0,0,0)))
+    f=font(24,True)
+    words=str(text or '').split()
+    if not words: return {'score':100,'lines':[]}
+    single=' '.join(words)
+    max_width=W-42
+    if d.textbbox((0,0),single,font=f,stroke_width=1)[2] <= max_width:
+        return {'score':100,'lines':[single.upper()]}
+    # Short captions should be evaluated by actual fit, not word count alone.
+    # Permit a balanced two-line split even for phrases of 2-4 words.
+    candidates=[]
+    for cut in range(1,len(words)):
+        a=' '.join(words[:cut]); b=' '.join(words[cut:])
+        wa=d.textbbox((0,0),a,font=f,stroke_width=1)[2]
+        wb=d.textbbox((0,0),b,font=f,stroke_width=1)[2]
+        if wa<=max_width and wb<=max_width:
+            candidates.append((abs(wa-wb)+abs(cut-(len(words)-cut))*18,cut,a,b))
+    if candidates:
+        _,cut,a,b=min(candidates,key=lambda x:x[0])
+        return {'score':100,'lines':[a.upper(),b.upper()]}
+    # Retry at smaller but still readable sizes before failing the caption audit.
+    for size in (22,20,18):
+        fs=font(size,True)
+        if d.textbbox((0,0),single,font=fs,stroke_width=1)[2] <= max_width:
+            return {'score':90,'lines':[single.upper()],'font_size':size}
+        smaller=[]
+        for cut in range(1,len(words)):
+            a=' '.join(words[:cut]); b=' '.join(words[cut:])
+            wa=d.textbbox((0,0),a,font=fs,stroke_width=1)[2]
+            wb=d.textbbox((0,0),b,font=fs,stroke_width=1)[2]
+            if wa<=max_width and wb<=max_width:
+                smaller.append((abs(wa-wb)+abs(cut-(len(words)-cut))*18,a,b))
+        if smaller:
+            _,a,b=min(smaller,key=lambda x:x[0])
+            return {'score':90,'lines':[a.upper(),b.upper()],'font_size':size}
+    return {'score':65,'lines':[str(text).upper()]}
+
+def _audit_caption_quality(beats):
+    bad_end=[]; bad_start=[]; long=[]; short=[]; visual_bad=[]; protected_splits=[]
+    bad_end_set={'e','de','do','da','em','no','na','que','um','uma','o','a','os','as','para','com','por','mas','se','ou','ao','à','às','dos','das','num','numa','sobre','entre','até','sem','nem','esse','essa','esses','essas','este','esta','estes','estas','aquele','aquela','aqueles','aquelas','meu','minha','meus','minhas','seu','sua','seus','suas','nosso','nossa','nossos','nossas'}
+    bad_start_set={'e','mas','porque','porém','porem','então','entao','quando','enquanto','para','com','de','do','da','em','no','na','que'}
+    protected_phrases={
+        ('gta','6'),('gta','vi'),('vice','city'),('cloud','gaming'),
+        ('xbox','cloud','gaming'),('jason','e','lucia'),('playstation','5'),('xbox','series')
+    }
+    for bi,b in enumerate(beats or []):
+        words=_caption_words(b.get('text',''))
+        if not words: continue
+        if _caption_clean_word(words[-1]) in bad_end_set: bad_end.append(b['text'])
+        first=_caption_clean_word(words[0])
+        # Aceita "PARA" quando é continuação gramatical de "empregos para várias pessoas".
+        previous_words=_caption_words((beats[bi-1] or {}).get('text','')) if bi>0 else []
+        valid_para_continuation=(first=='para' and previous_words and _caption_clean_word(previous_words[-1])=='empregos')
+        if first in bad_start_set and not valid_para_continuation: bad_start.append(b['text'])
+        if len(words)>7: long.append(b['text'])
+        if len(words)<2: short.append(b['text'])
+        vs=_caption_visual_split_quality(b.get('text',''))
+        if vs['score']<85: visual_bad.append({'text':b.get('text',''),'lines':vs['lines']})
+
+    # Check phrase integrity across each caption boundary, not only inside a block.
+    clean_blocks=[
+        [_caption_clean_word(w) for w in _caption_words((b or {}).get('text',''))]
+        for b in (beats or [])
+    ]
+    for bi in range(len(clean_blocks)-1):
+        left=clean_blocks[bi]; right=clean_blocks[bi+1]
+        for phrase in protected_phrases:
+            for left_count in range(1,len(phrase)):
+                right_count=len(phrase)-left_count
+                if (len(left)>=left_count and len(right)>=right_count
+                    and tuple(left[-left_count:])==phrase[:left_count]
+                    and tuple(right[:right_count])==phrase[left_count:]):
+                    protected_splits.append({
+                        'phrase':' '.join(phrase),
+                        'left':(beats[bi] or {}).get('text',''),
+                        'right':(beats[bi+1] or {}).get('text','')
+                    })
+    total=max(1,len(beats or []))
+    texts=[re.sub(r'\s+',' ',str(b.get('text','')).strip().lower()) for b in (beats or []) if str(b.get('text','')).strip()]
+    repeated_adj=sum(1 for i in range(1,len(texts)) if texts[i] and texts[i]==texts[i-1])
+    repeated_total=max(0,len(texts)-len(set(texts))) if texts else 0
+    # A caption ending in a preposition or splitting a protected name is a stronger warning.
+    boundary_penalty=min(28, len(bad_end)*2 + len(bad_start)*2)
+    penalty=min(65,boundary_penalty + len(long)*3 + len(short)*2 + len(visual_bad)*3 + repeated_adj*8 + repeated_total*3 + min(30,len(protected_splits)*15))
+    return {
+        'score':max(0,100-penalty),
+        'bad_end':bad_end,'bad_start':bad_start,'long':long,'short':short,
+        'visual_bad':visual_bad,'protected_splits':protected_splits,
+        'repeated_adjacent':repeated_adj,'repeated_total':repeated_total
+    }
+
+
+MEDIA_VALIDATION_CACHE={}
+MEDIA_VALIDATION_LOCK=threading.RLock()
+
+def _probe_media(path):
+    """Probe media with ffprobe when available, falling back to FFmpeg itself.
+
+    Render images sometimes expose the FFmpeg binary without a sibling ffprobe.
+    Treating that environment difference as invalid media silently discarded
+    every official source and produced the misleading '0 valid segments' gate.
+    """
+    p=Path(path)
+    try:
+        ffprobe=shutil.which('ffprobe')
+        if ffprobe:
+            cmd=[ffprobe,'-v','error','-show_entries','format=duration,size:stream=index,codec_type,width,height,codec_name','-of','json',str(p)]
+            out=subprocess.check_output(cmd,stderr=subprocess.DEVNULL,text=True,timeout=30)
+            d=json.loads(out); streams=d.get('streams',[]); fmt=d.get('format',{})
+            video=[x for x in streams if x.get('codec_type')=='video']; audio=[x for x in streams if x.get('codec_type')=='audio']
+            duration=float(fmt.get('duration') or 0)
+            # ffprobe can successfully parse a container that has no video stream.
+            # Do not return ok=True in that case: include its actual signature and
+            # ffprobe's stream listing so the extraction format can be diagnosed.
+            if video and duration>0:
+                return {'ok':True,'duration':duration,'size':int(fmt.get('size') or (p.stat().st_size if p.exists() else 0)),'video':video,'audio':audio}
+            try:
+                with p.open('rb') as _src:
+                    _head=_src.read(96)
+                _magic=_head[:32].hex()
+                _ascii=''.join(chr(b) if 32<=b<127 else '.' for b in _head[:64])
+            except Exception as _e:
+                _magic='unreadable'; _ascii=str(_e)[:80]
+            raise RuntimeError(f'ffprobe não encontrou vídeo válido: duration={duration:.2f}s; streams={streams!r}; bytes={p.stat().st_size if p.exists() else 0}; magic={_magic}; head={_ascii}')
+        # FFmpeg prints stream metadata and duration to stderr even when ffprobe
+        # is not installed. -i intentionally exits non-zero without an output;
+        # that is expected and the diagnostic is what we parse.
+        ff=_ffmpeg_executable()
+        proc=subprocess.run([ff,'-hide_banner','-i',str(p)],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,text=True,timeout=30)
+        diagnostic=proc.stderr or ''
+        dm=re.search(r'Duration:\\s*(\\d+):(\\d+):(\\d+(?:\\.\\d+)?)',diagnostic)
+        if not dm:
+            raise RuntimeError('FFmpeg não encontrou duração legível: '+diagnostic[-250:])
+        duration=int(dm.group(1))*3600+int(dm.group(2))*60+float(dm.group(3))
+        video=[]; audio=[]
+        for line in diagnostic.splitlines():
+            if 'Video:' in line:
+                cm=re.search(r'Video:\\s*([^,\\s]+)',line)
+                sm=re.search(r'(\\d{2,5})x(\\d{2,5})',line)
+                video.append({'index':len(video),'codec_type':'video','codec_name':cm.group(1) if cm else 'unknown',
+                              'width':int(sm.group(1)) if sm else 0,'height':int(sm.group(2)) if sm else 0})
+            if 'Audio:' in line:
+                cm=re.search(r'Audio:\\s*([^,\\s]+)',line)
+                audio.append({'index':len(audio),'codec_type':'audio','codec_name':cm.group(1) if cm else 'unknown'})
+        if not video:
+            try:
+                with p.open('rb') as _src:
+                    _head=_src.read(96)
+                _magic=_head[:32].hex()
+                _ascii=''.join(chr(b) if 32<=b<127 else '.' for b in _head[:64])
+            except Exception as _e:
+                _magic='unreadable'; _ascii=str(_e)[:80]
+            raise RuntimeError('FFmpeg não detectou stream de vídeo; '
+                f'bytes={p.stat().st_size if p.exists() else 0}; magic={_magic}; head={_ascii}; '
+                f'diagnostic={diagnostic[-700:]}')
+        return {'ok':True,'duration':duration,'size':p.stat().st_size if p.exists() else 0,'video':video,'audio':audio}
+    except Exception as e:
+        return {'ok':False,'error':str(e)[:500]}
+
+def _job_output_is_valid(job):
+    """Count a job as produced only when its final MP4 exists and probes as real A/V media."""
+    rel=str((job or {}).get('video') or '').strip()
+    if not rel:
+        return False
+    try:
+        path=(WORK/rel).resolve()
+        path.relative_to(WORK.resolve())
+        st=path.stat()
+        if not path.is_file() or st.st_size < 50000:
+            return False
+        key=(str(path),st.st_mtime_ns,st.st_size)
+        with MEDIA_VALIDATION_LOCK:
+            cached=MEDIA_VALIDATION_CACHE.get(key)
+        if cached is not None:
+            return cached
+        probe=_probe_media(path)
+        videos=probe.get('video') or []
+        audios=probe.get('audio') or []
+        valid=bool(probe.get('ok') and probe.get('size',0)>=50000 and videos and audios and
+                   10 <= float(probe.get('duration') or 0) <= 65 and
+                   int(videos[0].get('height') or 0) > int(videos[0].get('width') or 0))
+        with MEDIA_VALIDATION_LOCK:
+            if len(MEDIA_VALIDATION_CACHE)>500:
+                MEDIA_VALIDATION_CACHE.clear()
+            MEDIA_VALIDATION_CACHE[key]=valid
+        return valid
+    except Exception:
+        return False
+
+
+
+def _log_visual_contact_sheet(video_path, jid):
+    """Emit a tiny sampled contact sheet to logs so remote visual QA can inspect frames."""
+    if os.getenv('GTA_VISUAL_QA_LOG','0').strip().lower() not in ('1','true','yes','on'):
+        return
+    tmp=Path(str(video_path)+'.visual_qa')
+    try:
+        import base64, io
+        tmp.mkdir(parents=True,exist_ok=True)
+        ff=_ffmpeg_executable()
+        cmd=[ff,'-hide_banner','-loglevel','error','-y','-i',str(video_path),
+             '-vf','fps=1/5,scale=80:142:force_original_aspect_ratio=decrease,pad=80:142:(ow-iw)/2:(oh-ih)/2',
+             '-frames:v','6','-q:v','10',str(tmp/'frame_%02d.jpg')]
+        subprocess.run(cmd,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,timeout=25,check=True)
+        frames=[]
+        for fp in sorted(tmp.glob('frame_*.jpg'))[:6]:
+            try:
+                with Image.open(fp) as im:
+                    frames.append(im.convert('RGB').copy())
+            except Exception:
+                pass
+        if not frames:
+            print(f'[VISUAL_QA] job={jid} no_frames_extracted',flush=True)
+            return
+        sheet=Image.new('RGB',(240,284),(10,12,16))
+        for i,im in enumerate(frames):
+            sheet.paste(im.resize((80,142)),((i%3)*80,(i//3)*142))
+        buf=io.BytesIO()
+        sheet.save(buf,format='JPEG',quality=28,optimize=True)
+        encoded=base64.b64encode(buf.getvalue()).decode('ascii')
+        # Split into small log records to avoid truncation by log transport.
+        chunks=[encoded[i:i+2800] for i in range(0,len(encoded),2800)]
+        print(f'[VISUAL_QA_BEGIN] job={jid} chunks={len(chunks)} width=240 height=284',flush=True)
+        for i,chunk in enumerate(chunks):
+            print(f'[VISUAL_QA_DATA] job={jid} part={i+1}/{len(chunks)} data={chunk}',flush=True)
+        print(f'[VISUAL_QA_END] job={jid}',flush=True)
+    except Exception as e:
+        print(f'[VISUAL_QA] job={jid} failed={type(e).__name__}: {str(e)[:250]}',flush=True)
+    finally:
+        try: shutil.rmtree(tmp,ignore_errors=True)
+        except Exception: pass
+
+
+def _visual_motion_audit(path):
+    """Audita o MP4 real em baixa resolução para detectar congelamento/repetição visual.
+    Não usa análise semântica: mede mudança real entre amostras do vídeo.
+    """
+    tmp=Path(str(path)+'.motion_audit')
+    tmp.mkdir(parents=True,exist_ok=True)
+    try:
+        ff=_ffmpeg_executable()
+        # One low-resolution sample per second catches 2-3s static image holds.
+        run_cmd([ff,'-loglevel','error','-y','-i',str(path),'-vf','fps=1,scale=48:85:flags=bilinear,format=gray',str(tmp/'frame_%04d.jpg')],25)
+        frames=sorted(tmp.glob('frame_*.jpg'))
+        if len(frames)<4:
+            return {'score':60,'frozen_ratio':0.0,'longest_still_seconds':0.0,'sample_count':len(frames),'stale_runs':[],'error':'amostras insuficientes'}
+        prev=None; diffs=[]
+        for fp in frames:
+            try:
+                im=Image.open(fp).convert('L')
+                if prev is not None:
+                    diff=ImageChops.difference(prev,im)
+                    stat=ImageStat.Stat(diff)
+                    diffs.append(float(stat.mean[0]))
+                prev=im
+            except Exception:
+                continue
+        # Em material H.264, valores abaixo de ~1.6 por vários segundos indicam quadro visualmente parado.
+        threshold=1.6
+        stale_runs=[]; run=0; start=0
+        for i,d in enumerate(diffs):
+            if d<threshold:
+                if run==0: start=i
+                run+=1
+            else:
+                if run>=2: stale_runs.append({'start_s':round(start+1,1),'end_s':round(start+run+1,1),'duration_s':round(run,1)})
+                run=0
+        if run>=2: stale_runs.append({'start_s':round(start+1,1),'end_s':round(start+run+1,1),'duration_s':round(run,1)})
+        longest=max([r['duration_s'] for r in stale_runs] or [0])
+        frozen=sum(1 for d in diffs if d<threshold)/max(1,len(diffs))
+        score=100
+        if longest>=10: score-=55
+        elif longest>=7: score-=42
+        elif longest>=5: score-=30
+        elif longest>=4: score-=18
+        if frozen>0.55: score-=25
+        elif frozen>0.40: score-=15
+        elif frozen>0.28: score-=8
+        score=max(0,min(100,score))
+        return {'score':score,'frozen_ratio':round(frozen,3),'longest_still_seconds':longest,'sample_count':len(frames),'stale_runs':stale_runs[:8],'threshold':threshold}
+    except Exception as e:
+        return {'score':75,'frozen_ratio':0.0,'longest_still_seconds':0.0,'sample_count':0,'stale_runs':[],'error':str(e)[:400]}
+    finally:
+        try: shutil.rmtree(tmp,ignore_errors=True)
+        except Exception: pass
+
+def _caption_narration_alignment(beats, narration):
+    """V55.8: validate captions against the *ordered narration sequence*.
+    The old multiset check could falsely reject valid captions when a spoken
+    word appeared more than once or when the caption engine skipped words.
+    Captions must be composed only of narration words, in spoken order, while
+    allowing omitted narration words between caption chunks.
+    """
+    def toks(s):
+        raw=re.findall(r"[A-Za-zÀ-ÿ0-9']+", str(s or '').lower())
+        return [re.sub(r'[^a-z0-9à-ÿ]', '', w) for w in raw if re.sub(r'[^a-z0-9à-ÿ]', '', w)]
+
+    n=toks(narration)
+    if not n:
+        return {'score':0,'bad':[],'coverage':0.0,'foreign_ratio':1.0,'caption_count':0}
+
+    # Normalize common typographic variants without changing words.
+    aliases={'gta6':'gta', 'gtavi':'gta'}
+    def norm(w): return aliases.get(w,w)
+    n_norm=[norm(w) for w in n]
+
+    bad=[]; total=0; foreign=0; cursor=0; matched=0
+    max_skip=14
+    for b in beats or []:
+        text=str(b.get('text','')).strip()
+        ct=[norm(w) for w in toks(text)]
+        total += len(ct)
+        if not ct: continue
+        local_bad=[]
+        for w in ct:
+            # Find the next occurrence in the narration after the previous
+            # matched token. We permit omitted spoken words between captions.
+            found=None
+            upper=min(len(n_norm), cursor+max_skip+1)
+            for j in range(cursor, upper):
+                if n_norm[j]==w:
+                    found=j; break
+            if found is None:
+                # A word can legitimately recur after a larger gap; search the
+                # rest of the narration before declaring it foreign.
+                for j in range(cursor, len(n_norm)):
+                    if n_norm[j]==w:
+                        found=j; break
+            if found is None:
+                local_bad.append(w); foreign += 1
+            else:
+                matched += 1
+                cursor=found+1
+        if local_bad:
+            bad.append({'text':text,'words':local_bad})
+
+    coverage=matched/max(1,total)  # share of displayed caption words found in narration
+    narration_coverage=matched/max(1,len(n))  # share of spoken words represented in captions
+    foreign_ratio=foreign/max(1,total)
+    score=100
+    if narration_coverage<0.55: score-=45
+    elif narration_coverage<0.72: score-=28
+    elif narration_coverage<0.85: score-=14
+    if foreign_ratio>0.15: score-=50
+    elif foreign_ratio>0.08: score-=35
+    elif foreign_ratio>0.03: score-=20
+    elif foreign_ratio>0: score-=8
+    if bad and any(len(x['words'])>=3 for x in bad): score-=20
+
+    return {
+        'score':max(0,min(100,score)),
+        'bad':bad[:12],
+        'coverage':round(coverage,3),
+        'narration_coverage':round(narration_coverage,3),
+        'foreign_ratio':round(foreign_ratio,3),
+        'caption_count':len([b for b in beats or [] if str(b.get('text','')).strip()])
+    }
+
+
+def _visual_repetition_audit(path):
+    """Detecta repetição de takes curtos e sequências quase idênticas no MP4 final.
+
+    A antiga auditoria comparava apenas janelas de quatro amostras (8 segundos).
+    Isso deixava passar um take de 1–2 segundos reutilizado em outro ponto do Short.
+    Agora combinamos comparação de sequência com hash perceptual de quadros isolados,
+    exigindo distância temporal para não penalizar frames vizinhos do mesmo take.
+    """
+    tmp=Path(str(path)+'.repeat_audit')
+    tmp.mkdir(parents=True,exist_ok=True)
+    try:
+        ff=_ffmpeg_executable()
+        run_cmd([ff,'-loglevel','error','-y','-i',str(path),'-vf','fps=0.5,scale=40:71:flags=bilinear,format=gray',str(tmp/'f_%04d.jpg')],60)
+        frames=sorted(tmp.glob('f_*.jpg'))
+        if len(frames)<8:
+            return {'score':70,'repeated_ratio':0.0,'longest_repeat_s':0.0,'pairs':[],'frame_repeat_pairs':[],'error':'amostras insuficientes'}
+        imgs=[]
+        for fp in frames:
+            try: imgs.append(Image.open(fp).convert('L').resize((48,85)))
+            except Exception: pass
+        if len(imgs)<8:
+            return {'score':70,'repeated_ratio':0.0,'longest_repeat_s':0.0,'pairs':[],'frame_repeat_pairs':[],'error':'quadros inválidos'}
+
+        # 1) Repetição de sequências longas (4 quadros, amostrados a cada 2s).
+        seq_len=4; min_gap=6; matches=[]
+        for i in range(0,min(24,max(1,len(imgs)-seq_len+1))):
+            for j in range(i+min_gap, min(len(imgs)-seq_len+1, i+32)):
+                ds=[]
+                for k in range(seq_len):
+                    stat=ImageStat.Stat(ImageChops.difference(imgs[i+k],imgs[j+k]))
+                    ds.append(float(stat.mean[0]))
+                avg=sum(ds)/len(ds)
+                if avg<8.0:
+                    matches.append((i,j,avg))
+
+        # 2) Repetição de takes isolados: average-hash numa grelha 8x8 reduz
+        # sensibilidade à cor/compressão, mas preserva composição e silhuetas.
+        # Só compara quadros separados por >=6s; takes vizinhos não contam como loop.
+        hashes=[]
+        for im in imgs:
+            tiny=im.resize((8,8))
+            values=list(tiny.getdata())
+            mean=sum(values)/max(1,len(values))
+            hashes.append(tuple(v>=mean for v in values))
+        frame_matches=[]
+        frame_marks=set()
+        for i in range(len(hashes)):
+            for j in range(i+3,len(hashes)):
+                distance=sum(a!=b for a,b in zip(hashes[i],hashes[j]))
+                if distance<=6:
+                    # Similaridade isolada precisa ser forte; GTA tem muitos frames
+                    # com silhuetas/contraste parecidos que não são o mesmo take.
+                    frame_matches.append((i,j,distance))
+                    frame_marks.add(i); frame_marks.add(j)
+
+        # União para cobertura/repetição geral. Runs consecutivos são medidos
+        # somente nas sequências longas: pares isolados em instantes distantes
+        # não devem ser interpretados como um take contínuo.
+        marks=set(frame_marks)
+        sequence_marks=set()
+        for i,j,_d in matches:
+            for k in range(seq_len):
+                marks.add(i+k); marks.add(j+k)
+                sequence_marks.add(i+k); sequence_marks.add(j+k)
+        ratio=len(marks)/max(1,len(imgs))
+        longest=0; cur=0
+        for k in range(len(imgs)):
+            if k in sequence_marks: cur+=1; longest=max(longest,cur)
+            else: cur=0
+        longest_s=longest*2.0
+        score=100
+        if ratio>=0.45: score-=45
+        elif ratio>=0.30: score-=32
+        elif ratio>=0.20: score-=20
+        elif ratio>=0.12: score-=10
+        if longest_s>=8: score-=40
+        elif longest_s>=6: score-=30
+        elif longest_s>=4: score-=18
+        return {
+            'score':max(0,min(100,score)),
+            'repeated_ratio':round(ratio,3),
+            'longest_repeat_s':round(longest_s,1),
+            'pairs':[{'a_s':round(i*2.0,1),'b_s':round(j*2.0,1),'diff':round(d,2),'kind':'sequence'} for i,j,d in matches[:12]],
+            'frame_repeat_pairs':[{'a_s':round(i*2.0,1),'b_s':round(j*2.0,1),'hash_distance':int(d)} for i,j,d in frame_matches[:20]],
+            'method':'sequence+perceptual-frame-hash',
+            'sequence_window_s':8.0
+        }
+    except Exception as e:
+        print(f'[VISUAL_REPEAT_AUDIT_ERROR] {type(e).__name__}: {str(e)[:500]}',flush=True)
+        return {'score':65,'repeated_ratio':0.0,'longest_repeat_s':0.0,'pairs':[],'frame_repeat_pairs':[],'error':f'{type(e).__name__}: {str(e)[:400]}'}
+    finally:
+        try: shutil.rmtree(tmp,ignore_errors=True)
+        except Exception: pass
+
+def _persistent_source_subtitle_audit(path):
+    """Detect persistent two-line source subtitles above the editor's own lower-third.
+    This deliberately uses only Pillow/stdlib: no OCR models or heavy runtime dependency.
+    A single frame is not enough (posters/shirt graphics can resemble text); the same
+    text-like two-line structure must appear in adjacent 0.5-second samples.
+    """
+    tmp=Path(str(path)+'.source_subtitle_audit')
+    tmp.mkdir(parents=True,exist_ok=True)
+    try:
+        ff=_ffmpeg_executable()
+        run_cmd([ff,'-loglevel','error','-y','-i',str(path),
+                 '-vf','fps=2,scale=270:480:flags=bilinear,format=gray',
+                 str(tmp/'frame_%04d.png')],60)
+        frame_paths=sorted(tmp.glob('frame_*.png'))
+        if len(frame_paths)<8:
+            return {
+                'embedded_subtitle':False,'sample_count':len(frame_paths),
+                'hit_times_s':[],'method':'persistent-two-line-source-text',
+                'error':'amostras insuficientes para auditar legendas-fonte'
+            }
+        hits=[]
+        for fi,fp in enumerate(frame_paths):
+            try:
+                im=Image.open(fp).convert('L')
+                iw,ih=im.size
+                # Exclude the app's designed caption card at the bottom. Check
+                # the left/lower video area where baked-in gameplay captions appear.
+                x0,y0,x1,y1=0,int(0.66*ih),int(0.46*iw),int(0.81*ih)
+                crop=im.crop((x0,y0,x1,y1))
+                cw,ch=crop.size
+                px=crop.load()
+                binary=bytearray(cw*ch)
+                for yy in range(ch):
+                    off=yy*cw
+                    for xx in range(cw):
+                        binary[off+xx]=1 if px[xx,yy]>185 else 0
+                visited=bytearray(cw*ch)
+                components=[]
+                for idx,val in enumerate(binary):
+                    if not val or visited[idx]:
+                        continue
+                    stack=[idx]
+                    visited[idx]=1
+                    minx=cw; miny=ch; maxx=0; maxy=0; area=0
+                    while stack:
+                        z=stack.pop()
+                        yy,xx=divmod(z,cw)
+                        area+=1
+                        if xx<minx: minx=xx
+                        if xx>maxx: maxx=xx
+                        if yy<miny: miny=yy
+                        if yy>maxy: maxy=yy
+                        ya=max(0,yy-1); yb=min(ch-1,yy+1)
+                        xa=max(0,xx-1); xb=min(cw-1,xx+1)
+                        for ny in range(ya,yb+1):
+                            base=ny*cw
+                            for nx in range(xa,xb+1):
+                                ni=base+nx
+                                if binary[ni] and not visited[ni]:
+                                    visited[ni]=1
+                                    stack.append(ni)
+                    ww=maxx-minx+1
+                    hh=maxy-miny+1
+                    # Small bright components arranged like glyphs; large
+                    # bright scene objects (shirts, car panels, sky) are ignored.
+                    if 2<=area<=100 and 1<=ww<=18 and 2<=hh<=16:
+                        components.append((minx,miny,ww,hh,area))
+                rows=[]
+                for comp in sorted(components,key=lambda z:z[1]+z[3]/2):
+                    cy=comp[1]+comp[3]/2
+                    target=None
+                    for row in rows:
+                        median_y=statistics.median([z[1]+z[3]/2 for z in row])
+                        if abs(cy-median_y)<=3.5:
+                            target=row
+                            break
+                    if target is None:
+                        rows.append([comp])
+                    else:
+                        target.append(comp)
+                text_rows=[]
+                for row in rows:
+                    xs=[z[0] for z in row]
+                    heights=[z[3] for z in row]
+                    span=max(z[0]+z[2] for z in row)-min(xs) if row else 0
+                    if len(row)>=4 and span>=25 and 3<=statistics.median(heights)<=15:
+                        text_rows.append({
+                            'count':len(row),
+                            'span':int(span),
+                            'y':float(statistics.median([z[1] for z in row]))
+                        })
+                paired=False
+                for ri in range(len(text_rows)):
+                    for rj in range(ri+1,len(text_rows)):
+                        separation=abs(text_rows[ri]['y']-text_rows[rj]['y'])
+                        if 7<=separation<=28 and min(text_rows[ri]['count'],text_rows[rj]['count'])>=4:
+                            paired=True
+                if paired:
+                    hits.append(fi)
+            except Exception:
+                continue
+        # Require at least two consecutive half-second frames to suppress
+        # isolated false positives from artwork, signs, or clothing logos.
+        has_persistent=False
+        for a,b in zip(hits,hits[1:]):
+            if b==a+1:
+                has_persistent=True
+                break
+        times=[round(i/2.0,1) for i in hits]
+        return {
+            'embedded_subtitle':has_persistent,
+            'sample_count':len(frame_paths),
+            'hit_times_s':times[:12],
+            'method':'persistent-two-line-source-text',
+            'error':''
+        }
+    except Exception as e:
+        return {
+            'embedded_subtitle':False,
+            'sample_count':0,
+            'hit_times_s':[],
+            'method':'persistent-two-line-source-text',
+            'error':f'{type(e).__name__}: {str(e)[:250]}'
+        }
+    finally:
+        try: shutil.rmtree(tmp,ignore_errors=True)
+        except Exception: pass
+
+
+def _visual_contamination_audit(path):
+    """Final gate for rating/disclaimer cards and baked-in source subtitles."""
+    bad=_video_contains_rating_disclaimer(path,sample_fps=2.0)
+    source_text=_persistent_source_subtitle_audit(path)
+    return {
+        'score':0 if bad or source_text.get('embedded_subtitle') or source_text.get('error') else 100,
+        'rating_disclaimer':bool(bad),
+        'embedded_subtitle':bool(source_text.get('embedded_subtitle')),
+        'subtitle_times':source_text.get('hit_times_s',[]),
+        'subtitle_audit_error':source_text.get('error',''),
+        'method':'horizontal-band-structure+persistent-source-text',
+        'ok':not bad and not source_text.get('embedded_subtitle') and not source_text.get('error')
+    }
+
+def audit_short(script, video, duration, beats, selected_videos, image_scenes):
+    """Auditor V41: checks editorial, captions and actual MP4 before delivery."""
+    issues=[]; checks={}
+    narration=str(script.get('narration',''))
+    words=len(re.findall(r"[A-Za-zÀ-ÿ0-9']+",narration))
+    checks['roteiro']=100 if words>=70 and script.get('evidence') else 0
+    if any(x in narration.lower() for x in ('radar','editor-chefe','score','confiança','fontes','matérias','produzir agora')):
+        checks['roteiro']=0; issues.append(('EDITORIAL_METADATA','roteiro contém metadado interno'))
+    if _editorial_noise_score(narration,str(script.get('title','')))>2:
+        checks['roteiro']=max(0,checks['roteiro']-20)
+        issues.append(('HEADLINE_CONTAMINATION','narração contém padrão de manchete ou metadado'))
+    evidence=script.get('evidence') or []
+    editorial_alignment=_editorial_topic_alignment(
+        script.get('title') or '', narration, evidence,
+        script.get('source_headline') or ''
+    )
+    checks['alinhamento_pauta']=editorial_alignment['score']
+    if not editorial_alignment['ok']:
+        issues.append(('HEADLINE_SCRIPT_MISMATCH',
+            'título, pauta e narração não estão alinhados: '+', '.join(editorial_alignment['issues'])))
+    if not evidence:
+        issues.append(('NO_EVIDENCE','roteiro sem evidência factual'))
+        checks['roteiro']=0
+    cap=_audit_caption_quality(beats); checks['legendas']=cap['score']
+    alignment=_caption_narration_alignment(beats,narration); checks['alinhamento_legendas']=alignment['score']
+    if cap.get('score',100)<85:
+        # Try to repair caption segmentation once before blocking the entire Short.
+        # Caption beats are derived from the narration, so reflowing word boundaries
+        # is safe and does not alter the spoken script or factual content.
+        try:
+            _rebuilt=_repair_caption_beats(beats, float(duration))
+            _rebuilt_audit=_audit_caption_quality(_rebuilt)
+            _current_bad=len(cap.get('bad_end',[]))+len(cap.get('bad_start',[]))+len(cap.get('long',[]))+len(cap.get('short',[]))
+            _rebuilt_bad=len(_rebuilt_audit.get('bad_end',[]))+len(_rebuilt_audit.get('bad_start',[]))+len(_rebuilt_audit.get('long',[]))+len(_rebuilt_audit.get('short',[]))
+            if _rebuilt_audit.get('score',0)>cap.get('score',0) or _rebuilt_bad<_current_bad:
+                beats=_rebuilt
+                cap=_rebuilt_audit
+                checks['legendas']=cap['score']
+        except Exception as _caption_repair_error:
+            print(f'[CAPTION_REPAIR] safe reflow failed: {str(_caption_repair_error)[:180]}',flush=True)
+        if cap.get('score',100)<85:
+            issues.append(('CAPTIONS_LOW_QUALITY',f'qualidade visual/segmentação das legendas abaixo do mínimo: {cap.get("score",0)}/100'))
+    if alignment.get('narration_coverage',1.0)<0.85:
+        issues.append(('CAPTIONS_INCOMPLETE',f'legendas representam apenas {alignment.get("narration_coverage",0)*100:.0f}% da narração'))
+    boundary_bad_count=len(cap.get('bad_end',[]))+len(cap.get('bad_start',[]))
+    # V55.5: only actual semantic boundary violations can trigger this issue.
+    # Visual wrapping, caption length and line balance are quality signals, not semantic-boundary failures.
+    boundary_severe=(boundary_bad_count>=max(4,int(len(beats or [])*0.55)))
+    protected_splits=cap.get('protected_splits',[]) or []
+    if boundary_severe or protected_splits:
+        detail=('; termos divididos: '+', '.join(sorted({x.get('phrase','') for x in protected_splits if x.get('phrase')}))) if protected_splits else ''
+        issues.append(('CAPTIONS_BAD_BOUNDARY','legendas com cortes semanticamente ruins'+detail))
+    if alignment.get('foreign_ratio',0)>0.03 or alignment.get('score',100)<85:
+        issues.append(('CAPTIONS_NOT_FROM_NARRATION',f'legendas contêm palavras fora da narração: {alignment.get("foreign_ratio",0)*100:.0f}%'))
+    if cap.get('repeated_adjacent',0)>0: issues.append(('CAPTIONS_REPEATED','legenda repetida em blocos consecutivos'))
+    media=_probe_media(video); checks['mp4']=100 if media.get('ok') else 0
+    if not media.get('ok'): issues.append(('MEDIA_UNREADABLE',media.get('error','MP4 inválido')))
+    else:
+        dur=media['duration']; v=media['video']; a=media['audio']
+        if not v: checks['mp4']-=50; issues.append(('NO_VIDEO_STREAM','MP4 sem vídeo'))
+        if not a: checks['mp4']-=50; issues.append(('NO_AUDIO_STREAM','MP4 sem áudio'))
+        actual_dims=(int(v[0].get('width',0)),int(v[0].get('height',0))) if v else (0,0)
+        allowed_dims={(540,960),(720,1280),(1080,1920)}
+        if v and actual_dims not in allowed_dims:
+            checks['mp4']-=15; issues.append(('WRONG_ASPECT',f'dimensão do vídeo fora dos perfis verticais suportados: {actual_dims[0]}x{actual_dims[1]}'))
+        if abs(dur-float(duration))>1.5: checks['mp4']-=10; issues.append(('DURATION_DRIFT',f'duração final {dur:.2f}s vs áudio {duration:.2f}s'))
+        if media['size']<150000: checks['mp4']-=15; issues.append(('TINY_OUTPUT','MP4 suspeito: arquivo muito pequeno'))
+    visual_safety=_visual_contamination_audit(video)
+    checks['seguranca_visual']=visual_safety.get('score',0)
+    if visual_safety.get('rating_disclaimer'):
+        issues.append(('VISUAL_CONTAMINATION','tela ESRB/disclaimer detectada no vídeo final'))
+    if visual_safety.get('embedded_subtitle'):
+        times=', '.join(f'{t:.1f}s' for t in visual_safety.get('subtitle_times',[])[:4])
+        issues.append(('VISUAL_SOURCE_SUBTITLE',
+            'texto/legenda embutido no clipe-fonte foi detectado acima das legendas do editor'
+            +(f' em {times}' if times else '')))
+    if visual_safety.get('subtitle_audit_error'):
+        issues.append(('VISUAL_SUBTITLE_AUDIT_FAILED',
+            'a checagem de legendas embutidas não conseguiu concluir: '
+            +str(visual_safety.get('subtitle_audit_error'))[:200]))
+    checks['visuais']=100
+    unique=len({str(x) for x in selected_videos})
+    unique_images=len({str(x) for x in image_scenes})
+    # A healthy fallback may contain only 2 official video clips plus a large
+    # pool of unique researched/official frames. Count the combined visual pool.
+    visual_pool=unique*2+unique_images
+    if unique<4 and visual_pool<12:
+        checks['visuais']-=15; issues.append(('LOW_VIDEO_VARIETY',f'apenas {unique} clipes únicos e {unique_images} imagens distintas'))
+    # Image variety is optional on Render Free: never reject a healthy
+    # video merely because the research returned fewer than four usable images.
+    if len(images_available if 'images_available' in locals() else []) >= 4 and len(image_scenes)<2:
+        checks['visuais']-=5; issues.append(('LOW_IMAGE_VARIETY','poucas imagens auxiliares'))
+    # V67: Inspect the actual final MP4 by default. Asset-count-only motion
+    # proxies missed 2-3s static holds. Sampling is downscaled to keep this bounded.
+    # GTA_DEEP_VISUAL_AUDIT=0 is available only as a temporary resource fallback.
+    deep_visual=os.getenv('GTA_DEEP_VISUAL_AUDIT','1').strip().lower() in {'1','true','yes','on'}
+    if media.get('ok'):
+        # A auditoria de repetição é obrigatória: deixar essa checagem atrás de
+        # GTA_DEEP_VISUAL_AUDIT permitia que o plano Free aprovasse takes repetidos
+        # com base apenas na contagem de arquivos distintos. A varredura é leve
+        # (quadros pequenos em baixa frequência) e sempre roda no MP4 final.
+        repetition=_visual_repetition_audit(video)
+        print(
+            f"[VISUAL_REPEAT_AUDIT] method={repetition.get('method','unknown')} "
+            f"score={repetition.get('score',0)} ratio={repetition.get('repeated_ratio',0)} "
+            f"pairs={len(repetition.get('frame_repeat_pairs',[])) + len(repetition.get('pairs',[]))} "
+            f"error={str(repetition.get('error',''))[:180]}",
+            flush=True
+        )
+        if deep_visual:
+            motion=_visual_motion_audit(video)
+        else:
+            unique_visual_assets=len({str(x) for x in selected_videos})
+            scene_assets=unique_visual_assets + len({str(x) for x in image_scenes})
+            motion_score=94 if unique_visual_assets>=4 and scene_assets>=7 else (80 if unique_visual_assets>=3 else 60)
+            motion={
+                'score':motion_score,'frozen_ratio':0.0,'longest_still_seconds':0.0,
+                'sample_count':0,'method':'timeline_structure',
+                'note':'Proxy estrutural; auditoria quadro a quadro de movimento desativada no plano Free'
+            }
+    else:
+        unique_visual_assets=len({str(x) for x in selected_videos})
+        scene_assets=unique_visual_assets + len({str(x) for x in image_scenes})
+        motion_score=94 if unique_visual_assets>=4 and scene_assets>=7 else (80 if unique_visual_assets>=3 else 60)
+        repetition_score=94 if unique_visual_assets>=5 else (84 if unique_visual_assets>=3 else 65)
+        motion={
+            'score':motion_score,'frozen_ratio':0.0,'longest_still_seconds':0.0,
+            'sample_count':0,'method':'timeline_structure',
+            'note':'Proxy estrutural; mídia inválida; varredura visual não executada'
+        }
+        repetition={
+            'score':repetition_score,'repeated_ratio':0.0,'longest_repeat_s':0.0,
+            'pairs':[],'method':'asset_diversity',
+            'note':'Proxy estrutural; mídia inválida; varredura visual não executada'
+        }
+    checks['movimento']=int(motion.get('score',0))
+    if repetition.get('error'):
+        checks['repeticao_visual']=0
+        issues.append(('VISUAL_AUDIT_FAILED','auditoria de repetição visual não conseguiu inspecionar o MP4: '+str(repetition.get('error'))[:240]))
+    else:
+        checks['repeticao_visual']=int(repetition.get('score',0))
+    if motion.get('longest_still_seconds',0)>=2:
+        issues.append(('VISUAL_STAGNATION',f'visual praticamente parado por {motion.get("longest_still_seconds",0):.0f}s'))
+    if motion.get('frozen_ratio',0)>=0.28:
+        issues.append(('HIGH_FROZEN_RATIO',f'{motion.get("frozen_ratio",0)*100:.0f}% das transições amostradas com pouca mudança visual'))
+    if not repetition.get('error') and (repetition.get('repeated_ratio',0)>=0.24 or repetition.get('longest_repeat_s',0)>=4):
+        issues.append(('VISUAL_REPETITION',f'repetição visual detectada: {repetition.get("repeated_ratio",0)*100:.0f}% das amostras / trecho repetido até {repetition.get("longest_repeat_s",0):.1f}s'))
+    final=max(0,round((checks['roteiro']+checks['alinhamento_pauta']+checks['legendas']+checks['alinhamento_legendas']+checks['mp4']+checks['visuais']+checks['movimento']+checks['repeticao_visual'])/8))
+    return {'score':final,'checks':checks,'issues':[{'code':c,'message':m} for c,m in issues],'media':media,'caption_audit':cap,'motion_audit':motion,'repetition_audit':repetition}
+
+def self_heal(jid, script, video, duration, beats, selected_videos, image_scenes, topic, audio):
+    """Run bounded safe repairs. No endless retry and no self-modifying source code."""
+    audit=audit_short(script,video,duration,beats,selected_videos,image_scenes)
+    if audit['score']>=92 and not any(x['code'] in {'CAPTIONS_BAD_BOUNDARY','CAPTIONS_NOT_FROM_NARRATION','CAPTIONS_REPEATED','CAPTIONS_INCOMPLETE','CAPTIONS_LOW_QUALITY','VISUAL_REPETITION','VISUAL_STAGNATION','HIGH_FROZEN_RATIO','VISUAL_SOURCE_SUBTITLE','VISUAL_SUBTITLE_AUDIT_FAILED'} for x in audit.get('issues',[])): return audit,beats,False
+    repaired=False
+    codes={x['code'] for x in audit['issues']}
+    if 'VISUAL_STAGNATION' in codes or 'HIGH_FROZEN_RATIO' in codes or 'VISUAL_REPETITION' in codes or 'VISUAL_SOURCE_SUBTITLE' in codes:
+        # V66.9: o vídeo final é o objeto de QA. Se a auditoria real encontrar
+        # repetição/congelamento, refazemos UMA única vez com outra combinação
+        # de assets e movimento. Isso elimina a necessidade de o proprietário
+        # baixar/enviar o MP4 para inspeção manual a cada produção.
+        _learn_event(
+            'VISUAL_REPETITION',
+            'auditor detectou repetição/congelamento visual',
+            're-render automático único com variante visual + motion boost',
+            None
+        )
+        repair_path=Path(str(video)+'.visual_repair.mp4')
+        try:
+            update_job(
+                jid,
+                stage='AVALIAÇÃO',
+                progress=95,
+                log='🧠 AUDITOR IA: repetição/congelamento detectado. Refazendo a edição automaticamente (1/1)...'
+            )
+            beats=make_multimedia_video(
+                selected_videos,
+                image_scenes,
+                audio,
+                repair_path,
+                duration,
+                [b.get('text','') for b in beats],
+                script=script,
+                topic_title=topic.get('title','GTA 6'),
+                beats=beats,
+                motion_boost=True,
+                asset_variant=1
+            )
+            repaired_probe=_probe_media(repair_path)
+            if not repaired_probe.get('ok'):
+                raise RuntimeError('reparo visual gerou MP4 inválido')
+            # Auditar o arquivo temporário ANTES de substituir o vídeo original.
+            # Se a variante não resolver a repetição, preservamos o MP4 original
+            # para diagnóstico e o gate final bloqueia a entrega.
+            repaired_audit=audit_short(script,repair_path,duration,beats,selected_videos,image_scenes)
+            if any(x.get('code') in {'VISUAL_REPETITION','VISUAL_STAGNATION','HIGH_FROZEN_RATIO','VISUAL_SOURCE_SUBTITLE'} for x in repaired_audit.get('issues',[])):
+                raise RuntimeError('a reedição ainda apresenta repetição/congelamento visual')
+            os.replace(repair_path,video)
+            audit=repaired_audit
+            repaired=True
+            update_job(
+                jid,
+                stage='AVALIAÇÃO',
+                progress=95,
+                log=f'🧠 AUDITOR IA: reedição automática concluída e aprovada ({audit.get("score",0)}/100).'
+            )
+        except Exception as visual_repair_error:
+            try:
+                if repair_path.exists():
+                    repair_path.unlink()
+            except Exception:
+                pass
+            _learn_event(
+                'VISUAL_REPAIR_FAILED',
+                'reparo visual automático não conseguiu eliminar o problema',
+                str(visual_repair_error)[:500],
+                False
+            )
+            update_job(
+                jid,
+                stage='AVALIAÇÃO',
+                progress=95,
+                log='🛑 AUDITOR IA: repetição visual permaneceu após a única reedição automática. Produção será bloqueada.'
+            )
+    caption_codes={'CAPTIONS_BAD_BOUNDARY','CAPTIONS_REPEATED','CAPTIONS_NOT_FROM_NARRATION','CAPTIONS_LOW_QUALITY','CAPTIONS_INCOMPLETE'}
+    if any(x['code'] in caption_codes for x in audit['issues']):
+        _learn_event(
+            'CAPTIONS_BAD_BOUNDARY',
+            'auditor detectou legenda que exige correção',
+            'resegmentação semântica e uma única renderização corretiva antes do gate final',
+            None
+        )
+        repair_path=Path(str(video)+'.caption_repair.mp4')
+        try:
+            update_job(
+                jid,
+                stage='AVALIAÇÃO',
+                progress=95,
+                log='🧠 AUDITOR IA: corrigindo a segmentação das legendas e renderizando novamente (1/1)...'
+            )
+            repaired_beats=_repair_caption_beats(beats,duration,max_words=6)
+            if not repaired_beats:
+                raise RuntimeError('resegmentação não produziu blocos de legenda')
+            repaired_captions=[str(b.get('text','')).strip() for b in repaired_beats]
+            if any(not caption for caption in repaired_captions):
+                raise RuntimeError('resegmentação produziu legenda vazia')
+            repaired_beats=make_multimedia_video(
+                selected_videos,
+                image_scenes,
+                audio,
+                repair_path,
+                duration,
+                repaired_captions,
+                script=script,
+                topic_title=topic.get('title','GTA 6'),
+                beats=repaired_beats,
+                motion_boost=False,
+                asset_variant=0
+            )
+            repair_probe=_probe_media(repair_path)
+            if not repair_probe.get('ok') or not repair_probe.get('video') or not repair_probe.get('audio'):
+                raise RuntimeError('renderização corretiva gerou mídia inválida')
+            repaired_audit=audit_short(script,repair_path,duration,repaired_beats,selected_videos,image_scenes)
+            remaining_caption_issues=[i.get('code') for i in repaired_audit.get('issues',[]) if i.get('code') in caption_codes]
+            if remaining_caption_issues:
+                raise RuntimeError('auditoria ainda reprova legendas: '+', '.join(remaining_caption_issues))
+            # Preserve the original until the corrected MP4 passes caption QA.
+            os.replace(repair_path,video)
+            audit=repaired_audit
+            beats=repaired_beats
+            repaired=True
+            _learn_event(
+                'CAPTIONS_REPAIR_SUCCEEDED',
+                'resegmentação e renderização corretiva passaram pela auditoria de legendas',
+                'resegmentação semântica max_words=6 + auditoria do MP4 renderizado',
+                True
+            )
+            update_job(
+                jid,
+                stage='AVALIAÇÃO',
+                progress=95,
+                log=f'🧠 AUDITOR IA: legendas corrigidas e revalidadas ({audit.get("checks",{}).get("legendas",0)}/100).'
+            )
+        except Exception as caption_repair_error:
+            try:
+                if repair_path.exists():
+                    repair_path.unlink()
+            except Exception:
+                pass
+            _learn_event(
+                'CAPTIONS_REPAIR_FAILED',
+                'renderização corretiva de legendas não passou na auditoria',
+                str(caption_repair_error)[:500],
+                False
+            )
+            update_job(
+                jid,
+                stage='AVALIAÇÃO',
+                progress=95,
+                log='🛑 AUDITOR IA: legendas continuam reprovadas após uma tentativa de correção; mantendo o bloqueio.'
+            )
+    return audit,beats,repaired
+
+def evaluate(script,duration,scene_count,visual_quality,beats=None,video_count=0,image_count=0):
+    """V25 quality gate: checks pacing, caption density, visual variety and hook."""
+    score=100
+    narration=str(script.get('narration','')).strip()
+    words=re.findall(r"[A-Za-zÀ-ÿ0-9']+",narration)
+    if duration<24 or duration>38: score-=7
+    if len(words)<70: score-=8
+    if '?' not in narration[:210]: score-=4
+    if scene_count<10: score-=10
+    if video_count<4: score-=8
+    if image_count<2: score-=4
+    if visual_quality<60: score-=12
+    elif visual_quality<70: score-=7
+    elif visual_quality<80: score-=3
+    if beats:
+        avg=sum(b.get('duration',0) for b in beats)/max(1,len(beats))
+        if avg>3.3: score-=5
+        if avg<1.9: score-=3
+        # Penalize very long caption phrases.
+        long_caps=sum(1 for b in beats if len(str(b.get('text','')).split())>6)
+        score-=min(8,long_caps*2)
+    return max(0,min(100,score))
+
+def produce_job(jid):
+    global PROCESSING
+    print(f'[JOB {jid}] START production worker',flush=True)
+    try:
+        update_job(jid,status='RUNNING',stage='PESQUISA',progress=5,log='V64.9: pesquisa limitada a 2 feeds RSS (6s cada) + Newswire opcional (5s).')
+        print(f'[JOB {jid}] stage=RESEARCH start',flush=True)
+        topics,urls,_=research_official(); topics=topics or FALLBACK_TOPICS
+        print(f'[JOB {jid}] stage=RESEARCH done topics={len(topics)} visual_urls={len(urls)}',flush=True)
+        radar_status=_load_radar()
+        update_job(jid,progress=12,log='V64.9: pesquisa encerrada; fontes_ok={} status={} erro={}'.format(radar_status.get('sources_ok',0),radar_status.get('status','?'),radar_status.get('error') or radar_status.get('diagnostic','sem detalhe')))
+        job=load_jobs()[jid]; topic=editor_chief_select([job['opportunity']]) or job['opportunity']; job['opportunity']=topic; jobs=load_jobs(); jobs[jid]['opportunity']=topic; save_jobs(jobs)
+        update_job(jid,stage='ANÁLISE',progress=16,log=f'EDITOR-CHEFE: {topic.get("editorial_decision","PRODUZIR")} — {topic["title"]} | ângulo: {topic.get("editorial_angle","")}')
+        update_job(jid,stage='ROTEIRO',progress=28,log='EDITOR-CHEFE → AGENTE AUTÔNOMO: validando corpo original, tentando estratégias e recuperando a pauta se necessário...')
+        print(f'[JOB {jid}] stage=SCRIPT start topic={topic.get("title","")[:100]}',flush=True)
+        topic, script = _autonomous_make_script(jid, topic, topics)
+        print(f'[JOB {jid}] stage=SCRIPT done words={script.get("word_count",0)}',flush=True)
+        # Keep the rest of the proven rendering pipeline synchronized with the
+        # topic actually selected by the autonomous recovery agent.
+        job=load_jobs().get(jid,{})
+        job['opportunity']=topic
+        job['title']=topic.get('title',job.get('title','GTA 6'))
+        jobs=load_jobs(); jobs[jid]=job; save_jobs(jobs)
+        jobdir=WORK/jid; jobdir.mkdir(parents=True,exist_ok=True)
+        update_job(jid,script=script,stage='VISUAIS',progress=40,log='Baixando visuais oficiais e montando cenas verticais...')
+        print(f'[JOB {jid}] stage=VISUALS download start',flush=True)
+        # Prefer real official motion clips, but prepare a bounded image fallback up front.
+        # Rockstar's own VI pages provide permitted visual references; selecting them
+        # semantically lets a Short finish when the remote ZIP clip extraction is broken.
+        image_candidates=download_visuals(urls,jobdir/'official_images',topic.get('title','GTA 6'))
+        # The audit of real renders found that a large still-image pool let the timeline become slideshow-like.
+        # Keep only two auxiliary images; the timeline must use motion sources for the remaining beats.
+        image_scenes=select_visuals(image_candidates,topic.get('title','GTA 6'),count=2)
+        update_job(jid,progress=44,log=f'Plano visual: {len(image_scenes)} imagens de apoio (máximo 2); priorizando vídeos reais.')
+        update_job(jid,stage='NARRAÇÃO',progress=60,log='Gerando narração PT-BR e capturando timestamps reais da fala...')
+        print(f'[JOB {jid}] stage=TTS start',flush=True)
+        audio=jobdir/'narracao.mp3'; word_cues=asyncio.run(make_tts(script['narration'],audio)); audio,word_cues=_compress_long_tts_pauses(audio,word_cues); duration=duration_of_audio(audio)
+        print(f'[JOB {jid}] stage=TTS done audio_bytes={audio.stat().st_size if audio.exists() else 0} duration={duration:.1f}',flush=True)
+        (jobdir/'word_cues.json').write_text(json.dumps(word_cues,ensure_ascii=False,indent=2),encoding='utf-8')
+        # Editorial pacing: use more short beats so stills do not linger for 3-4 seconds.
+        # Keep the narration duration unchanged; only increase the visual/caption beat density.
+        timeline_count=max(14,_learned_timeline_count(duration,14))
+        beats=build_short_timeline(script,topic,duration,timeline_count,word_cues=word_cues)
+        # V63: corrigir a segmentação antes do encode final. Evita re-renderizações
+        # completas posteriores no Render Free sem abrir mão do gate de legendas.
+        _pre_cap=_audit_caption_quality(beats)
+        _pre_align=_caption_narration_alignment(beats,script.get('narration',''))
+        # If TTS word-boundary events omitted or corrupted words, rebuild captions from
+        # the complete approved narration instead of repeatedly repairing incomplete text.
+        if (_pre_align.get('foreign_ratio',0)>0.0 or _pre_align.get('narration_coverage',1.0)<0.98) and script.get('narration'):
+            _complete_beats=build_short_timeline(script,topic,duration,_learned_timeline_count(duration,14),word_cues=None)
+            if _complete_beats:
+                beats=_complete_beats
+            _pre_cap=_audit_caption_quality(beats)
+            _pre_align=_caption_narration_alignment(beats,script.get('narration',''))
+        if beats and (_pre_cap.get('score',100)<92 or _pre_cap.get('bad_start') or _pre_cap.get('bad_end') or _pre_cap.get('long') or _pre_cap.get('repeated_adjacent',0)):
+            # Corrige também falhas pontuais de fronteira; nota alta não deve deixar uma legenda começar por 'de', 'para', 'e' etc.
+            _fixed_beats=_repair_caption_beats(beats,duration,7)
+            if _fixed_beats:
+                beats=_fixed_beats
+        _pre_cap=_audit_caption_quality(beats)
+        _pre_align=_caption_narration_alignment(beats,script.get('narration',''))
+        print(
+            f"[CAPTION_PRECHECK] job={jid} score={_pre_cap.get('score',0)} "
+            f"bad_end={len(_pre_cap.get('bad_end',[]))} "
+            f"bad_start={len(_pre_cap.get('bad_start',[]))} "
+            f"protected_splits={len(_pre_cap.get('protected_splits',[]))} "
+            f"visual_bad={len(_pre_cap.get('visual_bad',[]))} "
+            f"long={len(_pre_cap.get('long',[]))} short={len(_pre_cap.get('short',[]))} "
+            f"repeated_adjacent={_pre_cap.get('repeated_adjacent',0)}",
+            flush=True
+        )
+        # V68: fronteiras gramaticais são um sinal de qualidade, mas a heurística
+        # pode marcar continuações naturais (ex.: demonstrativos/possessivos). Bloquear
+        # qualquer ocorrência deixa a fila em ERROR sem produzir vídeo. Só falha fechado
+        # quando os fragmentos dominam a timeline; problemas residuais leves são registrados.
+        _boundary_count=len(_pre_cap.get('bad_end',[]))+len(_pre_cap.get('bad_start',[]))
+        _boundary_limit=max(4,int(len(beats or [])*0.55))
+        if _boundary_count>=_boundary_limit:
+            raise ValueError(f'GATE CAPTIONS: fragmentos gramaticais graves após autocorreção ({_boundary_count}/{len(beats or [])} blocos).')
+        if _boundary_count:
+            print(f'[CAPTION_QA] job={jid} warning residual_boundaries={_boundary_count} blocks={len(beats or [])}; continuing to alignment/score gates',flush=True)
+        if _pre_cap.get('score',100)<85:
+            raise ValueError(f'GATE CAPTIONS: qualidade das legendas abaixo de 85/100 após autocorreção ({_pre_cap.get("score",0)}/100).')
+        if _pre_align.get('foreign_ratio',0)>0.03 or _pre_align.get('narration_coverage',1.0)<0.85:
+            raise ValueError('GATE CAPTIONS: as legendas não representam corretamente a narração após autocorreção.')
+        caps=[b['text'] for b in beats]
+        sync_mode='timestamps reais do Edge-TTS' if word_cues else 'fallback editorial pela duração real do áudio'
+        update_job(jid,progress=66,log=f'Narração pronta: {script.get("word_count",0)} palavras / {duration:.1f}s. Legendas em {len(beats)} blocos — {sync_mode}.')
+        update_job(jid,stage='EDIÇÃO',progress=74,log=f'Obtendo vídeos oficiais da Rockstar e montando timeline com movimento real / {duration:.1f}s...')
+        print(f'[JOB {jid}] stage=OFFICIAL_VIDEO_DOWNLOAD start',flush=True)
+        try:
+            official_videos=download_official_video_clips(jobdir/'official_videos', jid)
+        except Exception as _video_source_error:
+            raise RuntimeError(
+                f'GATE VISUAL: não foi possível obter vídeos oficiais com movimento suficiente; '
+                f'não vou publicar um slideshow como substituto. {str(_video_source_error)[:700]}'
+            )
+        print(f'[JOB {jid}] stage=OFFICIAL_VIDEO_DOWNLOAD done count={len(official_videos)}',flush=True)
+        # Do not mix stills extracted from the same clips with their moving footage.
+        selected_videos=_expand_video_clips_into_distinct_windows(
+            official_videos,jobdir,windows_per_clip=3
+        ) if official_videos else []
+        # Fallback seguro: se o recorte em janelas falhar, usar as fontes de vídeo
+        # originais que passaram no probe. Cada fonte continua sendo movimento real;
+        # a montagem recorta a duração de cada cena sem inventar quadros repetidos.
+        if official_videos and len(selected_videos)<4:
+            valid_sources=[]
+            for _clip in official_videos or []:
+                try:
+                    _probe=_probe_media(Path(_clip))
+                    if _probe.get('ok') and _probe.get('video') and float(_probe.get('duration') or 0)>=2.0:
+                        valid_sources.append(Path(_clip))
+                except Exception:
+                    continue
+            if len(valid_sources)>=4:
+                print(f'[VIDEO_WINDOWS_FALLBACK] using {len(valid_sources)} validated original motion sources; segmented_windows={len(selected_videos)}',flush=True)
+                selected_videos=valid_sources
+            else:
+                raise RuntimeError(
+                    f'GATE VISUAL: recorte gerou {len(selected_videos)} segmentos utilizáveis e só {len(valid_sources)} fontes '
+                    f'com movimento de pelo menos 2s; imagens disponíveis={len(image_scenes)}. '
+                    'A produção foi bloqueada para não entregar um slideshow no lugar de vídeo.'
+                )
+        source_video_count=len(selected_videos)
+        update_job(
+            jid,
+            log=f'{len(official_videos)} fontes oficiais divididas em {source_video_count} segmentos com movimento; '
+                'frames estáticos das mesmas fontes excluídos para evitar repetição. '
+                f'Editando em 9:16 / {duration:.1f}s...'
+        )
+        # Fit the edit to the actual one-use visual pool before rendering.
+        # Timeline selection permits each original official source once and each
+        # unique still once; counting two windows per source overstated capacity.
+        available_slots=_visual_source_capacity(selected_videos)+len(set(map(str,image_scenes)))
+        if available_slots < len(beats) and available_slots >= 6:
+            fallback_count=min(available_slots,16)
+            beats=build_short_timeline(script,topic,duration,fallback_count,word_cues=None)
+            if len(beats)>fallback_count:
+                raise RuntimeError(
+                    f'GATE CAPTIONS: {len(beats)} semantic captions exceed the {fallback_count}-scene visual pool; '
+                    'refusing to split narration by raw word counts.'
+                )
+            _fallback_cap=_audit_caption_quality(beats)
+            if any(_fallback_cap.get(key) for key in ('bad_end','bad_start','protected_splits','long','short','visual_bad')):
+                raise RuntimeError(f'GATE CAPTIONS: visual fallback captions failed final audit: {_fallback_cap}')
+            caps=[b['text'] for b in beats]
+            print(f'[JOB {jid}] visual fallback scenes={len(beats)} images={len(image_scenes)} videos={len(selected_videos)}',flush=True)
+            update_job(jid,log=f'Fallback controlado: {len(selected_videos)} vídeos + {len(image_scenes)} visuais únicos; timeline reduzida para {len(beats)} cenas sem reciclagem.')
+        if available_slots<len(beats):
+            raise RuntimeError(f'GATE VISUAL: só {available_slots} slots visuais distintos para {len(beats)} cenas; não vou reciclar planos.')
+        video=jobdir/'GTA_OCULTO_SHORT.mp4'
+        print(f'[JOB {jid}] stage=RENDER start',flush=True)
+        beats=make_multimedia_video(selected_videos,image_scenes,audio,video,duration,caps,script,topic['title'],beats)
+        print(f'[JOB {jid}] stage=RENDER done exists={video.exists()} bytes={video.stat().st_size if video.exists() else 0}',flush=True)
+        # Nunca deixe a capa derrubar uma produção já renderizada.
+        print(f'[JOB {jid}] stage=POST_RENDER cover start',flush=True)
+        if not image_scenes:
+            fallback_cover=jobdir/'cover_fallback.jpg'
+            make_fallback(fallback_cover,0,topic['title'])
+            image_scenes=[fallback_cover]
+        cover=jobdir/'CAPA.jpg'; make_cover(image_scenes[0],topic['title'],cover)
+        print(f'[JOB {jid}] stage=POST_RENDER cover done exists={cover.exists()} bytes={cover.stat().st_size if cover.exists() else 0}',flush=True)
+        update_job(jid,stage='AVALIAÇÃO',progress=92,log='Avaliando hook, ritmo, duração e sincronização real das legendas...')
+        # V63.3: os mesmos arquivos já foram avaliados na seleção de visuais.
+        # Não reler/redimensionar todos antes da auditoria final no Render Free.
+        _unique_motion_sources=_visual_source_capacity(selected_videos)
+        visual_quality=94 if _unique_motion_sources>=10 else (88 if _unique_motion_sources>=8 else (78 if _unique_motion_sources>=6 else 60))
+        update_job(jid,stage='AVALIAÇÃO',progress=93,log='QA 1/3: integridade do MP4, codecs, áudio e duração...')
+        # V41: auditor automático examina o MP4 real e tenta correções seguras antes do gate final.
+        print(f'[JOB {jid}] stage=QA start',flush=True)
+        audit,beats,repaired=self_heal(jid,script,video,duration,beats,selected_videos,image_scenes,topic,audio)
+        print(f'[JOB {jid}] stage=QA done score={audit.get("score",0)} issues={len(audit.get("issues",[]))}',flush=True)
+        update_job(jid,stage='AVALIAÇÃO',progress=94,log='QA 2/3 concluído: auditor editorial, legenda e mídia.')
+
+        # V42: second independent bounded audit. It never replaces the proven
+        # V41.3 renderer; it only gets one safe caption-repair attempt when the
+        # independent audit detects weak caption segmentation.
+        v42_audit = None
+        if v42_full_audit and os.getenv('GTA_V42_AUDIT','0').strip().lower() in {'1','true','yes','on'}:
+            try:
+                update_job(jid,stage='AVALIAÇÃO',progress=95,log='QA 3/3: auditor independente V42 opcional...')
+                v42_audit = v42_full_audit(video, [b.get('text','') for b in beats], script.get('narration',''))
+            except Exception as _v42e:
+                v42_audit={'score':None,'error':str(_v42e)[:500]}
+
+        print(f'[JOB {jid}] stage=EVALUATE start',flush=True)
+        score=evaluate(script,duration,len(beats),visual_quality,beats,len(selected_videos),len(image_scenes))
+        print(f'[JOB {jid}] stage=EVALUATE done score={score}',flush=True)
+        score=min(score,audit.get('score',score))
+        if v42_audit and isinstance(v42_audit.get('score'),(int,float)):
+            score=min(score,int(v42_audit['score']))
+        audit['v42_independent']=v42_audit
+        (jobdir/'audit.json').write_text(json.dumps(audit,ensure_ascii=False,indent=2),encoding='utf-8')
+        update_job(jid,stage='AVALIAÇÃO',progress=96,log='🧠 AUDITOR IA: {}/100 | alinhamento pauta/roteiro: {}/100 | reparo automático: {} | problemas: {}.'.format(audit.get('score',0), audit.get('checks',{}).get('alinhamento_pauta',0), 'SIM' if repaired else 'NÃO', len(audit.get('issues',[]))))
+        hard_issues={
+            'HEADLINE_SCRIPT_MISMATCH','LOW_VIDEO_VARIETY',
+            'CAPTIONS_NOT_FROM_NARRATION','CAPTIONS_BAD_BOUNDARY','CAPTIONS_REPEATED',
+            'CAPTIONS_LOW_QUALITY','CAPTIONS_INCOMPLETE',
+            'VISUAL_REPETITION','VISUAL_STAGNATION','HIGH_FROZEN_RATIO','VISUAL_AUDIT_FAILED','MEDIA_UNREADABLE',
+            'NO_VIDEO_STREAM','NO_AUDIO_STREAM','WRONG_ASPECT','VISUAL_CONTAMINATION'
+        }
+        blocking=[i for i in audit.get('issues',[]) if i.get('code') in hard_issues]
+        if (len(selected_videos)<4 and len(image_scenes)>=8) or (len(selected_videos)>=2 and len(image_scenes)>=8):
+            blocking=[i for i in blocking if i.get('code')!='LOW_VIDEO_VARIETY']
+        # V55.4: a mild boundary warning cannot block an otherwise aligned caption track.
+        if any(i.get('code')=='CAPTIONS_BAD_BOUNDARY' for i in blocking):
+            cap_a=audit.get('caption_audit',{}) or {}
+            align_a=_caption_narration_alignment(beats,script.get('narration',''))
+            severe_boundary=((len(cap_a.get('bad_end',[]))+len(cap_a.get('bad_start',[])))>=max(4,int(len(beats or [])*0.55)))
+            if align_a.get('foreign_ratio',0)<=0.03 and align_a.get('score',100)>=85 and cap_a.get('repeated_adjacent',0)==0 and not severe_boundary:
+                blocking=[i for i in blocking if i.get('code')!='CAPTIONS_BAD_BOUNDARY']
+                audit.setdefault('notes',[]).append('V55.4: boundary leve aceito com alinhamento íntegro à narração.')
+        if audit.get('score',0)<85 or blocking:
+            for issue in audit.get('issues',[]): _learn_event(issue['code'],issue['message'])
+            # V55.6: nunca ocultar o motivo quando o score reprova sem hard-block.
+            all_codes=[]
+            for issue in (audit.get('issues',[]) or []):
+                code=str(issue.get('code','')).strip()
+                if code and code not in all_codes:
+                    all_codes.append(code)
+            names=', '.join(i.get('code','') for i in blocking[:6])
+            if not names:
+                names=', '.join(all_codes[:10])
+            details=[]
+            for issue in (audit.get('issues',[]) or [])[:6]:
+                code=str(issue.get('code','')).strip()
+                msg=str(issue.get('message','')).strip()
+                if code:
+                    details.append(f'{code}: {msg[:180]}')
+            detail_text=' | '.join(details)
+            raise ValueError(
+                'AUDITOR IA: gate estrito reprovou o vídeo após correções seguras'
+                + (f' — score={audit.get("score",0)}; problemas: {names}' if names else f' — score={audit.get("score",0)}; nenhum código de problema registrado')
+                + (f' — detalhes: {detail_text}' if detail_text else '')
+                + '.'
+            )
+        # V52 strict caption gate: never approve captions that are not derived from the actual narration.
+        cap_alignment=_caption_narration_alignment(beats,script.get('narration',''))
+        if cap_alignment.get('foreign_ratio',0)>0.03 or cap_alignment.get('score',100)<85:
+            raise ValueError('GATE CAPTIONS: legendas contêm texto que não pertence à narração. Produção bloqueada para autocorreção.')
+        # V33 hard gate: rendering is not enough; reject editorially contaminated/weak scripts.
+        banned_editorial=('radar','editor-chefe','score','confiança','fontes','matérias','produzir agora')
+        low=narration_check=str(script.get('narration','')).lower()
+        if any(x in low for x in banned_editorial):
+            raise ValueError('GATE EDITORIAL: narração contém metadado interno.')
+        if int(script.get('word_count',0) or 0) < 70:
+            raise ValueError('GATE EDITORIAL: roteiro factual curto demais para um Short consistente.')
+        if not script.get('evidence'):
+            raise ValueError('GATE EDITORIAL: nenhuma evidência da matéria principal.')
+        if str(script.get('source','')).lower().find('news.google.com') >= 0:
+            raise ValueError('GATE SOURCE-LOCK: a URL final ainda é Google News.')
+        if str(script.get('extraction_method','')).startswith('BLOCKED_'):
+            raise ValueError('GATE SOURCE-LOCK: extração da matéria original não confiável.')
+        meta={'title':topic['title'].upper()+' 👀','description':script['narration']+'\n\n🔎 GTA Oculto — onde os segredos vêm à tona.','hashtags':['#GTA6','#GTAVI','#GTAOculto','#RockstarGames','#GTA'],'tags':['GTA 6','GTA VI','GTA 6 Brasil','GTA 6 teorias','GTA 6 segredos','Rockstar Games','GTA Oculto'],'score':score,'audit_score':audit.get('score',0),'audit':audit,'script_version':script.get('script_version','V33.0-MAIN-ARTICLE-LOCKED')}
+        (jobdir/'metadata.json').write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding='utf-8')
+        final_video=jobdir/'GTA_OCULTO_SHORT.mp4'
+        print(f'[JOB {jid}] stage=FINAL_VALIDATION start',flush=True)
+        final_probe=_probe_media(final_video)
+        print(f'[JOB {jid}] stage=FINAL_VALIDATION probe ok={final_probe.get("ok")} size={final_probe.get("size")} duration={final_probe.get("duration")}',flush=True)
+        final_videos=final_probe.get('video') or []
+        final_audios=final_probe.get('audio') or []
+        if not (final_probe.get('ok') and final_probe.get('size',0)>=50000 and final_videos and final_audios and
+                10 <= float(final_probe.get('duration') or 0) <= 65 and
+                int(final_videos[0].get('height') or 0) > int(final_videos[0].get('width') or 0)):
+            raise RuntimeError('VALIDAÇÃO FINAL: MP4 não passou no ffprobe (arquivo, vídeo vertical, áudio ou duração). Detalhe: '+json.dumps(final_probe,ensure_ascii=False)[:1200])
+        meta['media_validation']={'ok':True,'size':final_probe['size'],'duration':final_probe['duration'],'video_codec':final_videos[0].get('codec_name'),'audio_codec':final_audios[0].get('codec_name'),'width':final_videos[0].get('width'),'height':final_videos[0].get('height')}
+        (jobdir/'metadata.json').write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding='utf-8')
+        update_job(jid,status='DONE',stage='PRONTO',progress=100,log=f'PRONTO — MP4 validado (vídeo + áudio + duração + vertical), nota {score}/100.',video=f'{jid}/GTA_OCULTO_SHORT.mp4',cover=f'{jid}/CAPA.jpg',score=score,metadata=meta,media_validation=meta['media_validation'])
+        _log_visual_contact_sheet(final_video,jid)
+        if AUTONOMOUS_ENGINE:
+            try: AUTONOMOUS_ENGINE.on_done(jid,sys.modules[__name__])
+            except Exception as _pub_e: update_job(jid,log=f'PRONTO — publicação automática aguardando configuração: {str(_pub_e)[:300]}')
+    except Exception as e:
+        import traceback
+        tb=traceback.format_exc()
+        print(f'[JOB {jid}] ERROR {type(e).__name__}: {str(e)[:1800]}',flush=True)
+        recovered=None
+        if AUTONOMOUS_ENGINE:
+            try:
+                recovered=AUTONOMOUS_ENGINE.on_error(jid,str(e)+'\n'+tb[-5000:],sys.modules[__name__])
+            except Exception as _ae:
+                recovered={'action':'QUARANTINE','reason':str(_ae)}
+        if not recovered or recovered.get('action')=='QUARANTINE':
+            update_job(jid,status='ERROR',stage='ERRO',progress=100,log='ERRO: '+str(e)+'\n'+tb[-3200:])
+        else:
+            update_job(jid,log=f'🤖 AUTO-RECUPERAÇÃO: {recovered.get("action")}. O agente continuará sem intervenção manual.')
+    finally: PROCESSING=False
+
+
+# V64.13: disparo de produção de teste controlado pelo servidor.
+# Útil para validar uma versão recém-publicada sem depender de POST externo.
+BOOT_PRODUCE_ONCE = os.getenv('GTA_BOOT_PRODUCE_ONCE','0').strip().lower() in ('1','true','yes','on')
+BOOT_PRODUCE_TAG = os.getenv('GTA_BOOT_PRODUCE_TAG','legacy').strip() or 'legacy'
+BOOT_PRODUCE_MARKER = WORK / ('.boot_produce_once_done' if BOOT_PRODUCE_TAG == 'legacy' else '.boot_produce_once_done_' + BOOT_PRODUCE_TAG.replace('/','_').replace('\\\\','_').replace(' ','_'))
+
+def boot_produce_once():
+    if not BOOT_PRODUCE_ONCE or BOOT_PRODUCE_MARKER.exists():
+        return
+    time.sleep(12)
+    try:
+        with APP.test_request_context('/api/produce', method='POST', json={}):
+            response = produce()
+        if getattr(response, 'status_code', 500) < 300:
+            BOOT_PRODUCE_MARKER.write_text(now_iso(), encoding='utf-8')
+            print('[BOOT_PRODUCE] Test production queued successfully.', flush=True)
+        else:
+            print(f'[BOOT_PRODUCE] Queue returned status {getattr(response, "status_code", "?")}; will retry on next server restart.', flush=True)
+    except Exception as e:
+        print(f'[BOOT_PRODUCE] Failed: {type(e).__name__}: {e}', flush=True)
+
+def processor_loop():
+    global PROCESSING
+    # A Render deploy/restart can terminate the production thread without giving
+    # it a chance to mark the job as finished. Recover RUNNING jobs immediately
+    # on the first queue scan after boot; never do this again while this process
+    # is alive, otherwise the watchdog could requeue its own active job.
+    startup_recovery_pending=True
+    while True:
+        try:
+            pending_files=[]
+            pending_jobs=[]
+            for pending_path in sorted(PENDING_QUEUE_DIR.glob('*.json'))[:20]:
+                try:
+                    pending_job=json.loads(pending_path.read_text(encoding='utf-8'))
+                    if isinstance(pending_job,dict) and pending_job.get('id'):
+                        pending_files.append(pending_path)
+                        pending_jobs.append(pending_job)
+                except Exception:
+                    continue
+            with LOCK:
+                jobs=load_jobs()
+                for pending_job in pending_jobs:
+                    jobs.setdefault(str(pending_job['id']),pending_job)
+                # If Render restarts after a long encode, a previous RUNNING job
+                # is recovered instead of disappearing from the queue. Startup
+                # recovery is safe because it only runs once per process lifetime.
+                now=time.time()
+                if startup_recovery_pending:
+                    for j in jobs.values():
+                        if j.get('status')=='RUNNING':
+                            j['status']='QUEUED'; j['stage']='FILA'; j['progress']=0
+                            j['log']='Watchdog de inicialização: Render reiniciou durante a produção. Job recuperado automaticamente para nova execução.'
+                            j['recovered_at']=now_iso()
+                    startup_recovery_pending=False
+                for j in jobs.values():
+                    if j.get('status')=='RUNNING':
+                        try:
+                            age=now-datetime.fromisoformat(j.get('updated_at','')).timestamp()
+                        except Exception:
+                            age=0
+                        # V61 watchdog: a produção cloud não pode prender a fila
+                        # indefinidamente se a thread morrer ou ficar órfã.
+                        # 20 min é acima do tempo normal de pesquisa/TTS/render
+                        # no plano Free, mas curto o bastante para recuperar a fila.
+                        if age>1200:
+                            j['status']='QUEUED'; j['stage']='FILA'; j['progress']=0
+                            j['log']='Watchdog V61: produção RUNNING ficou sem atualização por 20 min. Job recuperado automaticamente.'
+                            j['recovered_at']=now_iso()
+                save_jobs(jobs)
+                target=next((j for j in jobs.values() if j.get('status')=='QUEUED'),None)
+            for pending_path in pending_files:
+                try: pending_path.unlink(missing_ok=True)
+                except Exception: pass
+            if target and not PROCESSING:
+                PROCESSING=True
+                threading.Thread(target=produce_job,args=(target['id'],),daemon=True).start()
+            time.sleep(2)
+        except Exception:
+            time.sleep(5)
+
+@APP.get('/')
+def home(): return render_template_string(PAGE)
+@APP.get('/health')
+def health():
+    auto=AUTONOMOUS_ENGINE.status() if AUTONOMOUS_ENGINE else {'mode':'DEGRADED'}
+    return jsonify(ok=True,app='GTA Oculto AI',version=BUILD_VERSION,commit=os.environ.get('RENDER_GIT_COMMIT','unknown'),processor='cloud',autonomous_mode=AUTONOMOUS_MODE,max_topic_recovery=AUTONOMOUS_MAX_TOPIC_RECOVERY,autonomy=auto)
+@APP.get('/api/autonomy')
+def autonomy_status():
+    return jsonify(AUTONOMOUS_ENGINE.status() if AUTONOMOUS_ENGINE else {'mode':'DEGRADED'})
+
+@APP.get('/api/state')
+def state():
+    # IMPORTANT: never wait on the production LOCK here. The producer/render
+    # runs in a background thread inside the Gunicorn worker and may legitimately
+    # spend minutes downloading/encoding media. Waiting for LOCK makes the
+    # dashboard polling request hang until Gunicorn kills the worker with
+    # WORKER TIMEOUT, which in turn kills the production thread.
+    # jobs.json is written with atomic os.replace(), so a lock-free read is safe:
+    # readers see either the previous complete JSON or the next complete JSON.
+    js=list(load_jobs().values())[-30:]
+    topics,updated,radar_status,radar_error,sources_ok=current_opportunities()
+    editor_pick=editor_chief_select(topics) if topics else None
+
+    # V40: NEVER execute the full editorial/source resolver inside /api/state.
+    # The dashboard polls this endpoint repeatedly. make_script() can perform
+    # external network resolution (Google News decoder/search) and could make
+    # the browser appear to load forever. The real script is generated only
+    # after /api/produce starts the production job.
+    if editor_pick:
+        editor_pick['script_preview'] = {
+            'word_count': 0,
+            'estimated_seconds': 0,
+            'sections': {
+                'hook': editor_pick.get('editorial_hook',''),
+                'context': '',
+                'proof': '',
+                'payoff': editor_pick.get('editorial_angle',''),
+                'cta': ''
+            }
+        }
+
+    produced=sum(1 for x in js if x.get('status')=='DONE' and _job_output_is_valid(x))
+    return jsonify(opportunities=topics,jobs=js,produced=produced,queue=sum(x.get('status') in ('QUEUED','RUNNING') for x in js),radar_updated=updated,radar_status=radar_status,radar_error=radar_error,radar_sources_ok=sources_ok,editor_pick=editor_pick)
+@APP.post('/api/research')
+def research():
+    try:
+        radar=radar_scan(); return jsonify(ok=True,message=f'Radar atualizado: {len(radar.get("opportunities",[]))} oportunidades encontradas. Editor-Chefe pronto.',opportunities=radar.get('opportunities',[]),radar_updated=radar.get('updated_at'))
+    except Exception as e: return jsonify(error=str(e)),502
+@APP.route('/api/produce', methods=['GET','POST'])
+def produce():
+    # V64.2: enqueue through an isolated one-file queue; do not contend with
+    # the processor's jobs-state lock while a video is being rendered.
+    data=request.get_json(silent=True) or {}
+    try:
+        radar=_load_radar()
+        topics=radar.get('opportunities') or FALLBACK_TOPICS
+    except Exception:
+        topics=FALLBACK_TOPICS
+    topic=None
+    requested_id=str(data.get('id') or '').strip()
+    if requested_id:
+        topic=next((dict(x) for x in topics if str(x.get('id',''))==requested_id),None)
+    custom=str(data.get('topic') or '').strip()
+    if topic is None and custom:
+        topic={'id':'custom','score':88,'priority':'ALTA','title':custom,'source':'Pesquisa editorial','url':ROCKSTAR_VI,'radar':False}
+    if topic is None:
+        topic=max((dict(x) for x in topics),key=lambda x:(float(x.get('trend_score',0) or 0),float(x.get('score',0) or 0)))
+    jid=uuid.uuid4().hex[:10]
+    job={'id':jid,'title':topic['title'],'opportunity':topic,'status':'QUEUED','stage':'FILA','progress':0,'log':'Tarefa recebida. A produção cloud começará automaticamente.','video':None,'cover':None,'created_at':now_iso()}
+    try:
+        _atomic_write_json(PENDING_QUEUE_DIR / f'{jid}.json',job)
+    except Exception as e:
+        print(f'[PRODUCE_API] queue write failed: {type(e).__name__}: {e}',flush=True)
+        return jsonify(ok=False,error='Não foi possível colocar o job na fila: '+str(e)[:300]),500
+    print(f'[PRODUCE_API] queued job={jid} via pending file',flush=True)
+    return jsonify(ok=True,job_id=jid,title=topic['title'])
+
+@APP.get('/api/analytics/summary')
+def analytics_summary():
+    if not AUTONOMOUS_ENGINE:
+        return jsonify(ok=False,reason='AUTONOMOUS_ENGINE_UNAVAILABLE'),503
+    engine=AUTONOMOUS_ENGINE
+    if request.args.get('refresh') == '1':
+        try: engine.collect_analytics()
+        except Exception as e: return jsonify(ok=False,reason='ANALYTICS_COLLECTION_FAILED: '+str(e)[:250]),502
+    try: raw=(engine.memory.summary().get('metrics',{}) or {}).get('latest_analytics') or {}
+    except Exception: raw={}
+    last=getattr(engine,'last_analytics_result',None) or {}
+    if not raw or not raw.get('ok'):
+        return jsonify(ok=False,reason=last.get('reason') or 'Ainda não há coleta válida. Confira a configuração OAuth e as permissões do YouTube Analytics.',checked_at=last.get('checked_at')),503
+    headers=[str(x.get('name','')).lower().replace(' ','') if isinstance(x,dict) else str(x).lower().replace(' ','') for x in (raw.get('headers') or [])]
+    videos=[]
+    for row in raw.get('rows') or []:
+        if not isinstance(row,(list,tuple)): continue
+        item={headers[i]:row[i] for i in range(min(len(headers),len(row)))}
+        vid=str(item.get('video','') or '')
+        if not vid: continue
+        def num(key):
+            try: return float(item.get(key,0) or 0)
+            except (ValueError,TypeError): return 0.0
+        videos.append({'video_id':vid,'title':vid,'views':int(num('views')),'likes':int(num('likes')),'likes_available':'likes' in headers,'comments':int(num('comments')),'comments_available':'comments' in headers,'subscribers_gained':int(num('subscribersgained')),'subscribers_available':'subscribersgained' in headers and raw.get('mode')!='public_stats_fallback','average_view_duration':num('averageviewduration'),'estimated_minutes_watched':num('estimatedminuteswatched')})
+    try:
+        token=os.getenv('YOUTUBE_TOKEN_JSON','').strip()
+        if token and videos:
+            import base64
+            from google.oauth2.credentials import Credentials
+            from googleapiclient.discovery import build
+            if token.startswith('base64:'): token=base64.b64decode(token[7:]).decode()
+            creds=Credentials.from_authorized_user_info(json.loads(token),['https://www.googleapis.com/auth/youtube.upload'])
+            yt=build('youtube','v3',credentials=creds,cache_discovery=False); byid={v['video_id']:v for v in videos}
+            for i in range(0,len(videos),50):
+                ids=[v['video_id'] for v in videos[i:i+50]]
+                for item in yt.videos().list(part='snippet,statistics',id=','.join(ids)).execute().get('items',[]):
+                    v=byid.get(item.get('id'))
+                    if v:
+                        v['title']=(item.get('snippet') or {}).get('title') or v['title']; st=item.get('statistics') or {}
+                        if 'likes' not in headers and 'likeCount' in st: v['likes']=int(st.get('likeCount',0) or 0);v['likes_available']=True
+                        if 'comments' not in headers and 'commentCount' in st: v['comments']=int(st.get('commentCount',0) or 0);v['comments_available']=True
+    except Exception: pass
+    total=sum(v['views'] for v in videos); avg=round(total/len(videos)) if videos else 0
+    likes_avail=any(v['likes_available'] for v in videos); subs_avail=any(v['subscribers_available'] for v in videos); comments_avail=any(v['comments_available'] for v in videos)
+    watch_avail='estimatedminuteswatched' in headers; duration_avail='averageviewduration' in headers; source=raw.get('mode','youtube_analytics')
+    recommendation='Ainda não há dados suficientes para recomendar um padrão.'
+    if videos:
+        top=max(videos,key=lambda v:v['views']); recommendation=f"Entre os vídeos retornados, ‘{top['title']}’ lidera com {top['views']} visualizações. Use o assunto e o gancho como hipótese para novos testes; isso não garante repetir o resultado."
+    return jsonify(ok=True,start=raw.get('start'),end=raw.get('end'),source=source,video_count=len(videos),total_views=total,average_views=avg,total_likes=sum(v['likes'] for v in videos),likes_available=likes_avail,subscribers_gained=sum(v['subscribers_gained'] for v in videos),subscribers_available=subs_avail,total_comments=sum(v['comments'] for v in videos),comments_available=comments_avail,watch_minutes=sum(v['estimated_minutes_watched'] for v in videos),watch_minutes_available=watch_avail,average_view_duration=(sum(v['average_view_duration'] for v in videos)/len(videos) if videos else 0),duration_available=duration_avail,videos=sorted(videos,key=lambda v:v['views'],reverse=True)[:20],recommendation=recommendation,checked_at=last.get('checked_at'))
+
+@APP.get('/api/youtube/status')
+def youtube_status():
+    if not AUTONOMOUS_ENGINE:
+        return jsonify(enabled=False, configured=False, reason='AUTONOMOUS_ENGINE_UNAVAILABLE')
+    pub=getattr(AUTONOMOUS_ENGINE,'publisher',None)
+    if not pub:
+        return jsonify(enabled=False, configured=False, reason='YOUTUBE_PUBLISHER_UNAVAILABLE')
+    return jsonify(
+        enabled=bool(getattr(pub,'enabled',False)),
+        configured=bool(getattr(pub,'token_json','')),
+        privacy=os.getenv('YOUTUBE_PRIVACY','private'),
+        analytics_enabled=bool(getattr(getattr(AUTONOMOUS_ENGINE,'analytics',None),'enabled',False)),
+    )
+
+@APP.post('/api/publish/<jid>')
+def publish_existing(jid):
+    """Manually publish one validated DONE job; useful for the first private test."""
+    if not AUTONOMOUS_ENGINE:
+        return jsonify(ok=False,error='AUTONOMOUS_ENGINE indisponível.'),503
+    job=load_jobs().get(jid)
+    if not job:
+        return jsonify(ok=False,error='job não encontrado'),404
+    if job.get('status')!='DONE':
+        return jsonify(ok=False,error='O job precisa estar DONE antes da publicação.'),409
+    rel=str(job.get('video') or '').strip()
+    if not rel:
+        return jsonify(ok=False,error='Este job não possui vídeo final.'),409
+    try:
+        video=(WORK/rel).resolve()
+        if WORK.resolve() not in video.parents:
+            return jsonify(ok=False,error='caminho de vídeo inválido'),400
+    except Exception:
+        return jsonify(ok=False,error='caminho de vídeo inválido'),400
+    if not video.exists() or video.stat().st_size < 50000:
+        return jsonify(ok=False,error='MP4 final não encontrado ou inválido no workspace.'),409
+    meta=job.get('metadata') or {}
+    pub=AUTONOMOUS_ENGINE.publisher.upload(video,meta)
+    if pub.get('ok'):
+        try:
+            if AUTONOMOUS_ENGINE.trend_brain:
+                AUTONOMOUS_ENGINE.trend_brain.record_publication(job.get('opportunity') or {},meta,pub.get('video_id'))
+        except Exception:
+            pass
+        update_job(jid,stage='PUBLICAÇÃO',log=f'▶️ YouTube: publicação manual concluída ({pub.get("video_id")}).',youtube=pub)
+        return jsonify(ok=True,youtube=pub)
+    update_job(jid,log=f'⚠️ YouTube: publicação não concluída — {pub.get("reason","erro desconhecido")}',youtube=pub)
+    return jsonify(ok=False,youtube=pub),502
+
+@APP.get('/api/job/<jid>')
+def one(jid):
+    j=load_jobs().get(jid)
+    if j: return jsonify(j)
+    pending=PENDING_QUEUE_DIR / f'{jid}.json'
+    if pending.exists():
+        try: return jsonify(json.loads(pending.read_text(encoding='utf-8')))
+        except Exception: pass
+    return jsonify(error='not found'),404
+LIVE_JOBS_FILE = WORK / 'live_jobs.json'
+LIVE_JOBS_LOCK = threading.RLock()
+
+def _live_jobs():
+    try:
+        return json.loads(LIVE_JOBS_FILE.read_text(encoding='utf-8'))
+    except Exception:
+        return {}
+
+def _save_live_jobs(d):
+    tmp=LIVE_JOBS_FILE.with_suffix('.tmp')
+    tmp.write_text(json.dumps(d,ensure_ascii=False,indent=2),encoding='utf-8')
+    os.replace(tmp,LIVE_JOBS_FILE)
+
+def _live_update(jid, **fields):
+    with LIVE_JOBS_LOCK:
+        d=_live_jobs(); j=d.setdefault(jid,{'id':jid}); j.update(fields); j['updated_at']=now_iso(); _save_live_jobs(d)
+
+def _live_analyze_worker(jid, source, max_clips):
+    try:
+        _live_update(jid,status='RUNNING',stage='ANALISANDO',progress=5,log='Analisando a live em blocos, sem carregar o vídeo inteiro na memória.')
+        result=LiveClipper(WORK).analyze(source,max_clips=max_clips,job_id=jid)
+        _live_update(jid,status='DONE',stage='CORTES_ENCONTRADOS',progress=100,result=result,clips=result.get('clips',[]),log=f'Encontrados {len(result.get("clips",[]))} cortes candidatos.')
+    except Exception as e:
+        _live_update(jid,status='ERROR',stage='ERRO',progress=100,error=str(e)[:2500])
+
+def _live_render_worker(jid, source, clips):
+    try:
+        _live_update(jid,status='RUNNING',stage='RENDERIZANDO',progress=5,log='Renderizando os melhores cortes em vertical 9:16.')
+        jobdir=WORK/'live_clips'/jid; jobdir.mkdir(parents=True,exist_ok=True)
+        engine=LiveClipper(WORK); outputs=[]
+        total=min(20,len(clips))
+        for i,clip in enumerate(clips[:20],1):
+            out=engine.render_clip(source,clip,jobdir,i); outputs.append(str(out.relative_to(WORK)))
+            _live_update(jid,progress=int(5+(i/total)*90),log=f'Corte {i}/{total} renderizado.')
+        _live_update(jid,status='DONE',stage='PRONTO',progress=100,outputs=outputs,log=f'{len(outputs)} cortes prontos.')
+    except Exception as e:
+        _live_update(jid,status='ERROR',stage='ERRO',progress=100,error=str(e)[:2500])
+
+@APP.post('/api/live/analyze')
+def live_analyze():
+    if not LiveClipper: return jsonify(error='Live Clipper indisponível no servidor.'),503
+    data=request.get_json(silent=True) or {}
+    source=str(data.get('url') or data.get('source') or '').strip()
+    try: max_clips=max(1,min(20,int(data.get('max_clips',10) or 10)))
+    except Exception: max_clips=10
+    if not source: return jsonify(error='Informe a URL pública ou caminho do arquivo da live.'),400
+    jid='live-'+uuid.uuid4().hex[:10]
+    _live_update(jid,status='QUEUED',stage='FILA',progress=0,source=source,max_clips=max_clips)
+    threading.Thread(target=_live_analyze_worker,args=(jid,source,max_clips),daemon=True).start()
+    return jsonify(ok=True,job_id=jid)
+
+@APP.post('/api/live/render')
+def live_render():
+    if not LiveClipper: return jsonify(error='Live Clipper indisponível no servidor.'),503
+    data=request.get_json(silent=True) or {}
+    source=str(data.get('url') or data.get('source') or '').strip()
+    clips=data.get('clips') or []
+    if not source or not isinstance(clips,list) or not clips: return jsonify(error='Informe source e clips.'),400
+    jid='live-'+uuid.uuid4().hex[:10]
+    _live_update(jid,status='QUEUED',stage='FILA_RENDER',progress=0,source=source,clips=clips[:20])
+    threading.Thread(target=_live_render_worker,args=(jid,source,clips[:20]),daemon=True).start()
+    return jsonify(ok=True,job_id=jid)
+
+@APP.get('/api/live/job/<jid>')
+def live_job(jid):
+    j=_live_jobs().get(jid)
+    return (jsonify(j) if j else (jsonify(error='not found'),404))
+
+@APP.get('/output/<path:p>')
+def output(p):
+    full=(WORK/p).resolve(); base=WORK.resolve()
+    if not str(full).startswith(str(base)):
+        return 'Not found',404
+    if full.exists():
+        return send_from_directory(full.parent,full.name,as_attachment=False)
+    # Render Free has ephemeral local storage. If a published MP4 was removed
+    # after a restart/redeploy, recover transparently through the durable YouTube copy.
+    parts=Path(p).parts
+    jid=parts[0] if parts else ''
+    try:
+        job=load_jobs().get(jid,{})
+        yt=job.get('youtube') or {}
+        vid=str(yt.get('video_id') or '').strip()
+        if vid:
+            return redirect(f'https://www.youtube.com/watch?v={quote(vid)}',code=302)
+    except Exception:
+        pass
+    return 'Not found',404
+
+def radar_loop():
+    time.sleep(8)
+    while True:
+        try: radar_scan()
+        except Exception: pass
+        time.sleep(15*60)
+
+def autonomy_loop():
+    if not AUTONOMOUS_ENGINE: return
+    # Run one early diagnostic after boot, then retain the six-hour cadence.
+    # This confirms whether the configured OAuth token really has Analytics scope.
+    time.sleep(45)
+    while True:
+        try:
+            AUTONOMOUS_ENGINE.collect_analytics()
+        except Exception as e:
+            print(f'[AUTONOMY] analytics loop error: {type(e).__name__}: {str(e)[:300]}', flush=True)
+        time.sleep(6*60*60)
+
+threading.Thread(target=processor_loop,daemon=True).start()
+threading.Thread(target=boot_produce_once,daemon=True).start()
+threading.Thread(target=radar_loop,daemon=True).start()
+threading.Thread(target=autonomy_loop,daemon=True).start()
+if __name__=='__main__': APP.run(host='0.0.0.0',port=int(os.environ.get('PORT',5000))),q.name) else 10**9):
+        try:
+            # Only reuse timestamp-tagged CDN clips; untagged files cannot prove
+            # uniqueness and are discarded before reuse.
+            _meta_path=p.with_suffix('.json')
+            try: _cache_meta=json.loads(_meta_path.read_text(encoding='utf-8'))
+            except Exception: _cache_meta={}
+            if _cache_meta.get('source')!='rockstar_cdn' or _cache_meta.get('start') is None:
+                p.unlink(missing_ok=True)
+                _meta_path.unlink(missing_ok=True)
+                continue
+            # Accept only complete motion proxies. Clips under 4s cannot provide
+            # two distinct 2s scenes and were silently looped by the renderer.
+            if p.stat().st_size <= 20000:
+                p.unlink(missing_ok=True)
+                continue
+            probe=_probe_media(p)
+            seconds=float(probe.get('duration') or 0)
+            if not probe.get('ok') or not probe.get('video') or seconds < 4.0:
+                print(f'[VIDEO_CACHE] removing_short={p.name} duration={seconds:.2f}s minimum=4.0s error={probe.get("error","no video or too short")}',flush=True)
+                p.unlink(missing_ok=True)
+                continue
+            # Revalidate cached clips cheaply on every run; only complete motion
+            # sources may be reused in a new Short.
+            cached.append(p)
+        except Exception as e:
+            print(f'[VIDEO_CACHE] removing_unreadable={p.name} error={str(e)[:180]}',flush=True)
+            try: p.unlink(missing_ok=True)
+            except Exception: pass
+    # Prefer eight independent motion sources for Shorts. Four sources proved
+    # insufficient in real renders: extracted frames were technically distinct
+    # but kept showing the same characters/shots. Build a broader official pool
+    # before falling back to still frames or blocking the timeline.
+    target_clips = 13
+    if len(cached) >= target_clips:
+        return cached[:target_clips]
+    try:
+        if jid:
+            update_job(jid,log='Lendo catálogo oficial da Rockstar e filtrando telas ESRB/disclaimers...')
+        total,entries=_remote_zip_entries(ROCKSTAR_VIDEO_ZIP)
+        media=[e for e in entries if e['name'].lower().endswith(('.mp4','.mov','.m4v'))]
+        if len(media) < 2:
+            raise RuntimeError(f'O pacote oficial possui apenas {len(media)} vídeos utilizáveis; são necessários pelo menos 2.')
+
+        preferred=[]
+        for key in ('Jason','Lucia','Cal','Boobie','Raul','Brian','Real','Dre'):
+            preferred += [e for e in media if key.lower() in Path(e['name']).stem.lower() and e not in preferred]
+        candidates=preferred+[e for e in media if e not in preferred]
+
+        ff=_ffmpeg_executable()
+        safe=list(cached)
+        used_names={p.name for p in safe}
+        candidate_failures=[]
+        next_index=0
+        for p in cache.glob('rockstar_real_v251_*.mp4'):
+            m=re.search(r'_(\d+)\.mp4$',p.name)
+            if m:
+                next_index=max(next_index,int(m.group(1))+1)
+
+        for entry in candidates:
+            if len(safe) >= target_clips:
+                break
+            idx=next_index
+            next_index += 1
+            target=cache/f'rockstar_real_v251_{idx}.mp4'
+            raw=cache/f'raw_v251_{idx}.mp4'
+            try:
+                if jid:
+                    update_job(jid,log=f'Baixando clipe oficial para revisão visual: {Path(entry["name"]).stem}...')
+                _remote_zip_extract(ROCKSTAR_VIDEO_ZIP,entry,raw)
+                raw_probe=_probe_media(raw)
+                raw_duration=float(raw_probe.get('duration') or 0)
+                if not raw_probe.get('ok') or not raw_probe.get('video') or raw_duration < 4.0:
+                    raise RuntimeError(f'fonte extraída curta/inválida: duration={raw_duration:.2f}s; mínimo 4.0s; bytes={raw.stat().st_size if raw.exists() else 0}; {raw_probe.get("error","sem stream de vídeo")}')
+                if jid:
+                    update_job(jid,log=f'Convertendo fonte validada ({raw_duration:.1f}s) para proxy leve 320x568...')
+                # First try accurate output-side seeking. Some MP4 sources in the
+                # official ZIP have edit lists/keyframes that make input-side
+                # -ss return a tiny 0.2–0.7s proxy despite a longer source.
+                proxy_errors=[]
+                for attempt in range(2):
+                    target.unlink(missing_ok=True)
+                    seek_args=(['-ss','0.8'] if attempt==0 else [])
+                    cmd=[
+                        ff,'-hide_banner','-loglevel','error','-y','-threads:v','1',
+                        *seek_args,'-i',str(raw),'-t','8.5',
+                        '-vf','scale=320:568:force_original_aspect_ratio=increase,crop=320:568,setsar=1,fps=12',
+                        '-an','-c:v','libx264','-preset','ultrafast','-crf','31',
+                        '-threads','1','-filter_threads','1','-filter_complex_threads','1',
+                        '-x264-params','threads=1:lookahead-threads=1:rc-lookahead=0:sync-lookahead=0',
+                        '-pix_fmt','yuv420p','-movflags','+faststart',str(target)
+                    ]
+                    run_cmd(cmd,90)
+                    proxy_probe=_probe_media(target) if target.exists() else {'ok':False,'duration':0,'video':[],'error':'arquivo não criado'}
+                    proxy_duration=float(proxy_probe.get('duration') or 0)
+                    if target.exists() and target.stat().st_size>20000 and proxy_probe.get('ok') and proxy_probe.get('video') and proxy_duration>=4.0:
+                        break
+                    proxy_errors.append(f'tentativa {attempt+1}: {proxy_duration:.2f}s; {proxy_probe.get("error","sem stream de vídeo")}')
+                if not target.exists() or target.stat().st_size<=20000 or not proxy_probe.get('ok') or not proxy_probe.get('video') or proxy_duration<4.0:
+                    raise RuntimeError(f'proxy curto/inválido após 2 tentativas; proxy={proxy_duration:.2f}s, mínimo=4.0s; fonte={raw_duration:.2f}s; '+ ' | '.join(proxy_errors))
+                if _video_contains_rating_disclaimer(target):
+                    if jid:
+                        update_job(jid,log=f'Filtro visual: descartando clipe com tela ESRB/disclaimer — {Path(entry["name"]).stem}')
+                    target.unlink(missing_ok=True)
+                    continue
+                safe.append(target)
+                used_names.add(target.name)
+            except Exception as e:
+                reason=f'{Path(entry["name"]).stem}: {str(e)[:260]}'
+                candidate_failures.append(reason)
+                print(f'[OFFICIAL_CLIP_REJECTED] {reason}',flush=True)
+                if jid:
+                    update_job(jid,log=f'Clipe oficial ignorado: {reason[:300]}')
+                try:
+                    target.unlink(missing_ok=True)
+                except Exception:
+                    pass
+                # The official ZIP has repeatedly returned extracted assets without
+                # a valid video stream. Stop probing the whole catalogue after a few
+                # failures and switch to the ranged-download CDN path.
+                if len(candidate_failures) >= 4 and len(safe) < target_clips:
+                    print(
+                        f'[OFFICIAL_VIDEO_ZIP] early_fallback invalid_candidates={len(candidate_failures)} '
+                        f'valid_cached={len(safe)} target={target_clips}',
+                        flush=True
+                    )
+                    break
+            finally:
+                try:
+                    raw.unlink(missing_ok=True)
+                except Exception:
+                    pass
+
+        safe=[p for p in safe if p.exists() and p.stat().st_size>20000]
+        if len(safe) < target_clips:
+            details=' | '.join(candidate_failures[-6:]) or 'nenhum detalhe de rejeição registrado'
+            raise RuntimeError(
+                f'Apenas {len(safe)} de {target_clips} fontes oficiais com vídeo válido foram preparadas. '
+                f'Acionando fallback para obter material em movimento. Últimas falhas: {details}'
+            )
+        return safe[:target_clips]
+    except Exception as e:
+        zip_error=str(e)[:900]
+        print(f'[OFFICIAL_VIDEO_ZIP] insufficient valid motion clips: {zip_error}; trying Rockstar official CDN range-download fallback',flush=True)
+        try:
+            return _download_official_rockstar_cdn_proxies(cache,jid=jid,limit_per_video=13)
         except Exception as rockstar_error:
             raise RuntimeError(
                 'Não foi possível obter vídeos oficiais utilizáveis. '
