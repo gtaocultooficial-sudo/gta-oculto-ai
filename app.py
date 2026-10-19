@@ -1742,7 +1742,8 @@ def _is_source_recovery_error(exc):
         'resolver budget','source-lock','source lock','sem evidência da matéria principal',
         # Editorial topic drift is recoverable: discard this candidate and try
         # the next approved topic instead of rendering a mismatched Short.
-        'selected_topic_mismatch','selected topic mismatch'
+        'selected_topic_mismatch','selected topic mismatch',
+        'editorial_substance_insufficient'
     )
     return any(k in msg for k in keys)
 
@@ -1927,6 +1928,19 @@ def make_script(topic):
     # Só aceita produção quando há conteúdo factual da matéria principal.
     if not evidence:
         raise ValueError('MATÉRIA SEM CORPO PRINCIPAL EXTRAÍDO — produção bloqueada para evitar mistura de manchetes.')
+    # Editorial substance gate: a Short needs at least two distinct factual
+    # sentences from the SAME article. One fact padded with generic commentary
+    # is not enough to justify a 30-second story.
+    distinct_evidence=[]
+    seen_evidence=set()
+    for item in evidence:
+        normalized=re.sub(r'[^a-zà-ÿ0-9]+',' ',str(item).lower()).strip()
+        if normalized and normalized not in seen_evidence:
+            seen_evidence.add(normalized)
+            distinct_evidence.append(item)
+    if len(distinct_evidence)<2:
+        raise ValueError('EDITORIAL_SUBSTANCE_INSUFFICIENT: a matéria não trouxe duas evidências factuais distintas; pauta descartada para evitar narração genérica.')
+    evidence=distinct_evidence
 
     angle,_=_editorial_angle(topic)
     # A listicle headline must not be reused for a Short that only covers one
@@ -1985,7 +1999,9 @@ def make_script(topic):
     # Closed-loop duration learning: use the learned winner to control factual
     # density before TTS, not only the number of visual beats.
     # Keep a compact learned-duration draft first; if it is too short, the verified next evidence sentence is added below.
-    selected_evidence=evidence[:1] if (focused_story or learned_duration_bucket=='24-29s') else evidence[:2]
+    # Preserve two factual beats even in short-duration profiles; reduce filler,
+    # not evidence. The narration can be shortened at the wording level later.
+    selected_evidence=evidence[:2]
     fact_parts=[]
     for item in selected_evidence:
         item=_clean_narrative_text(item).rstrip('.!?')
@@ -2021,6 +2037,12 @@ def make_script(topic):
 
     if learned_duration_bucket=='30-38s' and not focused_story:
         context += ' O contexto adicional ajuda a entender por que esse detalhe está chamando atenção agora.'
+    # Replace generic context with the article's second distinct factual
+    # beat. Keep the proof to the first beat so the script advances instead of
+    # repeating a vague line such as "this also situates the duo in the city".
+    if len(selected_evidence)>=2:
+        fact=_clean_narrative_text(selected_evidence[0])
+        context=_clean_narrative_text(selected_evidence[1])
     sections={
         'hook':hook,
         'context':_clean_narrative_text(context),
