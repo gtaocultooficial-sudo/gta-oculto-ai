@@ -65,7 +65,7 @@ UA = 'GTA-Oculto-AI/Cloud-Final/V55-SOURCE-RECOVERY-3'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
-BUILD_VERSION = 'V68.4-SCRIPT-GROUNDED-CAPTIONS-REPEAT-GATE-20261019'
+BUILD_VERSION = 'V68.5-NEAR-DUPLICATE-FRAME-QA-20261019'
 
 FALLBACK_TOPICS = [
     {'id':'leonida','score':96,'priority':'ALTA','title':'GTA 6: o detalhe de Leonida que pode mudar a história','source':'Rockstar Games','url':ROCKSTAR_VI,
@@ -5012,14 +5012,22 @@ def _visual_repetition_audit(path):
             mean=sum(values)/max(1,len(values))
             hashes.append(tuple(v>=mean for v in values))
         frame_matches=[]
+        near_frame_matches=[]
         frame_marks=set()
         for i in range(len(hashes)):
-            for j in range(i+3,len(hashes)):
+            # The previous i+3 floor skipped frames 2-4 seconds apart, which is
+            # exactly where duplicate adjacent montage shots appeared in real Shorts.
+            # For near samples require a very strong hash match; for distant samples
+            # retain the looser threshold to catch recycled shots across the timeline.
+            for j in range(i+1,len(hashes)):
+                gap=j-i
                 distance=sum(a!=b for a,b in zip(hashes[i],hashes[j]))
-                if distance<=6:
-                    # Similaridade isolada precisa ser forte; GTA tem muitos frames
-                    # com silhuetas/contraste parecidos que não são o mesmo take.
+                near_duplicate=(gap<=2 and distance<=2)
+                distant_duplicate=(gap>=3 and distance<=6)
+                if near_duplicate or distant_duplicate:
                     frame_matches.append((i,j,distance))
+                    if near_duplicate:
+                        near_frame_matches.append((i,j,distance))
                     frame_marks.add(i); frame_marks.add(j)
 
         # União para cobertura/repetição geral. Runs consecutivos são medidos
@@ -5045,13 +5053,15 @@ def _visual_repetition_audit(path):
         if longest_s>=8: score-=40
         elif longest_s>=6: score-=30
         elif longest_s>=4: score-=18
+        if near_frame_matches: score-=min(24,12+4*(len(near_frame_matches)-1))
         return {
             'score':max(0,min(100,score)),
             'repeated_ratio':round(ratio,3),
             'longest_repeat_s':round(longest_s,1),
             'pairs':[{'a_s':round(i*2.0,1),'b_s':round(j*2.0,1),'diff':round(d,2),'kind':'sequence'} for i,j,d in matches[:12]],
             'frame_repeat_pairs':[{'a_s':round(i*2.0,1),'b_s':round(j*2.0,1),'hash_distance':int(d)} for i,j,d in frame_matches[:20]],
-            'method':'sequence+perceptual-frame-hash',
+            'near_frame_repeat_pairs':[{'a_s':round(i*2.0,1),'b_s':round(j*2.0,1),'hash_distance':int(d)} for i,j,d in near_frame_matches[:20]],
+            'method':'sequence+perceptual-frame-hash+near-duplicate-detection',
             'sequence_window_s':8.0
         }
     except Exception as e:
@@ -5349,8 +5359,8 @@ def audit_short(script, video, duration, beats, selected_videos, image_scenes):
         issues.append(('VISUAL_STAGNATION',f'visual praticamente parado por {motion.get("longest_still_seconds",0):.0f}s'))
     if motion.get('frozen_ratio',0)>=0.28:
         issues.append(('HIGH_FROZEN_RATIO',f'{motion.get("frozen_ratio",0)*100:.0f}% das transições amostradas com pouca mudança visual'))
-    if not repetition.get('error') and (repetition.get('score',100)<85 or repetition.get('repeated_ratio',0)>=0.24 or repetition.get('longest_repeat_s',0)>=4):
-        issues.append(('VISUAL_REPETITION',f'repetição visual detectada: {repetition.get("repeated_ratio",0)*100:.0f}% das amostras / trecho repetido até {repetition.get("longest_repeat_s",0):.1f}s'))
+    if not repetition.get('error') and (repetition.get('near_frame_repeat_pairs') or repetition.get('score',100)<85 or repetition.get('repeated_ratio',0)>=0.24 or repetition.get('longest_repeat_s',0)>=4):
+        issues.append(('VISUAL_REPETITION',f'repetição visual detectada: {repetition.get("repeated_ratio",0)*100:.0f}% das amostras / trecho repetido até {repetition.get("longest_repeat_s",0):.1f}s; quadros próximos repetidos={len(repetition.get("near_frame_repeat_pairs",[]))}'))
     final=max(0,round((checks['roteiro']+checks['alinhamento_pauta']+checks['legendas']+checks['alinhamento_legendas']+checks['mp4']+checks['visuais']+checks['movimento']+checks['repeticao_visual'])/8))
     return {'score':final,'checks':checks,'issues':[{'code':c,'message':m} for c,m in issues],'media':media,'caption_audit':cap,'motion_audit':motion,'repetition_audit':repetition}
 
