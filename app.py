@@ -4767,8 +4767,8 @@ def _visual_motion_audit(path):
     tmp.mkdir(parents=True,exist_ok=True)
     try:
         ff=_ffmpeg_executable()
-        # 1 frame/s é suficiente para encontrar congelamentos longos sem pesar no Render.
-        run_cmd([ff,'-loglevel','error','-y','-i',str(path),'-vf','fps=0.5,scale=48:85:flags=bilinear,format=gray',str(tmp/'frame_%04d.jpg')],20)
+        # One low-resolution sample per second catches 2-3s static image holds.
+        run_cmd([ff,'-loglevel','error','-y','-i',str(path),'-vf','fps=1,scale=48:85:flags=bilinear,format=gray',str(tmp/'frame_%04d.jpg')],25)
         frames=sorted(tmp.glob('frame_*.jpg'))
         if len(frames)<4:
             return {'score':60,'frozen_ratio':0.0,'longest_still_seconds':0.0,'sample_count':len(frames),'stale_runs':[],'error':'amostras insuficientes'}
@@ -4791,9 +4791,9 @@ def _visual_motion_audit(path):
                 if run==0: start=i
                 run+=1
             else:
-                if run>=3: stale_runs.append({'start_s':round((start+1)*2,1),'end_s':round((start+run+1)*2,1),'duration_s':round(run*2,1)})
+                if run>=2: stale_runs.append({'start_s':round(start+1,1),'end_s':round(start+run+1,1),'duration_s':round(run,1)})
                 run=0
-        if run>=3: stale_runs.append({'start_s':round((start+1)*2,1),'end_s':round((start+run+1)*2,1),'duration_s':round(run*2,1)})
+        if run>=2: stale_runs.append({'start_s':round(start+1,1),'end_s':round(start+run+1,1),'duration_s':round(run,1)})
         longest=max([r['duration_s'] for r in stale_runs] or [0])
         frozen=sum(1 for d in diffs if d<threshold)/max(1,len(diffs))
         score=100
@@ -5069,11 +5069,10 @@ def audit_short(script, video, duration, beats, selected_videos, image_scenes):
     # video merely because the research returned fewer than four usable images.
     if len(images_available if 'images_available' in locals() else []) >= 4 and len(image_scenes)<4:
         checks['visuais']-=5; issues.append(('LOW_IMAGE_VARIETY','poucas imagens auxiliares'))
-    # V63.2: Render Free cannot reliably afford two full decodes of the final
-    # 1080p MP4. Keep the real MP4/codec/audio/duration and caption audits below;
-    # use the known timeline structure for the fast visual check by default.
-    # Full frame sampling remains opt-in via GTA_DEEP_VISUAL_AUDIT=1.
-    deep_visual=os.getenv('GTA_DEEP_VISUAL_AUDIT','0').strip().lower() in {'1','true','yes','on'}
+    # V67: Inspect the actual final MP4 by default. Asset-count-only motion
+    # proxies missed 2-3s static holds. Sampling is downscaled to keep this bounded.
+    # GTA_DEEP_VISUAL_AUDIT=0 is available only as a temporary resource fallback.
+    deep_visual=os.getenv('GTA_DEEP_VISUAL_AUDIT','1').strip().lower() in {'1','true','yes','on'}
     if media.get('ok'):
         # A auditoria de repetição é obrigatória: deixar essa checagem atrás de
         # GTA_DEEP_VISUAL_AUDIT permitia que o plano Free aprovasse takes repetidos
@@ -5119,9 +5118,9 @@ def audit_short(script, video, duration, beats, selected_videos, image_scenes):
         issues.append(('VISUAL_AUDIT_FAILED','auditoria de repetição visual não conseguiu inspecionar o MP4: '+str(repetition.get('error'))[:240]))
     else:
         checks['repeticao_visual']=int(repetition.get('score',0))
-    if motion.get('longest_still_seconds',0)>=4:
+    if motion.get('longest_still_seconds',0)>=2:
         issues.append(('VISUAL_STAGNATION',f'visual praticamente parado por {motion.get("longest_still_seconds",0):.0f}s'))
-    if motion.get('frozen_ratio',0)>=0.40:
+    if motion.get('frozen_ratio',0)>=0.28:
         issues.append(('HIGH_FROZEN_RATIO',f'{motion.get("frozen_ratio",0)*100:.0f}% das transições amostradas com pouca mudança visual'))
     if not repetition.get('error') and (repetition.get('repeated_ratio',0)>=0.24 or repetition.get('longest_repeat_s',0)>=4):
         issues.append(('VISUAL_REPETITION',f'repetição visual detectada: {repetition.get("repeated_ratio",0)*100:.0f}% das amostras / trecho repetido até {repetition.get("longest_repeat_s",0):.1f}s'))
