@@ -1766,7 +1766,7 @@ def _autonomous_make_script(jid, topic, topics):
     candidates.sort(key=lambda x:(1 if x.get('recovery_urls') else 0, int(x.get('score',0))), reverse=True)
     # V64.8: cap total de recuperação. O resolver já possui orçamento interno;
     # empilhar 5 pautas pode multiplicar chamadas externas e deixar o job sem progresso.
-    candidates=candidates[:min(2, max(1, AUTONOMOUS_MAX_TOPIC_RECOVERY))]
+    candidates=candidates[:max(1, min(6, AUTONOMOUS_MAX_TOPIC_RECOVERY))]
     last_exc=None
     for attempt,candidate in enumerate(candidates,1):
         started=time.monotonic()
@@ -1806,7 +1806,7 @@ def _autonomous_make_script(jid, topic, topics):
             if attempt < len(candidates):
                 update_job(jid,log='V64.8: tentando uma única pauta alternativa; não vai reutilizar manchete sem corpo original.')
     if last_exc:
-        raise ValueError('V64.8: nenhuma pauta com corpo original confiável após no máximo duas tentativas. Última falha: '+str(last_exc)[:600])
+        raise ValueError(f'V64.9: nenhuma pauta passou pela validação editorial após {len(candidates)} tentativas. Última falha: '+str(last_exc)[:600])
     raise ValueError('V55: nenhuma oportunidade disponível para recuperação de fonte.')
 
 
