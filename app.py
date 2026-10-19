@@ -2015,28 +2015,27 @@ def make_script(topic):
         # Give each beat a distinct job: hook, evidence, context, caveat, CTA.
         fact='Até agora, Jason e Lucia parecem estar aceitando trabalhos para diferentes figuras importantes de Vice City, numa tentativa de conseguir dinheiro.'
         context='Essas cenas também situam a dupla no ambiente da cidade, antes de sabermos quais consequências essa rotina terá.'
-        payoff='A informação não confirma que cada trabalho seja uma missão principal nem define o papel deles na trama.'
+        payoff='Ainda não sabemos se esses trabalhos são missões principais ou como afetam a trama.'
         cta='Você acha que isso vai ter impacto na história?'
     elif kind=='NOTÍCIA':
         context='O ponto agora é entender o alcance real dessa informação, sem confundir o fato com teorias da comunidade.'
-        payoff='A conclusão precisa ficar dentro do que a fonte realmente confirmou, sem prometer mudanças que ela não anunciou.'
+        payoff='A fonte não confirma consequências além desse fato.'
         cta='Você acha que isso muda alguma coisa no GTA 6?'
     elif kind=='RUMOR':
         context='O rumor chama atenção porque sugere uma possibilidade, mas ainda precisa ser separado dos fatos confirmados.'
-        payoff='Sem confirmação oficial, essa hipótese não pode ser tratada como informação garantida.'
+        payoff='Sem confirmação oficial, continua sendo apenas uma hipótese.'
         cta='Você acha que esse rumor pode se confirmar?'
     elif kind=='MISTÉRIO':
         context='A pista pode abrir uma interpretação interessante, desde que a gente não confunda possibilidade com prova.'
-        payoff='Uma pista isolada não confirma a teoria; é preciso mais evidência para fechar essa conclusão.'
+        payoff='Sozinha, essa pista não confirma a teoria.'
         cta='O que você acha que isso significa?'
     else:
         context='O interesse está no que esse fato pode indicar para o jogo, sem ir além do que a matéria mostra.'
-        payoff='A evidência é o ponto de partida; qualquer conclusão maior ainda depende de contexto e confirmação.'
+        payoff='A evidência não confirma conclusões além do que foi mostrado.'
         cta='Você já tinha percebido isso?'
 
 
-    if learned_duration_bucket=='30-38s' and not focused_story:
-        context += ' O contexto adicional ajuda a entender por que esse detalhe está chamando atenção agora.'
+    # Do not pad narration with generic duration filler; add only source-backed facts.
     # Replace generic context with the article's second distinct factual
     # beat. Keep the proof to the first beat so the script advances instead of
     # repeating a vague line such as "this also situates the duo in the city".
