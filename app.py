@@ -65,7 +65,7 @@ UA = 'GTA-Oculto-AI/Cloud-Final/V55-SOURCE-RECOVERY-3'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
-BUILD_VERSION = 'V68.2-MOTION-POOL-CAPTION-RECOVERY-20261019'
+BUILD_VERSION = 'V68.3-CAPTION-WORD-REPAIR-STRICT-REPEAT-QA-20261019'
 
 FALLBACK_TOPICS = [
     {'id':'leonida','score':96,'priority':'ALTA','title':'GTA 6: o detalhe de Leonida que pode mudar a história','source':'Rockstar Games','url':ROCKSTAR_VI,
@@ -3975,6 +3975,29 @@ def _partition_caption_tokens_for_count(tokens, target_count, max_words=7, min_w
 
 
 
+def _repair_caption_transcription_mismatches(beats, narration):
+    """Repair a known WordBoundary text glitch only when the approved script proves the intended word."""
+    out=[dict(b) for b in (beats or [])]
+    approved=' '.join(re.findall(r"[A-Za-zÀ-ÿ0-9']+",str(narration or '').lower()))
+    # Edge-TTS has occasionally labeled the spoken conjunction "que" as "quem".
+    # Correct it only in the exact grammatical construction proven by narration.
+    expected=bool(re.search(r"\bque\s+cada\s+trabalho\s+seja\b",approved))
+    if not expected or re.search(r"\bquem\s+cada\s+trabalho\s+seja\b",approved):
+        return out
+    changed=False
+    for i,b in enumerate(out):
+        text=str(b.get('text',''))
+        if re.search(r"\bquem(?=\s+cada\b)",text,re.I):
+            b['text']=re.sub(r"\bquem(?=\s+cada\b)",'que',text,flags=re.I)
+            changed=True
+        elif re.search(r"\bquem\s*$",text,re.I) and i+1<len(out) and re.match(r"\s*cada\b",str(out[i+1].get('text','')),re.I):
+            b['text']=re.sub(r"\bquem\s*$",'que',text,flags=re.I)
+            changed=True
+    if changed:
+        print('[CAPTION_TEXT_REPAIR] corrected WordBoundary "quem cada" -> approved narration "que cada"',flush=True)
+    return out
+
+
 def build_short_timeline(script, topic, duration, count=10, word_cues=None):
     """V31: se houver WordBoundary, usa timestamps reais da voz; caso contrário usa fallback editorial."""
     if word_cues:
@@ -3993,7 +4016,7 @@ def build_short_timeline(script, topic, duration, count=10, word_cues=None):
             coverage=0.0
         if coverage>=0.82:
             timed=_build_timed_caption_beats(word_cues,duration,count)
-            if timed: return timed
+            if timed: return _repair_caption_transcription_mismatches(timed,script.get('narration',''))
     narration=re.sub(r'\s+',' ',str(script.get('narration','')).strip())
     if not narration:
         return [{'text':'GTA 6','duration':duration,'highlight':'GTA','start':0,'end':duration}]
@@ -4021,7 +4044,7 @@ def build_short_timeline(script, topic, duration, count=10, word_cues=None):
         ws=re.findall(r"[A-Za-zÀ-ÿ0-9']+",phrase); preferred=[w for w in ws if w.lower() in {'gta','rockstar','jason','lucia','leonida','vice','city','cloud','gaming','xbox','realismo','novidades'}]
         h=preferred[0] if preferred else (ws[-1] if len(ws)>=5 else None)
         beats.append({'text':phrase,'highlight':h,'duration':d,'start':t,'end':t+d}); t+=d
-    return beats
+    return _repair_caption_transcription_mismatches(beats,narration)
 
 def _beat_keywords(text, topic_title):
     blob=(str(text)+' '+str(topic_title)).lower()
@@ -5326,7 +5349,7 @@ def audit_short(script, video, duration, beats, selected_videos, image_scenes):
         issues.append(('VISUAL_STAGNATION',f'visual praticamente parado por {motion.get("longest_still_seconds",0):.0f}s'))
     if motion.get('frozen_ratio',0)>=0.28:
         issues.append(('HIGH_FROZEN_RATIO',f'{motion.get("frozen_ratio",0)*100:.0f}% das transições amostradas com pouca mudança visual'))
-    if not repetition.get('error') and (repetition.get('repeated_ratio',0)>=0.24 or repetition.get('longest_repeat_s',0)>=4):
+    if not repetition.get('error') and (repetition.get('score',100)<85 or repetition.get('repeated_ratio',0)>=0.24 or repetition.get('longest_repeat_s',0)>=4):
         issues.append(('VISUAL_REPETITION',f'repetição visual detectada: {repetition.get("repeated_ratio",0)*100:.0f}% das amostras / trecho repetido até {repetition.get("longest_repeat_s",0):.1f}s'))
     final=max(0,round((checks['roteiro']+checks['alinhamento_pauta']+checks['legendas']+checks['alinhamento_legendas']+checks['mp4']+checks['visuais']+checks['movimento']+checks['repeticao_visual'])/8))
     return {'score':final,'checks':checks,'issues':[{'code':c,'message':m} for c,m in issues],'media':media,'caption_audit':cap,'motion_audit':motion,'repetition_audit':repetition}
