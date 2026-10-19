@@ -5610,12 +5610,20 @@ def produce_job(jid):
         print(f'[JOB {jid}] stage=SCRIPT start topic={topic.get("title","")[:100]}',flush=True)
         topic, script = _autonomous_make_script(jid, topic, topics)
         print(f'[JOB {jid}] stage=SCRIPT done words={script.get("word_count",0)}',flush=True)
-        # Keep the rest of the proven rendering pipeline synchronized with the
-        # topic actually selected by the autonomous recovery agent.
+        # Keep the production card synchronized with the actual script that
+        # passed preflight. A recovered candidate may replace the originally
+        # selected topic; leaving the old job title would label a Jason/Lucia
+        # video as a Leonida story even when the content gate correctly switched topics.
+        final_script_title=str(script.get('title') or topic.get('title') or 'GTA 6').strip()
+        if final_script_title:
+            topic['title']=final_script_title
+        topic['selected_topic_title']=str(script.get('selected_topic_title') or '')
         job=load_jobs().get(jid,{})
         job['opportunity']=topic
-        job['title']=topic.get('title',job.get('title','GTA 6'))
+        job['title']=final_script_title
         jobs=load_jobs(); jobs[jid]=job; save_jobs(jobs)
+        update_job(jid,title=final_script_title,opportunity=topic,
+                   log='Pauta sincronizada com o título do roteiro aprovado; auditoria continua obrigatória.')
         jobdir=WORK/jid; jobdir.mkdir(parents=True,exist_ok=True)
         update_job(jid,script=script,stage='VISUAIS',progress=40,log='Baixando visuais oficiais e montando cenas verticais...')
         print(f'[JOB {jid}] stage=VISUALS download start',flush=True)
