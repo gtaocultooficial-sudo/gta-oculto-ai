@@ -5246,9 +5246,11 @@ def audit_short(script, video, duration, beats, selected_videos, image_scenes):
     # must not allow metadata for one topic to accompany narration about another.
     selected_topic=str(script.get('selected_topic_title') or '').strip()
     if selected_topic:
+        # V68.9: evidence can support facts, but it must never compensate for
+        # narration that has drifted away from the originally selected topic.
+        # Compare the selected topic directly against spoken narration only.
         selected_alignment=_editorial_topic_alignment(
-            selected_topic, narration, evidence,
-            script.get('source_headline') or ''
+            selected_topic, narration, [], selected_topic
         )
         editorial_alignment['selected_topic_score']=selected_alignment['score']
         editorial_alignment['selected_topic_issues']=selected_alignment['issues']
