@@ -65,7 +65,7 @@ UA = 'GTA-Oculto-AI/Cloud-Final/V55-SOURCE-RECOVERY-3'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
-BUILD_VERSION = 'V68.3-CAPTION-WORD-REPAIR-STRICT-REPEAT-QA-20261019'
+BUILD_VERSION = 'V68.4-SCRIPT-GROUNDED-CAPTIONS-REPEAT-GATE-20261019'
 
 FALLBACK_TOPICS = [
     {'id':'leonida','score':96,'priority':'ALTA','title':'GTA 6: o detalhe de Leonida que pode mudar a história','source':'Rockstar Games','url':ROCKSTAR_VI,
@@ -5256,7 +5256,7 @@ def audit_short(script, video, duration, beats, selected_videos, image_scenes):
     if boundary_severe or protected_splits:
         detail=('; termos divididos: '+', '.join(sorted({x.get('phrase','') for x in protected_splits if x.get('phrase')}))) if protected_splits else ''
         issues.append(('CAPTIONS_BAD_BOUNDARY','legendas com cortes semanticamente ruins'+detail))
-    if alignment.get('foreign_ratio',0)>0.03 or alignment.get('score',100)<85:
+    if alignment.get('foreign_ratio',0)>0.005 or alignment.get('score',100)<92:
         issues.append(('CAPTIONS_NOT_FROM_NARRATION',f'legendas contêm palavras fora da narração: {alignment.get("foreign_ratio",0)*100:.0f}%'))
     if cap.get('repeated_adjacent',0)>0: issues.append(('CAPTIONS_REPEATED','legenda repetida em blocos consecutivos'))
     media=_probe_media(video); checks['mp4']=100 if media.get('ok') else 0
@@ -5444,9 +5444,12 @@ def self_heal(jid, script, video, duration, beats, selected_videos, image_scenes
                 progress=95,
                 log='🧠 AUDITOR IA: corrigindo a segmentação das legendas e renderizando novamente (1/1)...'
             )
-            repaired_beats=_repair_caption_beats(beats,duration,max_words=6)
+            repaired_beats=build_short_timeline(script,topic,duration,count=min(15,max(12,len(beats or []))),word_cues=None)
             if not repaired_beats:
-                raise RuntimeError('resegmentação não produziu blocos de legenda')
+                raise RuntimeError('reconstrução a partir do roteiro aprovado não produziu legendas')
+            _rebuild_audit=_audit_caption_quality(repaired_beats)
+            if _rebuild_audit.get('bad_end') or _rebuild_audit.get('bad_start') or _rebuild_audit.get('protected_splits') or _rebuild_audit.get('long') or _rebuild_audit.get('short'):
+                raise RuntimeError('legendas reconstruídas a partir do roteiro não passaram na auditoria semântica: '+json.dumps(_rebuild_audit,ensure_ascii=False)[:400])
             repaired_captions=[str(b.get('text','')).strip() for b in repaired_beats]
             if any(not caption for caption in repaired_captions):
                 raise RuntimeError('resegmentação produziu legenda vazia')
