@@ -1747,8 +1747,11 @@ def _is_source_recovery_error(exc):
 def _autonomous_make_script(jid, topic, topics):
     """V55: validates source before committing to a production topic and changes topic automatically on failure."""
     if not AUTONOMOUS_MODE:
+        # Capture the approved topic BEFORE make_script mutates topic['title']
+        # into an evidence-based headline. QA must compare against the original topic.
+        selected_topic_title=str(topic.get('title') or '')
         script=make_script(topic)
-        script['selected_topic_title']=str(topic.get('title') or '')
+        script['selected_topic_title']=selected_topic_title
         return topic, script
     candidates=[]; seen=set()
     recovery_pool=[topic] + list(topics or []) + list(FALLBACK_TOPICS)
@@ -1768,10 +1771,13 @@ def _autonomous_make_script(jid, topic, topics):
         update_job(jid,title=title,opportunity=candidate,stage='AUTO-RECUPERAÇÃO',progress=min(30,24+attempt),
                    log=f'V64.8: validação de fonte {attempt}/{len(candidates)} — {title}')
         try:
+            # Capture the approved topic BEFORE make_script mutates candidate['title']
+            # into an evidence-based headline. Otherwise QA compares the narration
+            # to the rewritten title and misses cross-topic drift.
+            selected_topic_title=str(candidate.get('title') or '')
             script=make_script(candidate)
-            # Preserve the original approved topic separately from any evidence-based
-            # headline rewrite so final QA can detect cross-topic narration drift.
-            script['selected_topic_title']=str(candidate.get('title') or '')
+            # Preserve the original approved topic separately from the rewritten headline.
+            script['selected_topic_title']=selected_topic_title
             elapsed=round(time.monotonic()-started,1)
             update_job(jid,log=f'V64.8: fonte validada em {elapsed}s; pauta aprovada: {title}')
             return candidate, script
