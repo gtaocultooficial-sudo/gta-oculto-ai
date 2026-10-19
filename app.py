@@ -3179,6 +3179,16 @@ def download_official_video_clips(outdir, jid=None):
                     target.unlink(missing_ok=True)
                 except Exception:
                     pass
+                # The official ZIP has repeatedly returned extracted assets without
+                # a valid video stream. Stop probing the whole catalogue after a few
+                # failures and switch to the ranged-download CDN path.
+                if len(candidate_failures) >= 4 and len(safe) < target_clips:
+                    print(
+                        f'[OFFICIAL_VIDEO_ZIP] early_fallback invalid_candidates={len(candidate_failures)} '
+                        f'valid_cached={len(safe)} target={target_clips}',
+                        flush=True
+                    )
+                    break
             finally:
                 try:
                     raw.unlink(missing_ok=True)
@@ -3186,9 +3196,12 @@ def download_official_video_clips(outdir, jid=None):
                     pass
 
         safe=[p for p in safe if p.exists() and p.stat().st_size>20000]
-        if len(safe) < 2:
+        if len(safe) < target_clips:
             details=' | '.join(candidate_failures[-6:]) or 'nenhum detalhe de rejeição registrado'
-            raise RuntimeError(f'Apenas {len(safe)} clipes reais e seguros foram preparados; são necessários pelo menos 2. Últimas falhas: {details}')
+            raise RuntimeError(
+                f'Apenas {len(safe)} de {target_clips} fontes oficiais com vídeo válido foram preparadas. '
+                f'Acionando fallback para obter material em movimento. Últimas falhas: {details}'
+            )
         return safe[:target_clips]
     except Exception as e:
         zip_error=str(e)[:900]
