@@ -65,7 +65,7 @@ UA = 'GTA-Oculto-AI/Cloud-Final/V55-SOURCE-RECOVERY-3'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
-BUILD_VERSION = 'V68.6-CAPTION-ALIGNMENT-SUBTITLE-AND-REPEAT-QA-20261019'
+BUILD_VERSION = 'V68.7-REAL-ADJACENT-SHOT-DETECTION-20261019'
 
 FALLBACK_TOPICS = [
     {'id':'leonida','score':96,'priority':'ALTA','title':'GTA 6: o detalhe de Leonida que pode mudar a história','source':'Rockstar Games','url':ROCKSTAR_VI,
@@ -5015,14 +5015,15 @@ def _visual_repetition_audit(path):
         near_frame_matches=[]
         frame_marks=set()
         for i in range(len(hashes)):
-            # The previous i+3 floor skipped frames 2-4 seconds apart, which is
-            # exactly where duplicate adjacent montage shots appeared in real Shorts.
-            # For near samples require a very strong hash match; for distant samples
-            # retain the looser threshold to catch recycled shots across the timeline.
+            # Frames are sampled every 2 seconds. Only compare the immediately
+            # adjacent sample as a "near" duplicate; a 4-second gap can cross two
+            # editorial beats and often matches a similar GTA composition by chance.
+            # A 4-second pair counts only if its hashes are exactly identical.
+            # Shots much farther apart use the looser threshold to catch recycled footage.
             for j in range(i+1,len(hashes)):
                 gap=j-i
                 distance=sum(a!=b for a,b in zip(hashes[i],hashes[j]))
-                near_duplicate=(gap<=2 and distance<=2)
+                near_duplicate=(gap==1 and distance<=2) or (gap==2 and distance==0)
                 distant_duplicate=(gap>=3 and distance<=6)
                 if near_duplicate or distant_duplicate:
                     frame_matches.append((i,j,distance))
