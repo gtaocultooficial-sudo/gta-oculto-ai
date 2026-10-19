@@ -65,7 +65,7 @@ UA = 'GTA-Oculto-AI/Cloud-Final/V55-SOURCE-RECOVERY-3'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
-BUILD_VERSION = 'V68.0-PERSISTENT-SOURCE-SUBTITLE-GATE-20261019'
+BUILD_VERSION = 'V68.1-MOTION-FIRST-IMAGE-CAP-20261019'
 
 FALLBACK_TOPICS = [
     {'id':'leonida','score':96,'priority':'ALTA','title':'GTA 6: o detalhe de Leonida que pode mudar a história','source':'Rockstar Games','url':ROCKSTAR_VI,
@@ -5245,7 +5245,7 @@ def audit_short(script, video, duration, beats, selected_videos, image_scenes):
         checks['visuais']-=15; issues.append(('LOW_VIDEO_VARIETY',f'apenas {unique} clipes únicos e {unique_images} imagens distintas'))
     # Image variety is optional on Render Free: never reject a healthy
     # video merely because the research returned fewer than four usable images.
-    if len(images_available if 'images_available' in locals() else []) >= 4 and len(image_scenes)<4:
+    if len(images_available if 'images_available' in locals() else []) >= 4 and len(image_scenes)<2:
         checks['visuais']-=5; issues.append(('LOW_IMAGE_VARIETY','poucas imagens auxiliares'))
     # V67: Inspect the actual final MP4 by default. Asset-count-only motion
     # proxies missed 2-3s static holds. Sampling is downscaled to keep this bounded.
@@ -5468,7 +5468,7 @@ def evaluate(script,duration,scene_count,visual_quality,beats=None,video_count=0
     if '?' not in narration[:210]: score-=4
     if scene_count<10: score-=10
     if video_count<4: score-=8
-    if image_count<4: score-=4
+    if image_count<2: score-=4
     if visual_quality<60: score-=12
     elif visual_quality<70: score-=7
     elif visual_quality<80: score-=3
@@ -5510,8 +5510,10 @@ def produce_job(jid):
         # Rockstar's own VI pages provide permitted visual references; selecting them
         # semantically lets a Short finish when the remote ZIP clip extraction is broken.
         image_candidates=download_visuals(urls,jobdir/'official_images',topic.get('title','GTA 6'))
-        image_scenes=select_visuals(image_candidates,topic.get('title','GTA 6'),count=12)
-        update_job(jid,progress=44,log=f'Plano visual de contingência: {len(image_scenes)} imagens oficiais únicas preparadas; tentando priorizar vídeo real.')
+        # The audit of real renders found that a large still-image pool let the timeline become slideshow-like.
+        # Keep only two auxiliary images; the timeline must use motion sources for the remaining beats.
+        image_scenes=select_visuals(image_candidates,topic.get('title','GTA 6'),count=2)
+        update_job(jid,progress=44,log=f'Plano visual: {len(image_scenes)} imagens de apoio (máximo 2); priorizando vídeos reais.')
         update_job(jid,stage='NARRAÇÃO',progress=60,log='Gerando narração PT-BR e capturando timestamps reais da fala...')
         print(f'[JOB {jid}] stage=TTS start',flush=True)
         audio=jobdir/'narracao.mp3'; word_cues=asyncio.run(make_tts(script['narration'],audio)); audio,word_cues=_compress_long_tts_pauses(audio,word_cues); duration=duration_of_audio(audio)
@@ -5644,7 +5646,8 @@ def produce_job(jid):
         update_job(jid,stage='AVALIAÇÃO',progress=92,log='Avaliando hook, ritmo, duração e sincronização real das legendas...')
         # V63.3: os mesmos arquivos já foram avaliados na seleção de visuais.
         # Não reler/redimensionar todos antes da auditoria final no Render Free.
-        visual_quality=94 if len(set(map(str,image_scenes)))>=4 else 78
+        _unique_motion_sources=_visual_source_capacity(selected_videos)
+        visual_quality=94 if _unique_motion_sources>=10 else (88 if _unique_motion_sources>=8 else (78 if _unique_motion_sources>=6 else 60))
         update_job(jid,stage='AVALIAÇÃO',progress=93,log='QA 1/3: integridade do MP4, codecs, áudio e duração...')
         # V41: auditor automático examina o MP4 real e tenta correções seguras antes do gate final.
         print(f'[JOB {jid}] stage=QA start',flush=True)
@@ -5673,7 +5676,7 @@ def produce_job(jid):
         (jobdir/'audit.json').write_text(json.dumps(audit,ensure_ascii=False,indent=2),encoding='utf-8')
         update_job(jid,stage='AVALIAÇÃO',progress=96,log='🧠 AUDITOR IA: {}/100 | alinhamento pauta/roteiro: {}/100 | reparo automático: {} | problemas: {}.'.format(audit.get('score',0), audit.get('checks',{}).get('alinhamento_pauta',0), 'SIM' if repaired else 'NÃO', len(audit.get('issues',[]))))
         hard_issues={
-            'HEADLINE_SCRIPT_MISMATCH','LOW_IMAGE_VARIETY','LOW_VIDEO_VARIETY',
+            'HEADLINE_SCRIPT_MISMATCH','LOW_VIDEO_VARIETY',
             'CAPTIONS_NOT_FROM_NARRATION','CAPTIONS_BAD_BOUNDARY','CAPTIONS_REPEATED',
             'CAPTIONS_LOW_QUALITY','CAPTIONS_INCOMPLETE',
             'VISUAL_REPETITION','VISUAL_STAGNATION','HIGH_FROZEN_RATIO','VISUAL_AUDIT_FAILED','MEDIA_UNREADABLE',
