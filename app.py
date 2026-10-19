@@ -65,7 +65,7 @@ UA = 'GTA-Oculto-AI/Cloud-Final/V55-SOURCE-RECOVERY-3'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
-BUILD_VERSION = 'V68.7-REAL-ADJACENT-SHOT-DETECTION-20261019'
+BUILD_VERSION = 'V68.8-SELECTED-TOPIC-ALIGNMENT-GATE-20261019'
 
 FALLBACK_TOPICS = [
     {'id':'leonida','score':96,'priority':'ALTA','title':'GTA 6: o detalhe de Leonida que pode mudar a história','source':'Rockstar Games','url':ROCKSTAR_VI,
@@ -1747,7 +1747,9 @@ def _is_source_recovery_error(exc):
 def _autonomous_make_script(jid, topic, topics):
     """V55: validates source before committing to a production topic and changes topic automatically on failure."""
     if not AUTONOMOUS_MODE:
-        return topic, make_script(topic)
+        script=make_script(topic)
+        script['selected_topic_title']=str(topic.get('title') or '')
+        return topic, script
     candidates=[]; seen=set()
     recovery_pool=[topic] + list(topics or []) + list(FALLBACK_TOPICS)
     for t in recovery_pool:
@@ -1767,6 +1769,9 @@ def _autonomous_make_script(jid, topic, topics):
                    log=f'V64.8: validação de fonte {attempt}/{len(candidates)} — {title}')
         try:
             script=make_script(candidate)
+            # Preserve the original approved topic separately from any evidence-based
+            # headline rewrite so final QA can detect cross-topic narration drift.
+            script['selected_topic_title']=str(candidate.get('title') or '')
             elapsed=round(time.monotonic()-started,1)
             update_job(jid,log=f'V64.8: fonte validada em {elapsed}s; pauta aprovada: {title}')
             return candidate, script
@@ -5236,6 +5241,24 @@ def audit_short(script, video, duration, beats, selected_videos, image_scenes):
         script.get('title') or '', narration, evidence,
         script.get('source_headline') or ''
     )
+    # V68.8: preserve and validate the originally selected topic as a separate
+    # invariant. The generated headline can be rewritten from evidence, but that
+    # must not allow metadata for one topic to accompany narration about another.
+    selected_topic=str(script.get('selected_topic_title') or '').strip()
+    if selected_topic:
+        selected_alignment=_editorial_topic_alignment(
+            selected_topic, narration, evidence,
+            script.get('source_headline') or ''
+        )
+        editorial_alignment['selected_topic_score']=selected_alignment['score']
+        editorial_alignment['selected_topic_issues']=selected_alignment['issues']
+        if not selected_alignment['ok']:
+            editorial_alignment['ok']=False
+            editorial_alignment['issues']=sorted(set(
+                editorial_alignment.get('issues',[])+
+                ['selected_topic_mismatch:'+issue for issue in selected_alignment['issues']]
+            ))
+            editorial_alignment['score']=min(editorial_alignment['score'],selected_alignment['score'])
     checks['alinhamento_pauta']=editorial_alignment['score']
     if not editorial_alignment['ok']:
         issues.append(('HEADLINE_SCRIPT_MISMATCH',
