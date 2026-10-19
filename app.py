@@ -3828,7 +3828,7 @@ def _build_timed_caption_beats(word_cues, duration, count=10):
     if not cues:
         return []
     beats=[]; cur=[]
-    max_words=7; min_words=3
+    max_words=8; min_words=3
     for i,c in enumerate(cues):
         cur.append(c)
         word=_cue_clean(c['word'])
@@ -3912,7 +3912,7 @@ def _learned_timeline_count(duration, fallback=10):
     except Exception:
         return fallback
 
-def _partition_caption_tokens_for_count(tokens, target_count, max_words=7, min_words=3):
+def _partition_caption_tokens_for_count(tokens, target_count, max_words=8, min_words=3):
     """Find a low-cost full-coverage caption partition under the scene-count ceiling."""
     tokens=list(tokens or [])
     if not tokens:
@@ -4708,7 +4708,7 @@ def _audit_caption_quality(beats):
         previous_words=_caption_words((beats[bi-1] or {}).get('text','')) if bi>0 else []
         valid_para_continuation=(first=='para' and previous_words and _caption_clean_word(previous_words[-1])=='empregos')
         if first in bad_start_set and not valid_para_continuation: bad_start.append(b['text'])
-        if len(words)>7: long.append(b['text'])
+        if len(words)>8: long.append(b['text'])
         if len(words)<2: short.append(b['text'])
         vs=_caption_visual_split_quality(b.get('text',''))
         if vs['score']<85: visual_bad.append({'text':b.get('text',''),'lines':vs['lines']})
