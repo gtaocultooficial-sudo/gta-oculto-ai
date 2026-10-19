@@ -65,7 +65,7 @@ UA = 'GTA-Oculto-AI/Cloud-Final/V55-SOURCE-RECOVERY-3'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
-BUILD_VERSION = 'V66.9-AUTO-VISUAL-QA-REPAIR-20261011'
+BUILD_VERSION = 'V68.0-PERSISTENT-SOURCE-SUBTITLE-GATE-20261019'
 
 FALLBACK_TOPICS = [
     {'id':'leonida','score':96,'priority':'ALTA','title':'GTA 6: o detalhe de Leonida que pode mudar a história','source':'Rockstar Games','url':ROCKSTAR_VI,
@@ -4310,7 +4310,7 @@ def make_multimedia_video(video_clips, image_paths, audio, out, duration, captio
             # V65: em uma segunda aparição, desloca o trecho de forma clara.
             # O limite de 2 usos torna este offset determinístico e evita que
             # a mesma abertura do proxy volte praticamente igual.
-            offset=0.0 if reuse_n==0 else 3.6
+            offset=(3.6 if asset_variant>0 else 0.0) if reuse_n==0 else 3.6
             zoom_variant=reuse_n % 2
             crop_w=540 + zoom_variant*10
             crop_h=960 + zoom_variant*18
@@ -4991,12 +4991,142 @@ def _visual_repetition_audit(path):
         try: shutil.rmtree(tmp,ignore_errors=True)
         except Exception: pass
 
-def _visual_contamination_audit(path):
-    """Fast final gate for rating/disclaimer cards in the rendered MP4."""
-    bad=_video_contains_rating_disclaimer(path,sample_fps=2.0)
-    return {'score':0 if bad else 100,'rating_disclaimer':bool(bad),
-            'method':'horizontal-band-structure', 'ok':not bad}
+def _persistent_source_subtitle_audit(path):
+    """Detect persistent two-line source subtitles above the editor's own lower-third.
+    This deliberately uses only Pillow/stdlib: no OCR models or heavy runtime dependency.
+    A single frame is not enough (posters/shirt graphics can resemble text); the same
+    text-like two-line structure must appear in adjacent 0.5-second samples.
+    """
+    tmp=Path(str(path)+'.source_subtitle_audit')
+    tmp.mkdir(parents=True,exist_ok=True)
+    try:
+        ff=_ffmpeg_executable()
+        run_cmd([ff,'-loglevel','error','-y','-i',str(path),
+                 '-vf','fps=2,scale=270:480:flags=bilinear,format=gray',
+                 str(tmp/'frame_%04d.png')],60)
+        frame_paths=sorted(tmp.glob('frame_*.png'))
+        hits=[]
+        for fi,fp in enumerate(frame_paths):
+            try:
+                im=Image.open(fp).convert('L')
+                iw,ih=im.size
+                # Exclude the app's designed caption card at the bottom. Check
+                # the left/lower video area where baked-in gameplay captions appear.
+                x0,y0,x1,y1=0,int(0.66*ih),int(0.46*iw),int(0.81*ih)
+                crop=im.crop((x0,y0,x1,y1))
+                cw,ch=crop.size
+                px=crop.load()
+                binary=bytearray(cw*ch)
+                for yy in range(ch):
+                    off=yy*cw
+                    for xx in range(cw):
+                        binary[off+xx]=1 if px[xx,yy]>185 else 0
+                visited=bytearray(cw*ch)
+                components=[]
+                for idx,val in enumerate(binary):
+                    if not val or visited[idx]:
+                        continue
+                    stack=[idx]
+                    visited[idx]=1
+                    minx=cw; miny=ch; maxx=0; maxy=0; area=0
+                    while stack:
+                        z=stack.pop()
+                        yy,xx=divmod(z,cw)
+                        area+=1
+                        if xx<minx: minx=xx
+                        if xx>maxx: maxx=xx
+                        if yy<miny: miny=yy
+                        if yy>maxy: maxy=yy
+                        ya=max(0,yy-1); yb=min(ch-1,yy+1)
+                        xa=max(0,xx-1); xb=min(cw-1,xx+1)
+                        for ny in range(ya,yb+1):
+                            base=ny*cw
+                            for nx in range(xa,xb+1):
+                                ni=base+nx
+                                if binary[ni] and not visited[ni]:
+                                    visited[ni]=1
+                                    stack.append(ni)
+                    ww=maxx-minx+1
+                    hh=maxy-miny+1
+                    # Small bright components arranged like glyphs; large
+                    # bright scene objects (shirts, car panels, sky) are ignored.
+                    if 2<=area<=100 and 1<=ww<=18 and 2<=hh<=16:
+                        components.append((minx,miny,ww,hh,area))
+                rows=[]
+                for comp in sorted(components,key=lambda z:z[1]+z[3]/2):
+                    cy=comp[1]+comp[3]/2
+                    target=None
+                    for row in rows:
+                        median_y=statistics.median([z[1]+z[3]/2 for z in row])
+                        if abs(cy-median_y)<=3.5:
+                            target=row
+                            break
+                    if target is None:
+                        rows.append([comp])
+                    else:
+                        target.append(comp)
+                text_rows=[]
+                for row in rows:
+                    xs=[z[0] for z in row]
+                    heights=[z[3] for z in row]
+                    span=max(z[0]+z[2] for z in row)-min(xs) if row else 0
+                    if len(row)>=4 and span>=25 and 3<=statistics.median(heights)<=15:
+                        text_rows.append({
+                            'count':len(row),
+                            'span':int(span),
+                            'y':float(statistics.median([z[1] for z in row]))
+                        })
+                paired=False
+                for ri in range(len(text_rows)):
+                    for rj in range(ri+1,len(text_rows)):
+                        separation=abs(text_rows[ri]['y']-text_rows[rj]['y'])
+                        if 7<=separation<=28 and min(text_rows[ri]['count'],text_rows[rj]['count'])>=4:
+                            paired=True
+                if paired:
+                    hits.append(fi)
+            except Exception:
+                continue
+        # Require at least two consecutive half-second frames to suppress
+        # isolated false positives from artwork, signs, or clothing logos.
+        has_persistent=False
+        for a,b in zip(hits,hits[1:]):
+            if b==a+1:
+                has_persistent=True
+                break
+        times=[round(i/2.0,1) for i in hits]
+        return {
+            'embedded_subtitle':has_persistent,
+            'sample_count':len(frame_paths),
+            'hit_times_s':times[:12],
+            'method':'persistent-two-line-source-text',
+            'error':''
+        }
+    except Exception as e:
+        return {
+            'embedded_subtitle':False,
+            'sample_count':0,
+            'hit_times_s':[],
+            'method':'persistent-two-line-source-text',
+            'error':f'{type(e).__name__}: {str(e)[:250]}'
+        }
+    finally:
+        try: shutil.rmtree(tmp,ignore_errors=True)
+        except Exception: pass
 
+
+def _visual_contamination_audit(path):
+    """Final gate for rating/disclaimer cards and baked-in source subtitles."""
+    bad=_video_contains_rating_disclaimer(path,sample_fps=2.0)
+    source_text=_persistent_source_subtitle_audit(path)
+    return {
+        'score':0 if bad or source_text.get('embedded_subtitle') or source_text.get('error') else 100,
+        'rating_disclaimer':bool(bad),
+        'embedded_subtitle':bool(source_text.get('embedded_subtitle')),
+        'subtitle_times':source_text.get('hit_times_s',[]),
+        'subtitle_audit_error':source_text.get('error',''),
+        'method':'horizontal-band-structure+persistent-source-text',
+        'ok':not bad and not source_text.get('embedded_subtitle') and not source_text.get('error')
+    }
 
 def audit_short(script, video, duration, beats, selected_videos, image_scenes):
     """Auditor V41: checks editorial, captions and actual MP4 before delivery."""
@@ -5069,6 +5199,15 @@ def audit_short(script, video, duration, beats, selected_videos, image_scenes):
     checks['seguranca_visual']=visual_safety.get('score',0)
     if visual_safety.get('rating_disclaimer'):
         issues.append(('VISUAL_CONTAMINATION','tela ESRB/disclaimer detectada no vídeo final'))
+    if visual_safety.get('embedded_subtitle'):
+        times=', '.join(f'{t:.1f}s' for t in visual_safety.get('subtitle_times',[])[:4])
+        issues.append(('VISUAL_SOURCE_SUBTITLE',
+            'texto/legenda embutido no clipe-fonte foi detectado acima das legendas do editor'
+            +(f' em {times}' if times else '')))
+    if visual_safety.get('subtitle_audit_error'):
+        issues.append(('VISUAL_SUBTITLE_AUDIT_FAILED',
+            'a checagem de legendas embutidas não conseguiu concluir: '
+            +str(visual_safety.get('subtitle_audit_error'))[:200]))
     checks['visuais']=100
     unique=len({str(x) for x in selected_videos})
     unique_images=len({str(x) for x in image_scenes})
@@ -5142,10 +5281,10 @@ def audit_short(script, video, duration, beats, selected_videos, image_scenes):
 def self_heal(jid, script, video, duration, beats, selected_videos, image_scenes, topic, audio):
     """Run bounded safe repairs. No endless retry and no self-modifying source code."""
     audit=audit_short(script,video,duration,beats,selected_videos,image_scenes)
-    if audit['score']>=92 and not any(x['code'] in {'CAPTIONS_BAD_BOUNDARY','CAPTIONS_NOT_FROM_NARRATION','CAPTIONS_REPEATED','CAPTIONS_INCOMPLETE','CAPTIONS_LOW_QUALITY','VISUAL_REPETITION','VISUAL_STAGNATION','HIGH_FROZEN_RATIO'} for x in audit.get('issues',[])): return audit,beats,False
+    if audit['score']>=92 and not any(x['code'] in {'CAPTIONS_BAD_BOUNDARY','CAPTIONS_NOT_FROM_NARRATION','CAPTIONS_REPEATED','CAPTIONS_INCOMPLETE','CAPTIONS_LOW_QUALITY','VISUAL_REPETITION','VISUAL_STAGNATION','HIGH_FROZEN_RATIO','VISUAL_SOURCE_SUBTITLE','VISUAL_SUBTITLE_AUDIT_FAILED'} for x in audit.get('issues',[])): return audit,beats,False
     repaired=False
     codes={x['code'] for x in audit['issues']}
-    if 'VISUAL_STAGNATION' in codes or 'HIGH_FROZEN_RATIO' in codes or 'VISUAL_REPETITION' in codes:
+    if 'VISUAL_STAGNATION' in codes or 'HIGH_FROZEN_RATIO' in codes or 'VISUAL_REPETITION' in codes or 'VISUAL_SOURCE_SUBTITLE' in codes:
         # V66.9: o vídeo final é o objeto de QA. Se a auditoria real encontrar
         # repetição/congelamento, refazemos UMA única vez com outra combinação
         # de assets e movimento. Isso elimina a necessidade de o proprietário
@@ -5184,7 +5323,7 @@ def self_heal(jid, script, video, duration, beats, selected_videos, image_scenes
             # Se a variante não resolver a repetição, preservamos o MP4 original
             # para diagnóstico e o gate final bloqueia a entrega.
             repaired_audit=audit_short(script,repair_path,duration,beats,selected_videos,image_scenes)
-            if any(x.get('code') in {'VISUAL_REPETITION','VISUAL_STAGNATION','HIGH_FROZEN_RATIO'} for x in repaired_audit.get('issues',[])):
+            if any(x.get('code') in {'VISUAL_REPETITION','VISUAL_STAGNATION','HIGH_FROZEN_RATIO','VISUAL_SOURCE_SUBTITLE'} for x in repaired_audit.get('issues',[])):
                 raise RuntimeError('a reedição ainda apresenta repetição/congelamento visual')
             os.replace(repair_path,video)
             audit=repaired_audit
