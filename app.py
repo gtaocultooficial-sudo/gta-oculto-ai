@@ -1830,8 +1830,10 @@ def _editorial_topic_alignment(title, narration, evidence, source_title=''):
     title_terms=tokens(title_text)
     body_terms=tokens(all_body)
     source_terms=tokens(article_title)
+    narration_terms=tokens(narration_text)
     overlap=len(title_terms & body_terms)/max(1,len(title_terms))
     source_overlap=len(title_terms & source_terms)/max(1,len(title_terms)) if source_terms else 0.0
+    source_narration_overlap=len(source_terms & narration_terms)/max(1,len(source_terms)) if source_terms else 1.0
     issues=[]
 
     # A headline count/listicle claim is a factual promise. It must not be
@@ -1855,12 +1857,18 @@ def _editorial_topic_alignment(title, narration, evidence, source_title=''):
         issues.append('headline_body_low_overlap')
     if title_terms and source_terms and source_overlap < 0.10 and overlap < 0.45:
         issues.append('headline_source_body_mismatch')
+    # A title may be safely rewritten from evidence, but the spoken script still
+    # must retain at least one meaningful connection to the original source headline.
+    # This blocks a GTA 6 script about an unrelated topic that merely shares the franchise.
+    if len(source_terms)>=4 and source_narration_overlap < 0.10:
+        issues.append('source_headline_narration_mismatch')
     return {
         'ok': not issues,
         'score': max(0, round(100 - 45*len(issues))),
         'issues': sorted(set(issues)),
         'title_body_overlap': round(overlap, 3),
         'title_source_overlap': round(source_overlap, 3),
+        'source_narration_overlap': round(source_narration_overlap, 3),
         'title_terms': sorted(title_terms),
         'body_terms': sorted(body_terms),
     }
