@@ -53,6 +53,11 @@ class AutonomousEngine:
                                 and u and 'news.google.com' not in u
                                 and 'rss' not in src and 'feed' not in src and gta_topic)
                 candidates=[t for t in topics if _editorial_candidate(t)]
+                # The live radar may return no safe alternatives; use curated direct-source
+                # GTA VI fallback topics rather than repeating the same failed production.
+                if not candidates:
+                    candidates=[t for t in (getattr(app_module,'FALLBACK_TOPICS',[]) or [])
+                                if _editorial_candidate(t)]
                 if candidates and count <= 2:
                     candidate=sorted(candidates,key=lambda x:float(x.get('score',0)),reverse=True)[0]
                     app_module.update_job(jid,status='QUEUED',stage='AUTO-RECUPERAÇÃO EDITORIAL',progress=2,
