@@ -5696,7 +5696,7 @@ def audit_short(script, video, duration, beats, selected_videos, image_scenes):
     # A short sub-second sequence repeat without near-duplicate frame pairs is not
     # sufficient to reject the whole video. Flag repeated shots when they persist
     # across a meaningful interval or recur in multiple sampled frame pairs.
-    if not repetition.get('error') and (len(repetition.get('near_frame_repeat_pairs',[]))>=3 or repetition.get('score',100)<85 or repetition.get('repeated_ratio',0)>=0.24 or repetition.get('longest_repeat_s',0)>=4):
+    if not repetition.get('error') and (len(repetition.get('near_frame_repeat_pairs',[]))>=2 or repetition.get('score',100)<85 or repetition.get('repeated_ratio',0)>=0.12 or repetition.get('longest_repeat_s',0)>=2.5):
         issues.append(('VISUAL_REPETITION',f'repetição visual detectada: {repetition.get("repeated_ratio",0)*100:.0f}% das amostras / trecho repetido até {repetition.get("longest_repeat_s",0):.1f}s; quadros próximos repetidos={len(repetition.get("near_frame_repeat_pairs",[]))}'))
     final=max(0,round((checks['roteiro']+checks['alinhamento_pauta']+checks['legendas']+checks['alinhamento_legendas']+checks['mp4']+checks['visuais']+checks['movimento']+checks['repeticao_visual'])/8))
     return {'score':final,'checks':checks,'issues':[{'code':c,'message':m} for c,m in issues],'media':media,'caption_audit':cap,'motion_audit':motion,'repetition_audit':repetition}
