@@ -3220,8 +3220,16 @@ def _filter_video_clips_for_topic(paths, topic_title, narration, jid=None):
         return items
     eligible=[x for x in scored if x[0]>=5.0]
     if len(eligible)<6:
-        print(f'[SCENE_MATCH] coverage_fallback eligible={len(eligible)}; keeping full pool',flush=True)
-        return items
+        # Do not reopen the entire pool: that silently reintroduced the same
+        # off-topic combat/mask/party scenes the relevance gate had penalized.
+        # Relax the score floor only for the six best candidates needed by the
+        # downstream minimum-source gate, rather than failing open to every clip.
+        eligible=sorted(scored,key=lambda x:x[0],reverse=True)[:min(6,len(scored))]
+        print(
+            f'[SCENE_MATCH] score_floor_relaxed eligible={len(eligible)}; '
+            f'using_best_candidates_only scores='+','.join(f'{Path(x[2]).name}:{x[0]:.1f}' for x in eligible),
+            flush=True
+        )
     selected=sorted(sorted(eligible,key=lambda x:x[0],reverse=True)[:min(10,len(eligible))],key=lambda x:x[1])
     keep={str(x[2]) for x in selected}
     rejected=[x for x in scored if str(x[2]) not in keep]
@@ -4222,6 +4230,16 @@ def _asset_relevance(path, title, beat_text, kind):
         title_score=sum(_VISUAL_CONCEPT_WEIGHTS.get(c,1.0) for c in (tags & title_concepts))
         # The caption being illustrated matters more than the global headline.
         score=beat_score + title_score*0.35
+        # A global mention of Jason/Lucia or money must not make every GTA
+        # action clip look relevant. Penalize strong visual concepts unless the
+        # specific caption or approved topic explicitly supports that activity.
+        supported=beat_concepts | title_concepts
+        hard_action={'combat','raid','police','chase','getaway','escape','robbery','crime','theft','wanted','mask'}
+        unrelated_action=(tags & hard_action) - supported
+        soft_activity={'nightlife','club','party','parachute','beach','animals','music','crowd'}
+        unrelated_activity=(tags & soft_activity) - supported
+        score -= 5.0*len(unrelated_action)
+        score -= 2.5*len(unrelated_activity)
         if kind=='video':
             score+=3
         return score
