@@ -5325,8 +5325,8 @@ def _visual_repetition_audit(path):
             for j in range(i+1,len(hashes)):
                 gap=j-i
                 distance=sum(a!=b for a,b in zip(hashes[i],hashes[j]))
-                near_duplicate=(gap==1 and distance<=4) or (gap==2 and distance<=2)
-                distant_duplicate=(gap>=3 and distance<=10)
+                near_duplicate=(gap==1 and distance<=8) or (gap==2 and distance<=8)
+                distant_duplicate=(gap>=3 and distance<=12)
                 if near_duplicate or distant_duplicate:
                     frame_matches.append((i,j,distance))
                     if near_duplicate:
