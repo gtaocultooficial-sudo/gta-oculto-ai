@@ -3135,6 +3135,31 @@ def _download_official_rockstar_cdn_proxies(cache, jid=None, limit_per_video=13)
 
 
 
+def _filter_source_clips_with_baked_text(paths, jid=None):
+    """Reject original motion sources containing persistent baked-in text before editing."""
+    accepted=[]; rejected=[]
+    for raw_path in (paths or []):
+        path=Path(raw_path)
+        try:
+            result=_persistent_source_subtitle_audit(path)
+            if result.get('embedded_subtitle') or result.get('error'):
+                reason='texto embutido detectado' if result.get('embedded_subtitle') else 'auditoria da fonte inconclusiva: '+str(result.get('error'))[:140]
+                times=', '.join(f'{x:.1f}s' for x in result.get('hit_times_s',[])[:5])
+                rejected.append({'path':str(path),'reason':reason,'times':times})
+                print(f'[SOURCE_TEXT_FILTER] rejected={path.name} reason={reason} times={times}',flush=True)
+                if jid:
+                    update_job(jid,log=f'Filtro pré-edição: descartando clipe com texto embutido/inconclusivo — {path.name} ({reason})')
+                continue
+            accepted.append(path)
+        except Exception as exc:
+            reason=f'{type(exc).__name__}: {str(exc)[:150]}'
+            rejected.append({'path':str(path),'reason':reason,'times':''})
+            print(f'[SOURCE_TEXT_FILTER] rejected={path.name} reason={reason}',flush=True)
+            if jid:
+                update_job(jid,log=f'Filtro pré-edição: clipe descartado por não passar auditoria de texto — {path.name}')
+    return accepted,rejected
+
+
 def download_official_video_clips(outdir, jid=None):
     """Prepare a bounded pool of safe official clips and reject rating/disclaimer cards."""
     outdir.mkdir(parents=True, exist_ok=True)
@@ -5443,9 +5468,10 @@ def audit_short(script, video, duration, beats, selected_videos, image_scenes):
         issues.append(('VISUAL_STAGNATION',f'visual praticamente parado por {motion.get("longest_still_seconds",0):.0f}s'))
     if motion.get('frozen_ratio',0)>=0.28:
         issues.append(('HIGH_FROZEN_RATIO',f'{motion.get("frozen_ratio",0)*100:.0f}% das transições amostradas com pouca mudança visual'))
-    # One repeated pair across >=12% of sampled frames is perceptible in a 30s Short.
-    # Trigger one safe re-edit rather than letting a 90/100 proxy hide visible duplicate holds.
-    if not repetition.get('error') and (len(repetition.get('near_frame_repeat_pairs',[]))>=2 or repetition.get('score',100)<85 or repetition.get('repeated_ratio',0)>=0.12 or repetition.get('longest_repeat_s',0)>=3.5):
+    # A short sub-second sequence repeat without near-duplicate frame pairs is not
+    # sufficient to reject the whole video. Flag repeated shots when they persist
+    # across a meaningful interval or recur in multiple sampled frame pairs.
+    if not repetition.get('error') and (len(repetition.get('near_frame_repeat_pairs',[]))>=3 or repetition.get('score',100)<85 or repetition.get('repeated_ratio',0)>=0.24 or repetition.get('longest_repeat_s',0)>=4):
         issues.append(('VISUAL_REPETITION',f'repetição visual detectada: {repetition.get("repeated_ratio",0)*100:.0f}% das amostras / trecho repetido até {repetition.get("longest_repeat_s",0):.1f}s; quadros próximos repetidos={len(repetition.get("near_frame_repeat_pairs",[]))}'))
     final=max(0,round((checks['roteiro']+checks['alinhamento_pauta']+checks['legendas']+checks['alinhamento_legendas']+checks['mp4']+checks['visuais']+checks['movimento']+checks['repeticao_visual'])/8))
     return {'score':final,'checks':checks,'issues':[{'code':c,'message':m} for c,m in issues],'media':media,'caption_audit':cap,'motion_audit':motion,'repetition_audit':repetition}
@@ -5740,6 +5766,15 @@ def produce_job(jid):
                 f'não vou publicar um slideshow como substituto. {str(_video_source_error)[:700]}'
             )
         print(f'[JOB {jid}] stage=OFFICIAL_VIDEO_DOWNLOAD done count={len(official_videos)}',flush=True)
+        # Inspect original 8.5s clips before making windows. This prevents one baked-in
+        # gameplay prompt/subtitle from contaminating multiple scenes in the final Short.
+        official_videos,_text_rejected=_filter_source_clips_with_baked_text(official_videos,jid)
+        update_job(jid,log=f'Filtro pré-edição de texto concluído: {len(official_videos)} fontes limpas; {len(_text_rejected)} descartadas.')
+        if len(official_videos)<6:
+            raise RuntimeError(
+                f'GATE VISUAL: só {len(official_videos)} fontes oficiais passaram pelo filtro de texto embutido; '
+                'buscar mais clipes limpos antes de editar, em vez de reutilizar material contaminado.'
+            )
         # Do not mix stills extracted from the same clips with their moving footage.
         selected_videos=_expand_video_clips_into_distinct_windows(
             official_videos,jobdir,windows_per_clip=3
