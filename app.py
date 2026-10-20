@@ -1815,7 +1815,10 @@ def _headline_from_specific_evidence(title, evidence):
     """Build a Short headline from the exact evidence used, avoiding unsupported source entities."""
     original=_clean_narrative_text(str(title or '')).strip()
     text=' '.join(str(x or '') for x in (evidence or [])).lower()
-    broad=bool(re.search(r'\b\d+\s+(?:novidades|detalhes|segredos|curiosidades|fatos|mistérios|misterios)\b',original,re.I))
+    broad=bool(
+        re.search(r'\b\d+\s+(?:novidades|detalhes|segredos|curiosidades|fatos|mistérios|misterios)\b',original,re.I)
+        or re.search(r'\b(?:vai\s+muito\s+al[eé]m|vai\s+al[eé]m|mais\s+do\s+que|a\s+hist[oó]ria\s+.*\b(?:vai|passa)\s+al[eé]m)\b',original,re.I)
+    )
     pair=bool(re.search(r'\bjason\b',text) and re.search(r'\blucia\b',text))
     work_money=any(re.search(p,text,re.I) for p in (
         r'\btrabalh\w*\b',r'\bempreg\w*\b',r'\bdinheiro\b',r'\bganhar\b',r'\brenda\b'
@@ -5440,7 +5443,9 @@ def audit_short(script, video, duration, beats, selected_videos, image_scenes):
         issues.append(('VISUAL_STAGNATION',f'visual praticamente parado por {motion.get("longest_still_seconds",0):.0f}s'))
     if motion.get('frozen_ratio',0)>=0.28:
         issues.append(('HIGH_FROZEN_RATIO',f'{motion.get("frozen_ratio",0)*100:.0f}% das transições amostradas com pouca mudança visual'))
-    if not repetition.get('error') and (len(repetition.get('near_frame_repeat_pairs',[]))>=3 or repetition.get('score',100)<85 or repetition.get('repeated_ratio',0)>=0.24 or repetition.get('longest_repeat_s',0)>=4):
+    # One repeated pair across >=12% of sampled frames is perceptible in a 30s Short.
+    # Trigger one safe re-edit rather than letting a 90/100 proxy hide visible duplicate holds.
+    if not repetition.get('error') and (len(repetition.get('near_frame_repeat_pairs',[]))>=2 or repetition.get('score',100)<85 or repetition.get('repeated_ratio',0)>=0.12 or repetition.get('longest_repeat_s',0)>=3.5):
         issues.append(('VISUAL_REPETITION',f'repetição visual detectada: {repetition.get("repeated_ratio",0)*100:.0f}% das amostras / trecho repetido até {repetition.get("longest_repeat_s",0):.1f}s; quadros próximos repetidos={len(repetition.get("near_frame_repeat_pairs",[]))}'))
     final=max(0,round((checks['roteiro']+checks['alinhamento_pauta']+checks['legendas']+checks['alinhamento_legendas']+checks['mp4']+checks['visuais']+checks['movimento']+checks['repeticao_visual'])/8))
     return {'score':final,'checks':checks,'issues':[{'code':c,'message':m} for c,m in issues],'media':media,'caption_audit':cap,'motion_audit':motion,'repetition_audit':repetition}
