@@ -35,6 +35,10 @@ class AutonomousEngine:
         except Exception: job={}
         count=int(job.get('autonomous_recovery_count',0))+1
         if count>self.max_recoveries: return {'action':'QUARANTINE','reason':'max_recoveries','plan':plan}
+        if 'GATE EDITORIAL FINAL' in str(error) and count <= 2:
+            app_module.update_job(jid, status='QUEUED', stage='AUTO-RECUPERAÇÃO EDITORIAL', progress=2, log='🤖 Nota editorial abaixo de 75/100. Refazendo a produção uma vez; o bloqueio de qualidade continua ativo.', autonomous_recovery_count=count)
+            self.memory.strategy('editorial_score_gate','retry_production_once',success=True,details={'attempt':count})
+            return {'action':'RETRY_EDITORIAL','plan':plan}
         # Source failures are best recovered by changing the editorial opportunity.
         if plan['code'] in ('BLOCKED_NO_BODY','FEED_CANDIDATE','RESOLVER_DEADLINE'):
             try:
