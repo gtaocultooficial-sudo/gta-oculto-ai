@@ -6096,6 +6096,15 @@ def produce_job(jid):
         score=min(score,audit.get('score',score))
         if v42_audit and isinstance(v42_audit.get('score'),(int,float)):
             score=min(score,int(v42_audit['score']))
+        # V69: the final editorial score is a real release gate, not just a label.
+        # A technically valid MP4 must not be marked PRONTO when pacing/visual quality
+        # makes the overall evaluation fall below the publishable-review threshold.
+        if score < 75:
+            raise ValueError(
+                f'GATE EDITORIAL FINAL: vídeo reprovado pela avaliação combinada '
+                f'({score}/100; mínimo 75). MP4 não será entregue como PRONTO; '
+                f'revise pauta, variedade visual, ritmo e alinhamento cena/narração.'
+            )
         audit['v42_independent']=v42_audit
         (jobdir/'audit.json').write_text(json.dumps(audit,ensure_ascii=False,indent=2),encoding='utf-8')
         update_job(jid,stage='AVALIAÇÃO',progress=96,log='🧠 AUDITOR IA: {}/100 | alinhamento pauta/roteiro: {}/100 | reparo automático: {} | problemas: {}.'.format(audit.get('score',0), audit.get('checks',{}).get('alinhamento_pauta',0), 'SIM' if repaired else 'NÃO', len(audit.get('issues',[]))))
