@@ -5727,9 +5727,17 @@ def self_heal(jid, script, video, duration, beats, selected_videos, image_scenes
                 progress=95,
                 log='🧠 AUDITOR IA: repetição/congelamento detectado. Refazendo a edição automaticamente (1/1)...'
             )
+            # Rotate the actual source pools on recovery, not only crop/motion parameters.
+            # This forces a materially different candidate order while preserving the one-retry limit.
+            _repair_videos=list(selected_videos or [])
+            _repair_images=list(image_scenes or [])
+            if len(_repair_videos)>1:
+                _repair_videos=_repair_videos[ max(1,len(_repair_videos)//3): ] + _repair_videos[: max(1,len(_repair_videos)//3)]
+            if len(_repair_images)>1:
+                _repair_images=_repair_images[1:] + _repair_images[:1]
             beats=make_multimedia_video(
-                selected_videos,
-                image_scenes,
+                _repair_videos,
+                _repair_images,
                 audio,
                 repair_path,
                 duration,
