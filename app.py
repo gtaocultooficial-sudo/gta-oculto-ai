@@ -6092,6 +6092,13 @@ def produce_job(jid):
 
         print(f'[JOB {jid}] stage=EVALUATE start',flush=True)
         score=evaluate(script,duration,len(beats),visual_quality,beats,len(selected_videos),len(image_scenes))
+        # Diagnostic breakdown for the editorial release gate.
+        eval_words=len(re.findall(r"[A-Za-zÀ-ÿ0-9']+",str(script.get('narration',''))))
+        eval_avg=sum(float(b.get('duration',0) or 0) for b in beats)/max(1,len(beats))
+        eval_long_caps=sum(1 for b in beats if len(str(b.get('text','')).split())>6)
+        eval_diag={'duration':round(float(duration or 0),1),'words':eval_words,'beats':len(beats),'videos':len(selected_videos),'images':len(image_scenes),'visual_quality':int(visual_quality),'avg_beat_s':round(eval_avg,2),'long_captions':eval_long_caps,'score':score}
+        print(f'[JOB {jid}] stage=EVALUATE diagnostics={json.dumps(eval_diag,ensure_ascii=False)}',flush=True)
+        update_job(jid,log='AVALIAÇÃO EDITORIAL: '+json.dumps(eval_diag,ensure_ascii=False))
         print(f'[JOB {jid}] stage=EVALUATE done score={score}',flush=True)
         score=min(score,audit.get('score',score))
         if v42_audit and isinstance(v42_audit.get('score'),(int,float)):
