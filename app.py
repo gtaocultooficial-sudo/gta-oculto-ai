@@ -5274,7 +5274,13 @@ def audit_short(script, video, duration, beats, selected_videos, image_scenes):
     issues=[]; checks={}
     narration=str(script.get('narration',''))
     words=len(re.findall(r"[A-Za-zÀ-ÿ0-9']+",narration))
-    checks['roteiro']=100 if words>=70 and script.get('evidence') else 0
+    # Score script length against the actual rendered duration. A fixed 70-word
+    # floor incorrectly gives a zero to focused 20–30s Shorts even when the
+    # narration is complete and grounded in evidence.
+    min_script_words=max(40,int(math.ceil(float(duration or 30)*1.4)))
+    checks['roteiro']=100 if words>=min_script_words and script.get('evidence') else 0
+    if words<min_script_words:
+        issues.append(('SCRIPT_TOO_SHORT',f'roteiro curto para a duração final: {words} palavras; mínimo proporcional {min_script_words} para {float(duration or 30):.1f}s'))
     if any(x in narration.lower() for x in ('radar','editor-chefe','score','confiança','fontes','matérias','produzir agora')):
         checks['roteiro']=0; issues.append(('EDITORIAL_METADATA','roteiro contém metadado interno'))
     if _editorial_noise_score(narration,str(script.get('title','')))>2:
