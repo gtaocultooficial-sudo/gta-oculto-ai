@@ -1882,6 +1882,40 @@ def _editorial_topic_alignment(title, narration, evidence, source_title=''):
         if re.search(r"\b"+re.escape(name)+r"\b", title_text) and not re.search(r"\b"+re.escape(name)+r"\b", all_body):
             issues.append('headline_entity_missing:'+name)
 
+    # Topic-category guard. Token overlap alone is unsafe: a script can mention
+    # PS5/QSSR in the hook and then spend the rest of the Short on a different
+    # Jason/Lucia story. Preserve the central subject category, not just a shared
+    # franchise term such as "GTA 6" or "Rockstar".
+    def topic_groups(value):
+        rules = {
+            'platform_technology': r'\b(?:qssr|ps5|playstation|xbox|firmware|desbloque\w*|atualiza\w*|vers[aã]o|patch|console|sistema)\b',
+            'purchase_price': r'\b(?:pre[çc]o|pre[çc]os|valor|custa\w*|custo|pr[eé][ -]?venda|edi[çc][aã]o|price|pricing|cost)\b',
+            'character_story': r'\b(?:jason|lucia|leonida|vice city)\b',
+            'work_money': r'\b(?:trabalh\w*|empreg\w*|dinheiro|ganh\w*|renda|recompensa|job|work|money|cash)\b',
+            'crime_action': r'\b(?:roub\w*|assalt\w*|furto|crime|criminos\w*|tiroteio|persegui[çc][aã]o|heist|robbery)\b',
+            'release_timing': r'\b(?:lan[çc]amento|data de lan[çc]amento|adiad\w*|atras\w*|release date|launch date)\b',
+        }
+        return {group for group, pattern in rules.items() if re.search(pattern, str(value or ''), re.I)}
+
+    headline_groups = topic_groups(title_text)
+    body_groups = topic_groups(all_body)
+    # Specifically block a console/firmware story being replaced by a character
+    # work/money narrative (or vice versa) even if the hook repeats PS5/GTA 6.
+    if 'platform_technology' in headline_groups and (
+        {'character_story','work_money'} & body_groups
+    ) and not ({'character_story','work_money'} & headline_groups):
+        issues.append('topic_category_drift:platform_technology_vs_character_story')
+    if ({'character_story','work_money'} & headline_groups) and (
+        'platform_technology' in body_groups
+    ) and 'platform_technology' not in headline_groups:
+        issues.append('topic_category_drift:character_story_vs_platform_technology')
+    if 'purchase_price' in headline_groups and 'purchase_price' not in body_groups:
+        issues.append('topic_anchor_missing:purchase_price')
+    if 'platform_technology' in headline_groups and 'platform_technology' not in body_groups:
+        issues.append('topic_anchor_missing:platform_technology')
+    if 'release_timing' in headline_groups and 'release_timing' not in body_groups:
+        issues.append('topic_anchor_missing:release_timing')
+
     if title_terms and overlap < 0.25:
         issues.append('headline_body_low_overlap')
     if title_terms and source_terms and source_overlap < 0.10 and overlap < 0.45:
