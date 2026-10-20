@@ -5861,11 +5861,13 @@ def produce_job(jid):
                 if code:
                     details.append(f'{code}: {msg[:180]}')
             detail_text=' | '.join(details)
+            checks_text='; '.join(f'{k}={v}' for k,v in (audit.get('checks',{}) or {}).items())
+            issue_summary=detail_text or 'auditoria sem códigos de problema; verificar pontuações por dimensão'
             raise ValueError(
                 'AUDITOR IA: gate estrito reprovou o vídeo após correções seguras'
-                + (f' — score={audit.get("score",0)}; problemas: {names}' if names else f' — score={audit.get("score",0)}; nenhum código de problema registrado')
-                + (f' — detalhes: {detail_text}' if detail_text else '')
-                + '.'
+                + f' — score={audit.get("score",0)}; problemas: {names or "nenhum código registrado"}'
+                + (f' — checks: {checks_text}' if checks_text else '')
+                + f' — diagnóstico: {issue_summary}.'
             )
         # V52 strict caption gate: never approve captions that are not derived from the actual narration.
         cap_alignment=_caption_narration_alignment(beats,script.get('narration',''))
