@@ -5225,13 +5225,13 @@ def _persistent_source_subtitle_audit(path):
                     hits.append(fi)
             except Exception:
                 continue
-        # Two samples only 0.5s apart can be a transient HUD element or scene detail.
-        # Require three consecutive half-second hits (at least 1s) to call it a
-        # persistent source subtitle and avoid blocking on brief visual coincidences.
+        # Two consecutive half-second samples are enough to flag likely
+        # baked-in source text. Requiring three samples missed short gameplay
+        # prompts such as "SMASH WINDOW" that remain visible for about one second.
         has_persistent=False
-        for idx in range(max(0,len(hits)-2)):
-            a,b,c=hits[idx:idx+3]
-            if b==a+1 and c==b+1:
+        for idx in range(max(0,len(hits)-1)):
+            a,b=hits[idx:idx+2]
+            if b==a+1:
                 has_persistent=True
                 break
         times=[round(i/2.0,1) for i in hits]
