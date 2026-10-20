@@ -2012,11 +2012,12 @@ def make_script(topic):
     fact='. '.join(fact_parts)+'.'
 
     if focused_work_story:
-        # Give each beat a distinct job: hook, evidence, context, caveat, CTA.
-        fact='Até agora, Jason e Lucia parecem estar aceitando trabalhos para diferentes figuras importantes de Vice City, numa tentativa de conseguir dinheiro.'
-        context='Essas cenas também situam a dupla no ambiente da cidade, antes de sabermos quais consequências essa rotina terá.'
-        payoff='Ainda não sabemos se esses trabalhos são missões principais ou como afetam a trama.'
-        cta='Você acha que isso vai ter impacto na história?'
+        # Keep this angle cautious: footage can suggest work opportunities,
+        # but it does not prove the number or importance of employers.
+        fact='As cenas sugerem que Jason e Lucia podem fazer trabalhos para ganhar dinheiro em Vice City.'
+        context='O material divulgado ainda não esclarece se essas atividades serão missões principais ou trabalhos opcionais.'
+        payoff='Por enquanto, não há confirmação de como isso afetará a história.'
+        cta='Você acha que esses trabalhos vão mudar a história?'
     elif kind=='NOTÍCIA':
         context='O ponto agora é entender o alcance real dessa informação, sem confundir o fato com teorias da comunidade.'
         payoff='A fonte não confirma consequências além desse fato.'
@@ -2039,7 +2040,9 @@ def make_script(topic):
     # Replace generic context with the article's second distinct factual
     # beat. Keep the proof to the first beat so the script advances instead of
     # repeating a vague line such as "this also situates the duo in the city".
-    if len(selected_evidence)>=2:
+    # The focused-work branch has its own cautious, topic-specific copy above.
+    # Do not overwrite it with raw scraped fragments (which can start mid-sentence).
+    if len(selected_evidence)>=2 and not focused_work_story:
         fact=_clean_narrative_text(selected_evidence[0])
         context=_clean_narrative_text(selected_evidence[1])
     sections={
