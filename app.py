@@ -5767,6 +5767,7 @@ def self_heal(jid, script, video, duration, beats, selected_videos, image_scenes
                 log=f'🧠 AUDITOR IA: reedição automática concluída e aprovada ({audit.get("score",0)}/100).'
             )
         except Exception as visual_repair_error:
+            print(f'[VISUAL_REPAIR_DIAGNOSTIC] {type(visual_repair_error).__name__}: {str(visual_repair_error)[:500]}', flush=True)
             try:
                 if repair_path.exists():
                     repair_path.unlink()
