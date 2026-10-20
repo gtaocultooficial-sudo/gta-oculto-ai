@@ -2102,7 +2102,7 @@ def make_script(topic):
     word_count=len(re.findall(r"[A-Za-zÀ-ÿ0-9']+",narration))
 
     # V65: use verified evidence, never synthetic padding, to reach the 70-word floor.
-    if word_count < 70 and (not focused_story or focused_work_story) and len(evidence) > len(selected_evidence):
+    if word_count < 70 and not focused_story and len(evidence) > len(selected_evidence):
         extra=_clean_narrative_text(evidence[len(selected_evidence)]).rstrip('.!?')
         if extra and extra not in fact_parts:
             fact_parts.append(extra)
