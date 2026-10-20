@@ -3555,7 +3555,7 @@ def _clean_caption_phrase(text):
     return text.upper()
 
 
-def _caption_phrases_from_sentence(sentence, max_words=7):
+def _caption_phrases_from_sentence(sentence, max_words=8):
     """Divide a frase em blocos contíguos e naturais, priorizando 3–7 palavras.
     Nunca remove palavras importantes nem cria legendas com palavras fora da fala.
     """
@@ -3615,7 +3615,7 @@ def _caption_is_bad_end(word):
     }
 
 
-def _semantic_caption_chunks(sentence, min_words=3, max_words=7):
+def _semantic_caption_chunks(sentence, min_words=3, max_words=8):
     """V51: segmenta legendas por unidade de sentido, preservando a ordem exata da fala.
     O objetivo é impedir cortes do tipo 'EM UMA' / 'NOVA' ou finais em preposição.
     Pontuação e conectores recebem prioridade; cortes ruins ficam muito caros.
@@ -4068,13 +4068,13 @@ def build_short_timeline(script, topic, duration, count=10, word_cues=None):
         return [{'text':'GTA 6','duration':duration,'highlight':'GTA','start':0,'end':duration}]
     sentences=[s.strip() for s in re.split(r'(?<=[.!?])\s+',narration) if s.strip()]
     all_chunks=[]
-    # Seven words is the audited maximum and gives enough flexibility to fit
-    # the actual visual-slot count without losing protected word groups.
-    for sent in sentences: all_chunks.extend(_semantic_caption_chunks(sent,3,7))
+    # Eight-word captions are allowed when needed to fit a limited unique-visual pool;
+    # the grammatical and protected-phrase gates still apply.
+    for sent in sentences: all_chunks.extend(_semantic_caption_chunks(sent,3,8))
     if not all_chunks: all_chunks=[_caption_words(narration)]
-    all_chunks=_merge_caption_chunks(all_chunks,target_count=max(1,count),max_words=7)
+    all_chunks=_merge_caption_chunks(all_chunks,target_count=max(1,count),max_words=8)
     if len(all_chunks)>max(1,int(count)):
-        all_chunks=_partition_caption_tokens_for_count(_caption_words(narration),max(1,int(count)),max_words=7,min_words=2)
+        all_chunks=_partition_caption_tokens_for_count(_caption_words(narration),max(1,int(count)),max_words=8,min_words=2)
     phrases=[]
     for ch in all_chunks:
         phrase=_clean_caption_phrase(' '.join(ch))
@@ -4536,7 +4536,7 @@ def _learn_event(code, message, strategy=None, success=None):
     except Exception:
         pass
 
-def _repair_caption_beats(beats, duration, max_words=7):
+def _repair_caption_beats(beats, duration, max_words=8):
     """V55.3: reconstrução semântica das legendas usando somente as palavras já faladas.
     Em vez de apenas juntar blocos ruins, achata a fala existente, resegmenta por
     unidades de sentido e redistribui o tempo proporcionalmente. Isso elimina falsos
