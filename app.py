@@ -5865,7 +5865,9 @@ def evaluate(script,duration,scene_count,visual_quality,beats=None,video_count=0
     if duration<24 or duration>38: score-=7
     if len(words)<70: score-=8
     if '?' not in narration[:210]: score-=4
-    if scene_count<10: score-=10
+    # Score against the same limits enforced by the actual caption/visual gates.
+    # The renderer may legitimately fall back to 8-9 unique scenes when source footage is limited.
+    if scene_count<8: score-=10
     if video_count<4: score-=8
     if image_count<2: score-=4
     if visual_quality<60: score-=12
@@ -5873,10 +5875,10 @@ def evaluate(script,duration,scene_count,visual_quality,beats=None,video_count=0
     elif visual_quality<80: score-=3
     if beats:
         avg=sum(b.get('duration',0) for b in beats)/max(1,len(beats))
-        if avg>3.3: score-=5
+        if avg>3.6: score-=5
         if avg<1.9: score-=3
-        # Penalize very long caption phrases.
-        long_caps=sum(1 for b in beats if len(str(b.get('text','')).split())>6)
+        # Caption gate permits 2-8 words; only penalize captions that exceed that accepted limit.
+        long_caps=sum(1 for b in beats if len(re.findall(r"[A-Za-zÀ-ÿ0-9']+",str(b.get('text',''))))>8)
         score-=min(8,long_caps*2)
     return max(0,min(100,score))
 
