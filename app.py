@@ -5301,7 +5301,7 @@ def _visual_repetition_audit(path):
                     stat=ImageStat.Stat(ImageChops.difference(imgs[i+k],imgs[j+k]))
                     ds.append(float(stat.mean[0]))
                 avg=sum(ds)/len(ds)
-                if avg<8.0:
+                if avg<12.0:
                     matches.append((i,j,avg))
 
         # 2) Repetição de takes isolados: average-hash numa grelha 8x8 reduz
@@ -5325,8 +5325,8 @@ def _visual_repetition_audit(path):
             for j in range(i+1,len(hashes)):
                 gap=j-i
                 distance=sum(a!=b for a,b in zip(hashes[i],hashes[j]))
-                near_duplicate=(gap==1 and distance<=2) or (gap==2 and distance==0)
-                distant_duplicate=(gap>=3 and distance<=6)
+                near_duplicate=(gap==1 and distance<=4) or (gap==2 and distance<=2)
+                distant_duplicate=(gap>=3 and distance<=10)
                 if near_duplicate or distant_duplicate:
                     frame_matches.append((i,j,distance))
                     if near_duplicate:
