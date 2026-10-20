@@ -4191,7 +4191,7 @@ VIDEO_SOURCE_MAX_USES=1
 def _visual_source_key(path):
     """Return the original clip stem so cropped windows cannot masquerade as new sources."""
     stem=Path(path).stem
-    return re.sub(r'_window_[0-9]+
+    return re.sub(r'_window_[0-9]+$', '', stem, flags=re.I)
 
 def _visual_source_capacity(paths, max_per_source=VIDEO_SOURCE_MAX_USES):
     """Count how many video windows can be used without exceeding the per-source budget."""
