@@ -5754,7 +5754,7 @@ def self_heal(jid, script, video, duration, beats, selected_videos, image_scenes
             # Auditar o arquivo temporário ANTES de substituir o vídeo original.
             # Se a variante não resolver a repetição, preservamos o MP4 original
             # para diagnóstico e o gate final bloqueia a entrega.
-            repaired_audit=audit_short(script,repair_path,duration,beats,selected_videos,image_scenes)
+            repaired_audit=audit_short(script,repair_path,duration,beats,_repair_videos,_repair_images)
             if any(x.get('code') in {'VISUAL_REPETITION','VISUAL_STAGNATION','HIGH_FROZEN_RATIO','VISUAL_SOURCE_SUBTITLE'} for x in repaired_audit.get('issues',[])):
                 raise RuntimeError('a reedição ainda apresenta repetição/congelamento visual')
             os.replace(repair_path,video)
