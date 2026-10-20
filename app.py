@@ -5884,8 +5884,15 @@ def produce_job(jid):
         low=narration_check=str(script.get('narration','')).lower()
         if any(x in low for x in banned_editorial):
             raise ValueError('GATE EDITORIAL: narração contém metadado interno.')
-        if int(script.get('word_count',0) or 0) < 70:
-            raise ValueError('GATE EDITORIAL: roteiro factual curto demais para um Short consistente.')
+        narration_word_count=len(re.findall(r"[A-Za-zÀ-ÿ0-9']+",str(script.get('narration',''))))
+        # Use the actual spoken text and the target duration instead of a stale
+        # word_count field and a fixed 70-word floor that rejects shorter Shorts.
+        editorial_min_words=max(50,int(math.ceil(float(duration or 30)*1.8)))
+        if narration_word_count < editorial_min_words:
+            raise ValueError(
+                f'GATE EDITORIAL: roteiro factual curto demais para um Short consistente '
+                f'({narration_word_count} palavras; mínimo {editorial_min_words} para {float(duration or 30):.1f}s).'
+            )
         if not script.get('evidence'):
             raise ValueError('GATE EDITORIAL: nenhuma evidência da matéria principal.')
         if str(script.get('source','')).lower().find('news.google.com') >= 0:
