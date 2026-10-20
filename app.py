@@ -4514,7 +4514,8 @@ def _choose_timeline_assets(video_clips, image_paths, beats, topic_title, varian
             # Relevância semântica continua valendo, mas não supera a prioridade
             # de movimento quando o vídeo é utilizável.
             if variant and idx % 4 == (bi+variant)%4:
-                score += 6
+                # Recovery render must materially change the chosen footage, not just crop the same assets differently.
+                score += 45
 
             ranked.append((score,kind,p,idx))
 
