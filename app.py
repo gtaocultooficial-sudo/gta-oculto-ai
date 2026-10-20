@@ -5318,20 +5318,15 @@ def _visual_repetition_audit(path):
         near_frame_matches=[]
         frame_marks=set()
         for i in range(len(hashes)):
-            # Frames are sampled every 2 seconds. Only compare the immediately
-            # adjacent sample as a "near" duplicate; a 4-second gap can cross two
-            # editorial beats and often matches a similar GTA composition by chance.
-            # A 4-second pair counts only if its hashes are exactly identical.
-            # Shots much farther apart use the looser threshold to catch recycled footage.
-            for j in range(i+1,len(hashes)):
+            # Frames are sampled every 2 seconds. Adjacent samples commonly belong
+            # to the same uninterrupted shot and must not count as recycled footage.
+            # Only compare frames at least 6 seconds apart (3 sample intervals).
+            for j in range(i+3,len(hashes)):
                 gap=j-i
                 distance=sum(a!=b for a,b in zip(hashes[i],hashes[j]))
-                near_duplicate=(gap==1 and distance<=8) or (gap==2 and distance<=8)
                 distant_duplicate=(gap>=3 and distance<=12)
-                if near_duplicate or distant_duplicate:
+                if distant_duplicate:
                     frame_matches.append((i,j,distance))
-                    if near_duplicate:
-                        near_frame_matches.append((i,j,distance))
                     frame_marks.add(i); frame_marks.add(j)
 
         # União para cobertura/repetição geral. Runs consecutivos são medidos
