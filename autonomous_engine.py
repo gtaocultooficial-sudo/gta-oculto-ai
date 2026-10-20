@@ -35,10 +35,35 @@ class AutonomousEngine:
         except Exception: job={}
         count=int(job.get('autonomous_recovery_count',0))+1
         if count>self.max_recoveries: return {'action':'QUARANTINE','reason':'max_recoveries','plan':plan}
-        if 'GATE EDITORIAL FINAL' in str(error) and count <= 2:
-            app_module.update_job(jid, status='QUEUED', stage='AUTO-RECUPERAÇÃO EDITORIAL', progress=2, log='🤖 Nota editorial abaixo de 75/100. Refazendo a produção uma vez; o bloqueio de qualidade continua ativo.', autonomous_recovery_count=count)
-            self.memory.strategy('editorial_score_gate','retry_production_once',success=True,details={'attempt':count})
-            return {'action':'RETRY_EDITORIAL','plan':plan}
+        if 'GATE EDITORIAL FINAL' in str(error):
+            # A low score is not fixed by rendering the same topic again.
+            # Switch to a distinct direct GTA 6 opportunity; if none exists,
+            # quarantine instead of looping or releasing a weak Short.
+            try:
+                topics,_,_,_,_=app_module.current_opportunities()
+                current=job.get('opportunity') or {}
+                current_id=current.get('id')
+                current_title=str(current.get('title','')).strip().lower()
+                def _editorial_candidate(t):
+                    u=str(t.get('url','')).lower()
+                    src=str(t.get('source','')).lower()
+                    title=str(t.get('title','')).strip().lower()
+                    gta_topic=any(k in (title+' '+u) for k in ('gta 6','gta vi','grand theft auto vi','rockstar games'))
+                    return bool(t.get('id') != current_id and title and title != current_title
+                                and u and 'news.google.com' not in u
+                                and 'rss' not in src and 'feed' not in src and gta_topic)
+                candidates=[t for t in topics if _editorial_candidate(t)]
+                if candidates and count <= 2:
+                    candidate=sorted(candidates,key=lambda x:float(x.get('score',0)),reverse=True)[0]
+                    app_module.update_job(jid,status='QUEUED',stage='AUTO-RECUPERAÇÃO EDITORIAL',progress=2,
+                        log=f'🤖 Short reprovado na avaliação editorial. Mudando a pauta para melhorar variedade e correspondência visual: {candidate.get("title")}. Nota mínima 75/100 mantida.',
+                        opportunity=candidate,autonomous_recovery_count=count)
+                    self.memory.strategy('editorial_score_gate','switch_topic_and_retry',success=True,
+                        details={'attempt':count,'from':current.get('title'),'to':candidate.get('title')})
+                    return {'action':'SWITCH_TOPIC','topic':candidate,'plan':plan}
+            except Exception as recovery_error:
+                self.memory.event('editorial_recovery_error',str(recovery_error))
+            return {'action':'QUARANTINE','reason':'editorial_score_below_threshold_no_safe_alternative','plan':plan}
         # Source failures are best recovered by changing the editorial opportunity.
         if plan['code'] in ('BLOCKED_NO_BODY','FEED_CANDIDATE','RESOLVER_DEADLINE'):
             try:
