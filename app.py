@@ -4334,6 +4334,16 @@ def _asset_relevance(path, title, beat_text, kind):
         supported=beat_concepts | title_concepts
         hard_action={'combat','raid','police','chase','getaway','escape','robbery','crime','theft','wanted','mask'}
         unrelated_action=(tags & hard_action) - supported
+        # Permit a chase beat only when the specific official source is tagged
+        # with Jason + Lucia + vehicle and the approved story is about work/money.
+        # Police/combat tags remain penalized unless directly supported by the beat.
+        contextual_chase=(
+            {'jason','lucia','vehicle'}.issubset(core_matches)
+            and bool(supported & {'job','money','deal'})
+            and 'chase' in tags
+        )
+        if contextual_chase:
+            unrelated_action.discard('chase')
         soft_activity={'nightlife','club','party','parachute','beach','animals','music','crowd'}
         unrelated_activity=(tags & soft_activity) - supported
         # Não descarte uma cena narrativa de Jason/Lucia só porque o trecho
