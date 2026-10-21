@@ -5429,16 +5429,29 @@ def _visual_repetition_audit(path):
                     frame_matches.append((i,j,distance))
                     frame_marks.add(i); frame_marks.add(j)
 
-        # União para cobertura/repetição geral. Runs consecutivos são medidos
-        # somente nas sequências longas: pares isolados em instantes distantes
-        # não devem ser interpretados como um take contínuo.
-        marks=set(frame_marks)
+        # Um quadro isolado pode compartilhar silhueta/paleta com outra cena
+        # sem representar reciclagem de take. Só conta hash de quadros como
+        # repetição quando há continuidade temporal nos dois trechos comparados.
+        frame_pair_set={(i,j) for i,j,_d in frame_matches}
+        clustered_frame_matches=[]
+        for i,j,d in frame_matches:
+            if (i+1,j+1) in frame_pair_set or (i-1,j-1) in frame_pair_set:
+                clustered_frame_matches.append((i,j,d))
+
+        # A taxa bloqueante considera sequências repetidas ou grupos de quadros
+        # correspondentes em sequência. Similaridades isoladas continuam no
+        # diagnóstico, mas não reprovam sozinhas um vídeo com cenas diferentes.
         sequence_marks=set()
         for i,j,_d in matches:
             for k in range(seq_len):
-                marks.add(i+k); marks.add(j+k)
                 sequence_marks.add(i+k); sequence_marks.add(j+k)
+        clustered_frame_marks=set()
+        for i,j,_d in clustered_frame_matches:
+            clustered_frame_marks.add(i); clustered_frame_marks.add(j)
+        marks=sequence_marks | clustered_frame_marks
         ratio=len(marks)/max(1,len(imgs))
+        raw_frame_similarity_ratio=len(frame_marks)/max(1,len(imgs))
+        near_frame_matches=clustered_frame_matches
         longest=0; cur=0
         for k in range(len(imgs)):
             if k in sequence_marks: cur+=1; longest=max(longest,cur)
@@ -5459,6 +5472,7 @@ def _visual_repetition_audit(path):
         return {
             'score':max(0,min(100,score)),
             'repeated_ratio':round(ratio,3),
+            'raw_frame_similarity_ratio':round(raw_frame_similarity_ratio,3),
             'longest_repeat_s':round(longest_s,1),
             'pairs':[{'a_s':round(i*2.0,1),'b_s':round(j*2.0,1),'diff':round(d,2),'kind':'sequence'} for i,j,d in matches[:12]],
             'frame_repeat_pairs':[{'a_s':round(i*2.0,1),'b_s':round(j*2.0,1),'hash_distance':int(d)} for i,j,d in frame_matches[:20]],
