@@ -1894,11 +1894,18 @@ def _editorial_topic_alignment(title, narration, evidence, source_title=''):
             'work_money': r'\b(?:trabalh\w*|empreg\w*|dinheiro|ganh\w*|renda|recompensa|job|work|money|cash)\b',
             'crime_action': r'\b(?:roub\w*|assalt\w*|furto|crime|criminos\w*|tiroteio|persegui[çc][aã]o|heist|robbery)\b',
             'release_timing': r'\b(?:lan[çc]amento|data de lan[çc]amento|adiad\w*|atras\w*|release date|launch date)\b',
+            'vehicle_trailer': r'\b(?:carros?|ve[ií]culos?|autom[oó]veis?|carros? de vice city|miami|trailer|teaser|live[ -]?action|filmado\w*|filmagem|grava\w*|vehicles?|cars?|movie|filming)\b',
         }
         return {group for group, pattern in rules.items() if re.search(pattern, str(value or ''), re.I)}
 
     headline_groups = topic_groups(title_text)
     body_groups = topic_groups(all_body)
+    # A vehicle/trailer headline cannot pass on generic GTA/character narration alone.
+    # Require the central subject to appear in the spoken script/evidence.
+    if 'vehicle_trailer' in headline_groups and 'vehicle_trailer' not in body_groups:
+        issues.append('topic_anchor_missing:vehicle_trailer')
+    if 'vehicle_trailer' in headline_groups and 'work_money' in body_groups and 'vehicle_trailer' not in body_groups:
+        issues.append('topic_category_drift:vehicle_trailer_vs_work_money')
     # Specifically block a console/firmware story being replaced by a character
     # work/money narrative (or vice versa) even if the hook repeats PS5/GTA 6.
     if 'platform_technology' in headline_groups and (
