@@ -3297,20 +3297,26 @@ def _filter_video_clips_for_topic(paths, topic_title, narration, jid=None):
         print(f'[SCENE_MATCH] metadata_fallback tagged={tagged_count}/{len(items)}; keeping full pool',flush=True)
         return items
     eligible=[x for x in scored if x[0]>=5.0]
-    # A narrow six-source ceiling frequently leaves only 8 unique visual slots
-    # (6 motion sources + 2 stills), which makes a 60+ word narration impossible
-    # to caption cleanly. Keep up to eight best official sources for focused
-    # Jason/Lucia work stories. They remain scored and ranked; we do not reopen
-    # the entire pool or bring back every unrelated party/combat clip.
-    target_sources=min(8,len(scored))
-    if len(eligible)<target_sources:
-        eligible=sorted(scored,key=lambda x:x[0],reverse=True)[:target_sources]
+    # Never fill the requested source count with low-relevance footage. The previous
+    # fallback added scores below 5.0 (including unrelated combat/club shots) merely
+    # to reach eight clips. The caller requires at least six clean motion sources;
+    # if fewer than six meet the relevance floor, stop rather than dilute the story.
+    if len(eligible)<6:
+        ranked=sorted(scored,key=lambda x:x[0],reverse=True)
         print(
-            f'[SCENE_MATCH] score_floor_relaxed eligible={len(eligible)} target={target_sources}; '
-            f'using_top_scored_sources scores='+','.join(f'{Path(x[2]).name}:{x[0]:.1f}' for x in eligible),
+            f'[SCENE_MATCH] blocked_low_relevance eligible={len(eligible)} required=6; '
+            f'top_scores='+','.join(f'{Path(x[2]).name}:{x[0]:.1f}' for x in ranked[:8]),
             flush=True
         )
-    selected=sorted(sorted(eligible,key=lambda x:x[0],reverse=True)[:min(10,len(eligible))],key=lambda x:x[1])
+        raise RuntimeError(
+            f'SCENE_MATCH_LOW_RELEVANCE: apenas {len(eligible)} clipes oficiais atingiram '
+            'nota de relevância >=5.0; são necessários 6 para evitar cenas fora da pauta.'
+        )
+    target_sources=min(8,len(eligible))
+    selected=sorted(
+        sorted(eligible,key=lambda x:x[0],reverse=True)[:target_sources],
+        key=lambda x:x[1]
+    )
     keep={str(x[2]) for x in selected}
     rejected=[x for x in scored if str(x[2]) not in keep]
     print(
