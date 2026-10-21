@@ -3312,7 +3312,9 @@ def _filter_video_clips_for_topic(paths, topic_title, narration, jid=None):
             f'SCENE_MATCH_LOW_RELEVANCE: apenas {len(eligible)} clipes oficiais atingiram '
             'nota de relevância >=5.0; são necessários 6 para evitar cenas fora da pauta.'
         )
-    target_sources=min(8,len(eligible))
+    # Prefer up to ten unique motion sources when relevance supports them. Keep
+    # the >=5.0 floor: unused slots become unique still support, never unrelated video.
+    target_sources=min(10,len(eligible))
     selected=sorted(
         sorted(eligible,key=lambda x:x[0],reverse=True)[:target_sources],
         key=lambda x:x[1]
@@ -4336,11 +4338,12 @@ def _asset_relevance(path, title, beat_text, kind):
         core_matches=tags & supported & core_story
         hard_action={'combat','raid','police','chase','getaway','escape','robbery','crime','theft','wanted','mask'}
         unrelated_action=(tags & hard_action) - supported
-        # Permit a chase beat only when the specific official source is tagged
-        # with Jason + Lucia + vehicle and the approved story is about work/money.
-        # Police/combat tags remain penalized unless directly supported by the beat.
+        # A source explicitly tagged with Jason + Lucia + a chase can illustrate
+        # an approved work/money story even if the narration does not literally say
+        # "vehicle". Moderate only the chase penalty; police/combat still score as
+        # unrelated unless the actual caption supports them.
         contextual_chase=(
-            {'jason','lucia','vehicle'}.issubset(core_matches)
+            {'jason','lucia'}.issubset(core_matches)
             and bool(supported & {'job','money','deal'})
             and 'chase' in tags
         )
