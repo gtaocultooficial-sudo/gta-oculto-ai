@@ -4342,7 +4342,15 @@ def _asset_relevance(path, title, beat_text, kind):
         # moderada; cenas puramente de ação continuam penalizadas com força.
         core_story={'jason','lucia','job','money','deal','story','dialogue','vehicle','city'}
         core_matches=tags & supported & core_story
-        action_penalty=2.5 if len(core_matches)>=2 else 5.0
+        # A cena oficial de trabalho/roubo (loja, máscara, dinheiro) pode
+        # ilustrar a pauta de Jason/Lucia sobre trabalhos pagos. Não a penalize
+        # como ação sem relação quando roteiro e pauta sustentam explicitamente
+        # trabalho + dinheiro; ações de perseguição/combate continuam filtradas.
+        job_money_action=(
+            {'job','money'}.issubset(core_matches)
+            and bool(tags & {'robbery','mask','wanted','crime','store'})
+        )
+        action_penalty=1.25 if job_money_action else (2.5 if len(core_matches)>=2 else 5.0)
         score -= action_penalty*len(unrelated_action)
         score -= 2.5*len(unrelated_activity)
         if kind=='video':
