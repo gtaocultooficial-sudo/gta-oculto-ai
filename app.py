@@ -4128,6 +4128,18 @@ def _partition_caption_tokens_for_count(tokens, target_count, max_words=8, min_w
         chunks=solve(target)
         if chunks is not None:
             return chunks
+    # Recovery pass: retain full narration coverage and protected-phrase boundaries,
+    # but permit a caption to begin with a connector when every strict partition fails.
+    # This avoids aborting the entire render on a single unusually constrained sentence.
+    _original_bad_start=bad_start.copy()
+    try:
+        bad_start.clear()
+        for target in range(max_count,min_count-1,-1):
+            chunks=solve(target)
+            if chunks is not None:
+                return chunks
+    finally:
+        bad_start.update(_original_bad_start)
     raise RuntimeError(
         f'GATE CAPTIONS: no grammatically safe partition fits <= {requested} captions; '
         'refusing to split a protected phrase or strand a preposition.'
