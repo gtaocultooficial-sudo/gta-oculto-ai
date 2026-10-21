@@ -4332,6 +4332,8 @@ def _asset_relevance(path, title, beat_text, kind):
         # action clip look relevant. Penalize strong visual concepts unless the
         # specific caption or approved topic explicitly supports that activity.
         supported=beat_concepts | title_concepts
+        core_story={'jason','lucia','job','money','deal','story','dialogue','vehicle','city'}
+        core_matches=tags & supported & core_story
         hard_action={'combat','raid','police','chase','getaway','escape','robbery','crime','theft','wanted','mask'}
         unrelated_action=(tags & hard_action) - supported
         # Permit a chase beat only when the specific official source is tagged
@@ -4350,8 +4352,6 @@ def _asset_relevance(path, title, beat_text, kind):
         # oficial também tem ação (ex.: fuga/combate no mesmo segmento). Quando
         # a cena casa com vários conceitos centrais da pauta, a penalidade é
         # moderada; cenas puramente de ação continuam penalizadas com força.
-        core_story={'jason','lucia','job','money','deal','story','dialogue','vehicle','city'}
-        core_matches=tags & supported & core_story
         # A cena oficial de trabalho/roubo (loja, máscara, dinheiro) pode
         # ilustrar a pauta de Jason/Lucia sobre trabalhos pagos. Não a penalize
         # como ação sem relação quando roteiro e pauta sustentam explicitamente
