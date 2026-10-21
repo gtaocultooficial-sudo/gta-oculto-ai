@@ -4529,7 +4529,11 @@ def _choose_timeline_assets(video_clips, image_paths, beats, topic_title, varian
     video_max_reuse=VIDEO_SOURCE_MAX_USES
     max_reuse=max(image_max_reuse,video_max_reuse)
     video_capacity=_visual_source_capacity(videos,video_max_reuse) if videos else 0
-    target_video=min(len(beats),video_capacity) if beats and videos else 0
+    # Preserve up to two one-off supporting stills when enough motion capacity
+    # exists. This avoids using a second window from the same trailer source for
+    # every late scene, while keeping the Short video-first (normally 10/12 clips).
+    support_images=min(2,len(images),max(0,len(beats)-len(video_sources))) if beats and videos else 0
+    target_video=min(len(beats)-support_images,video_capacity) if beats and videos else 0
     target_images=min(len(images), max(0, len(beats)-target_video)) if beats and images else 0
     print(f'[TIMELINE_VARIETY] videos={len(videos)} images={len(images)} video_max_reuse={video_max_reuse} target_video={target_video} target_images={target_images}',flush=True)
     if len(beats or []) > video_capacity + len(images):
