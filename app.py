@@ -3297,15 +3297,17 @@ def _filter_video_clips_for_topic(paths, topic_title, narration, jid=None):
         print(f'[SCENE_MATCH] metadata_fallback tagged={tagged_count}/{len(items)}; keeping full pool',flush=True)
         return items
     eligible=[x for x in scored if x[0]>=5.0]
-    if len(eligible)<6:
-        # Do not reopen the entire pool: that silently reintroduced the same
-        # off-topic combat/mask/party scenes the relevance gate had penalized.
-        # Relax the score floor only for the six best candidates needed by the
-        # downstream minimum-source gate, rather than failing open to every clip.
-        eligible=sorted(scored,key=lambda x:x[0],reverse=True)[:min(6,len(scored))]
+    # A narrow six-source ceiling frequently leaves only 8 unique visual slots
+    # (6 motion sources + 2 stills), which makes a 60+ word narration impossible
+    # to caption cleanly. Keep up to eight best official sources for focused
+    # Jason/Lucia work stories. They remain scored and ranked; we do not reopen
+    # the entire pool or bring back every unrelated party/combat clip.
+    target_sources=min(8,len(scored))
+    if len(eligible)<target_sources:
+        eligible=sorted(scored,key=lambda x:x[0],reverse=True)[:target_sources]
         print(
-            f'[SCENE_MATCH] score_floor_relaxed eligible={len(eligible)}; '
-            f'using_best_candidates_only scores='+','.join(f'{Path(x[2]).name}:{x[0]:.1f}' for x in eligible),
+            f'[SCENE_MATCH] score_floor_relaxed eligible={len(eligible)} target={target_sources}; '
+            f'using_top_scored_sources scores='+','.join(f'{Path(x[2]).name}:{x[0]:.1f}' for x in eligible),
             flush=True
         )
     selected=sorted(sorted(eligible,key=lambda x:x[0],reverse=True)[:min(10,len(eligible))],key=lambda x:x[1])
