@@ -4358,9 +4358,9 @@ def _asset_relevance(path, title, beat_text, kind):
         score+=3
     return score
 
-# Allow two non-overlapping windows from one official source when needed for caption capacity.
-# Each window is separately extracted from a different time range; source reuse is capped at two.
-VIDEO_SOURCE_MAX_USES=2
+# Do not reuse an original motion source within one Short. Distinct windows from
+# the same trailer still look like repeated shots in editorial review.
+VIDEO_SOURCE_MAX_USES=1
 
 
 def _visual_source_key(path):
@@ -4529,11 +4529,10 @@ def _choose_timeline_assets(video_clips, image_paths, beats, topic_title, varian
     video_max_reuse=VIDEO_SOURCE_MAX_USES
     max_reuse=max(image_max_reuse,video_max_reuse)
     video_capacity=_visual_source_capacity(videos,video_max_reuse) if videos else 0
-    # Preserve up to two one-off supporting stills when enough motion capacity
-    # exists. This avoids using a second window from the same trailer source for
-    # every late scene, while keeping the Short video-first (normally 10/12 clips).
-    support_images=min(2,len(images),max(0,len(beats)-len(video_sources))) if beats and videos else 0
-    target_video=min(len(beats)-support_images,video_capacity) if beats and videos else 0
+    # Use every eligible original motion source at most once. If there are fewer
+    # unique video sources than timeline beats, fill the remaining slots only with
+    # distinct, deduplicated stills; the capacity gate below blocks if insufficient.
+    target_video=min(len(beats),video_capacity) if beats and videos else 0
     target_images=min(len(images), max(0, len(beats)-target_video)) if beats and images else 0
     print(f'[TIMELINE_VARIETY] videos={len(videos)} images={len(images)} video_max_reuse={video_max_reuse} target_video={target_video} target_images={target_images}',flush=True)
     if len(beats or []) > video_capacity + len(images):
@@ -6055,8 +6054,8 @@ def produce_job(jid):
         # Rockstar's own VI pages provide permitted visual references; selecting them
         # semantically lets a Short finish when the remote ZIP clip extraction is broken.
         image_candidates=download_visuals(urls,jobdir/'official_images',visual_topic_title)
-        image_scenes=select_visuals(image_candidates,visual_topic_title,count=2)
-        update_job(jid,progress=44,log=f'Plano visual: {len(image_scenes)} imagens de apoio (máximo 2); priorizando vídeos reais.')
+        image_scenes=select_visuals(image_candidates,visual_topic_title,count=7)
+        update_job(jid,progress=44,log=f'Plano visual: {len(image_scenes)} imagens únicas disponíveis como apoio; priorizando fontes de vídeo inéditas.')
         update_job(jid,stage='NARRAÇÃO',progress=60,log='Gerando narração PT-BR e capturando timestamps reais da fala...')
         print(f'[JOB {jid}] stage=TTS start',flush=True)
         audio=jobdir/'narracao.mp3'; word_cues=asyncio.run(make_tts(script['narration'],audio)); audio,word_cues=_compress_long_tts_pauses(audio,word_cues); duration=duration_of_audio(audio)
