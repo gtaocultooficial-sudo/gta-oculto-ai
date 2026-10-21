@@ -6403,7 +6403,35 @@ def produce():
     if topic is None and custom:
         topic={'id':'custom','score':88,'priority':'ALTA','title':custom,'source':'Pesquisa editorial','url':ROCKSTAR_VI,'radar':False}
     if topic is None:
-        topic=max((dict(x) for x in topics),key=lambda x:(float(x.get('trend_score',0) or 0),float(x.get('score',0) or 0)))
+        # Avoid repeatedly producing the same headline: the dashboard can queue
+        # several jobs while the radar keeps its top-ranked story unchanged.
+        # Compare both the final title and the original opportunity title.
+        try:
+            recent_jobs=list(load_jobs().values())
+        except Exception:
+            recent_jobs=[]
+        recent_titles=set()
+        for old_job in recent_jobs[-30:]:
+            if old_job.get('status') not in ('QUEUED','RUNNING','DONE'):
+                continue
+            for candidate_title in (
+                old_job.get('title'),
+                (old_job.get('opportunity') or {}).get('title')
+                    if isinstance(old_job.get('opportunity'),dict) else None,
+            ):
+                normalized=' '.join(str(candidate_title or '').casefold().split())
+                if normalized:
+                    recent_titles.add(normalized)
+        fresh_topics=[
+            dict(x) for x in topics
+            if ' '.join(str(x.get('title','')).casefold().split()) not in recent_titles
+        ]
+        pool=fresh_topics or [dict(x) for x in topics]
+        topic=max(pool,key=lambda x:(float(x.get('trend_score',0) or 0),float(x.get('score',0) or 0)))
+        if fresh_topics:
+            print(f'[PRODUCE_API] repeat_guard skipped_recent={len(topics)-len(fresh_topics)} selected={topic.get("title","")}',flush=True)
+        else:
+            print('[PRODUCE_API] repeat_guard no unseen topics; using best available candidate',flush=True)
     jid=uuid.uuid4().hex[:10]
     job={'id':jid,'title':topic['title'],'opportunity':topic,'status':'QUEUED','stage':'FILA','progress':0,'log':'Tarefa recebida. A produção cloud começará automaticamente.','video':None,'cover':None,'created_at':now_iso()}
     try:
