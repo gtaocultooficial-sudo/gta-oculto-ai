@@ -4351,7 +4351,9 @@ def _asset_relevance(path, title, beat_text, kind):
         score+=3
     return score
 
-VIDEO_SOURCE_MAX_USES=1
+# Allow two non-overlapping windows from one official source when needed for caption capacity.
+# Each window is separately extracted from a different time range; source reuse is capped at two.
+VIDEO_SOURCE_MAX_USES=2
 
 
 def _visual_source_key(path):
