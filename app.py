@@ -1751,11 +1751,26 @@ def _is_source_recovery_error(exc):
 def _autonomous_make_script(jid, topic, topics):
     """V55: validates source before committing to a production topic and changes topic automatically on failure."""
     if not AUTONOMOUS_MODE:
-        # Capture the approved topic BEFORE make_script mutates topic['title']
-        # into an evidence-based headline. QA must compare against the original topic.
+        # Even with automatic recovery disabled, never render a script that
+        # changes the approved topic. Recovery may be disabled; validation is not.
         selected_topic_title=str(topic.get('title') or '')
         script=make_script(topic)
         script['selected_topic_title']=selected_topic_title
+        preflight=_editorial_topic_alignment(
+            selected_topic_title, script.get('narration',''), [], selected_topic_title,
+            generated_title=script.get('title','')
+        )
+        print(
+            f"[TOPIC_PREFLIGHT] recovery=off ok={preflight.get('ok')} "
+            f"selected={selected_topic_title[:120]} generated={str(script.get('title',''))[:120]} "
+            f"issues={','.join(preflight.get('issues',[])[:8])}",
+            flush=True
+        )
+        if not preflight.get('ok'):
+            raise ValueError(
+                'SELECTED_TOPIC_MISMATCH: roteiro não corresponde à pauta aprovada: '
+                + ', '.join(preflight.get('issues',[])[:8])
+            )
         return topic, script
     candidates=[]; seen=set()
     recovery_pool=[topic] + list(topics or []) + list(FALLBACK_TOPICS)
