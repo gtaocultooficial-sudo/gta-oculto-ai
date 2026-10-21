@@ -4336,7 +4336,14 @@ def _asset_relevance(path, title, beat_text, kind):
         unrelated_action=(tags & hard_action) - supported
         soft_activity={'nightlife','club','party','parachute','beach','animals','music','crowd'}
         unrelated_activity=(tags & soft_activity) - supported
-        score -= 5.0*len(unrelated_action)
+        # Não descarte uma cena narrativa de Jason/Lucia só porque o trecho
+        # oficial também tem ação (ex.: fuga/combate no mesmo segmento). Quando
+        # a cena casa com vários conceitos centrais da pauta, a penalidade é
+        # moderada; cenas puramente de ação continuam penalizadas com força.
+        core_story={'jason','lucia','job','money','deal','story','dialogue','vehicle','city'}
+        core_matches=tags & supported & core_story
+        action_penalty=2.5 if len(core_matches)>=2 else 5.0
+        score -= action_penalty*len(unrelated_action)
         score -= 2.5*len(unrelated_activity)
         if kind=='video':
             score+=3
