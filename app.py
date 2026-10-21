@@ -1918,10 +1918,21 @@ def _editorial_topic_alignment(title, narration, evidence, source_title=''):
         issues.append('topic_category_drift:character_story_vs_platform_technology')
     if 'purchase_price' in headline_groups and 'purchase_price' not in body_groups:
         issues.append('topic_anchor_missing:purchase_price')
+    # A passing mention of price/pre-sale cannot legitimize a Short that
+    # actually spends its time on a different character/jobs storyline.
+    if 'purchase_price' in headline_groups and (
+        {'character_story','work_money','crime_action'} & body_groups
+    ) and not ({'character_story','work_money','crime_action'} & headline_groups):
+        issues.append('topic_category_drift:purchase_price_vs_story')
     if 'platform_technology' in headline_groups and 'platform_technology' not in body_groups:
         issues.append('topic_anchor_missing:platform_technology')
     if 'release_timing' in headline_groups and 'release_timing' not in body_groups:
         issues.append('topic_anchor_missing:release_timing')
+    # Keep release-date headlines from drifting into unrelated story speculation.
+    if 'release_timing' in headline_groups and (
+        {'character_story','work_money','crime_action'} & body_groups
+    ) and not ({'character_story','work_money','crime_action'} & headline_groups):
+        issues.append('topic_category_drift:release_timing_vs_story')
 
     if title_terms and overlap < 0.25:
         issues.append('headline_body_low_overlap')
