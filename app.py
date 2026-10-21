@@ -1786,7 +1786,8 @@ def _autonomous_make_script(jid, topic, topics):
             # BEFORE spending time rendering a video. If it drifted, discard this
             # candidate and let the bounded recovery loop try another topic.
             preflight=_editorial_topic_alignment(
-                selected_topic_title, script.get('narration',''), [], selected_topic_title
+                selected_topic_title, script.get('narration',''), [], selected_topic_title,
+                generated_title=script.get('title','')
             )
             if not preflight.get('ok'):
                 raise ValueError(
@@ -1840,8 +1841,8 @@ def _headline_from_specific_evidence(title, evidence):
 
 
 
-def _editorial_topic_alignment(title, narration, evidence, source_title=''):
-    """V64.6: conservative, deterministic gate against listicle/headline drift."""
+def _editorial_topic_alignment(title, narration, evidence, source_title='', generated_title=''):
+    """V70: conservative gate against headline, script-title, and narration drift."""
     title_text=_clean_narrative_text(str(title or '')).lower()
     narration_text=_clean_narrative_text(str(narration or '')).lower()
     evidence_text=' '.join(str(x or '') for x in (evidence or [])).lower()
@@ -1900,6 +1901,50 @@ def _editorial_topic_alignment(title, narration, evidence, source_title=''):
 
     headline_groups = topic_groups(title_text)
     body_groups = topic_groups(all_body)
+    generated_title_text = _clean_narrative_text(str(generated_title or '')).lower()
+    generated_title_groups = topic_groups(generated_title_text)
+
+    # The generated title is not allowed to switch from the selected car/trailer
+    # story to a Jason/Lucia jobs-and-money story just because both mention GTA 6
+    # or Vice City. Check the final generated headline separately from narration.
+    headline_names_characters = bool(re.search(r'\b(?:jason|lucia)\b', title_text, re.I))
+    generated_title_is_story_drift = (
+        bool(re.search(r'\b(?:jason|lucia)\b', generated_title_text, re.I))
+        or 'work_money' in generated_title_groups
+        or 'crime_action' in generated_title_groups
+    )
+    if ('vehicle_trailer' in headline_groups and not headline_names_characters
+            and generated_title_is_story_drift
+            and 'vehicle_trailer' not in generated_title_groups):
+        issues.append('topic_title_drift:vehicle_trailer_vs_story')
+
+    # A vehicle/trailer headline needs more than a passing mention of Vice City,
+    # cars, or a trailer. When the script otherwise centers on character/work/money
+    # storylines, require that vehicles/filming/trailer are the focus of multiple
+    # spoken sentences. This catches topic drift that token overlap alone misses.
+    vehicle_anchor_pattern = (
+        r'\b(?:carros?|ve[ií]culos?|autom[oó]veis?|miami|trailer|teaser|'
+        r'live[ -]?action|filmad\w*|filmagem|grava\w*|v[ií]deo\w*|'
+        r'vehicles?|cars?|movie|filming)\b'
+    )
+    spoken_sentences = [
+        part.strip() for part in re.split(r'(?<=[.!?])\s+|[;\n]+', narration_text)
+        if len(tokens(part)) >= 4
+    ]
+    vehicle_anchor_sentences = [
+        part for part in spoken_sentences if re.search(vehicle_anchor_pattern, part, re.I)
+    ]
+    body_explicit_character_story = bool(re.search(r'\b(?:jason|lucia)\b', all_body, re.I))
+    displaced_story = (
+        'work_money' in body_groups or 'crime_action' in body_groups
+        or body_explicit_character_story
+    )
+    if ('vehicle_trailer' in headline_groups and not headline_names_characters
+            and displaced_story):
+        anchor_share = len(vehicle_anchor_sentences) / max(1, len(spoken_sentences))
+        if len(vehicle_anchor_sentences) < 2 or anchor_share < 0.40:
+            issues.append('topic_category_drift:vehicle_trailer_vs_story')
+
     # A vehicle/trailer headline cannot pass on generic GTA/character narration alone.
     # Require the central subject to appear in the spoken script/evidence.
     if 'vehicle_trailer' in headline_groups and 'vehicle_trailer' not in body_groups:
@@ -5937,10 +5982,16 @@ def produce_job(jid):
         # passed preflight. A recovered candidate may replace the originally
         # selected topic; leaving the old job title would label a Jason/Lucia
         # video as a Leonida story even when the content gate correctly switched topics.
-        final_script_title=str(script.get('title') or topic.get('title') or 'GTA 6').strip()
-        if final_script_title:
-            topic['title']=final_script_title
-        topic['selected_topic_title']=str(script.get('selected_topic_title') or '')
+        selected_topic_title=str(
+            script.get('selected_topic_title') or topic.get('selected_topic_title')
+            or topic.get('title') or 'GTA 6'
+        ).strip()
+        final_script_title=str(script.get('title') or selected_topic_title or 'GTA 6').strip()
+        # Keep the approved radar topic stable for visual selection. The display/job
+        # title may be rewritten from evidence, but must never steer scene matching.
+        visual_topic_title=selected_topic_title
+        topic['title']=selected_topic_title
+        topic['selected_topic_title']=selected_topic_title
         job=load_jobs().get(jid,{})
         job['opportunity']=topic
         job['title']=final_script_title
@@ -5953,8 +6004,8 @@ def produce_job(jid):
         # Prefer real official motion clips, but prepare a bounded image fallback up front.
         # Rockstar's own VI pages provide permitted visual references; selecting them
         # semantically lets a Short finish when the remote ZIP clip extraction is broken.
-        image_candidates=download_visuals(urls,jobdir/'official_images',topic.get('title','GTA 6'))
-        image_scenes=select_visuals(image_candidates,topic.get('title','GTA 6'),count=2)
+        image_candidates=download_visuals(urls,jobdir/'official_images',visual_topic_title)
+        image_scenes=select_visuals(image_candidates,visual_topic_title,count=2)
         update_job(jid,progress=44,log=f'Plano visual: {len(image_scenes)} imagens de apoio (máximo 2); priorizando vídeos reais.')
         update_job(jid,stage='NARRAÇÃO',progress=60,log='Gerando narração PT-BR e capturando timestamps reais da fala...')
         print(f'[JOB {jid}] stage=TTS start',flush=True)
@@ -6033,7 +6084,7 @@ def produce_job(jid):
         official_videos,_text_rejected=_filter_source_clips_with_baked_text(official_videos,jid)
         update_job(jid,log=f'Filtro pré-edição de texto concluído: {len(official_videos)} fontes limpas; {len(_text_rejected)} descartadas.')
         official_videos=_filter_video_clips_for_topic(
-            official_videos,topic.get('title',''),script.get('narration',''),jid
+            official_videos,visual_topic_title,script.get('narration',''),jid
         )
         if len(official_videos)<6:
             raise RuntimeError(
@@ -6094,7 +6145,7 @@ def produce_job(jid):
             raise RuntimeError(f'GATE VISUAL: só {available_slots} slots visuais distintos para {len(beats)} cenas; não vou reciclar planos.')
         video=jobdir/'GTA_OCULTO_SHORT.mp4'
         print(f'[JOB {jid}] stage=RENDER start',flush=True)
-        beats=make_multimedia_video(selected_videos,image_scenes,audio,video,duration,caps,script,topic['title'],beats)
+        beats=make_multimedia_video(selected_videos,image_scenes,audio,video,duration,caps,script,visual_topic_title,beats)
         print(f'[JOB {jid}] stage=RENDER done exists={video.exists()} bytes={video.stat().st_size if video.exists() else 0}',flush=True)
         # Nunca deixe a capa derrubar uma produção já renderizada.
         print(f'[JOB {jid}] stage=POST_RENDER cover start',flush=True)
