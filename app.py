@@ -3369,7 +3369,9 @@ def download_official_video_clips(outdir, jid=None):
     # insufficient in real renders: extracted frames were technically distinct
     # but kept showing the same characters/shots. Build a broader official pool
     # before falling back to still frames or blocking the timeline.
-    target_clips = 13
+    # Collect a wider pool so strict scene matching can still yield up to
+    # ten unique motion sources instead of filling the last beats with stills.
+    target_clips = 16
     if len(cached) >= target_clips:
         return cached[:target_clips]
     try:
@@ -3481,7 +3483,7 @@ def download_official_video_clips(outdir, jid=None):
         zip_error=str(e)[:900]
         print(f'[OFFICIAL_VIDEO_ZIP] insufficient valid motion clips: {zip_error}; trying Rockstar official CDN range-download fallback',flush=True)
         try:
-            return _download_official_rockstar_cdn_proxies(cache,jid=jid,limit_per_video=13)
+            return _download_official_rockstar_cdn_proxies(cache,jid=jid,limit_per_video=16)
         except Exception as rockstar_error:
             raise RuntimeError(
                 'Não foi possível obter vídeos oficiais utilizáveis. '
