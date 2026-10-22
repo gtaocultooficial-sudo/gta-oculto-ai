@@ -4534,6 +4534,16 @@ def _choose_timeline_assets(video_clips, image_paths, beats, topic_title, varian
     def source_group(path):
         # Three windows cut from one trailer still count as one editorial source.
         return _visual_source_key(path)
+
+    def source_timestamp(path):
+        # Preserve temporal variety when several clips come from the same official
+        # trailer: distant moments are less likely to show the same character/shot.
+        try:
+            value=float(_source_clip_metadata(path).get('start'))
+            return value if value >= 0 else None
+        except (TypeError, ValueError):
+            return None
+
     video_sources={source_group(p) for p in videos}
     # V61: repetition is now a hard budget, not just a score penalty.
     # The pool can shrink on Render Free after a restart, so the reuse budget is
@@ -4573,6 +4583,22 @@ def _choose_timeline_assets(video_clips, image_paths, beats, topic_title, varian
         if chosen and chosen[-1][1]==p: pen += 1000
         if beats and bi >= max(0, int(len(beats)*0.80)) and p in [x[1] for x in chosen[:2]]:
             pen += 180
+        # Distinct filenames are not always distinct-looking scenes. Avoid
+        # selecting official trailer moments that are close together in time,
+        # which can contain the same characters, location, or camera setup.
+        candidate_time=source_timestamp(p) if p in videos else None
+        if candidate_time is not None:
+            for chosen_kind, chosen_path in chosen:
+                if chosen_kind != 'video':
+                    continue
+                prior_time=source_timestamp(chosen_path)
+                if prior_time is None:
+                    continue
+                delta=abs(candidate_time-prior_time)
+                if delta < 90:
+                    pen += 110
+                elif delta < 150:
+                    pen += 45
         # Strongly prefer sources that have not been used yet.
         pen += asset_counts.get(p,0) * 180
         return pen
