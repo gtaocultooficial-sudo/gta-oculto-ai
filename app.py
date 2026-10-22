@@ -3506,6 +3506,69 @@ def select_video_clips(videos,title,count=5):
     return ranked[:count]
 
 
+def _measure_source_motion(path):
+    """Measure movement inside one source clip without counting cuts between scenes."""
+    p=Path(path)
+    try:
+        st=p.stat()
+        key=(str(p),st.st_mtime_ns,st.st_size)
+        if key in _VISUAL_SOURCE_MOTION_CACHE:
+            return _VISUAL_SOURCE_MOTION_CACHE[key]
+    except Exception:
+        key=None
+    tmp=Path(str(p)+'.source_motion_profile')
+    try:
+        tmp.mkdir(parents=True,exist_ok=True)
+        ff=_ffmpeg_executable()
+        cmd=[ff,'-hide_banner','-loglevel','error','-y','-i',str(p),
+             '-vf','fps=2,scale=48:85:flags=bilinear,format=gray',
+             '-frames:v','18','-q:v','8',str(tmp/'frame_%03d.jpg')]
+        proc=subprocess.run(cmd,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=20)
+        frames=sorted(tmp.glob('frame_*.jpg'))
+        if proc.returncode != 0 or len(frames)<5:
+            return None
+        from PIL import Image, ImageChops, ImageStat
+        diffs=[]; previous=None
+        for frame in frames:
+            with Image.open(frame) as im:
+                current=im.convert('L').copy()
+            if previous is not None:
+                diffs.append(float(ImageStat.Stat(ImageChops.difference(previous,current)).mean[0]))
+                previous.close()
+            previous=current
+        if previous is not None:
+            previous.close()
+        if len(diffs)<4:
+            return None
+        threshold=3.5
+        low_ratio=sum(v<threshold for v in diffs)/len(diffs)
+        run=longest=0
+        for value in diffs:
+            if value<threshold:
+                run+=1; longest=max(longest,run)
+            else:
+                run=0
+        profile={'mean_diff':round(sum(diffs)/len(diffs),2),
+                 'low_motion_ratio':round(low_ratio,3),
+                 'longest_low_motion_s':round(longest*0.5,1),
+                 'sample_count':len(diffs)}
+        if key is not None:
+            if len(_VISUAL_SOURCE_MOTION_CACHE)>250:
+                _VISUAL_SOURCE_MOTION_CACHE.clear()
+            _VISUAL_SOURCE_MOTION_CACHE[key]=profile
+        _VISUAL_SOURCE_MOTION_PROFILE[_visual_source_key(p)]=profile
+        print(f'[SOURCE_MOTION_PROFILE] source={p.name} mean_diff={profile["mean_diff"]} low_ratio={profile["low_motion_ratio"]} longest_low_s={profile["longest_low_motion_s"]}',flush=True)
+        return profile
+    except Exception as exc:
+        print(f'[SOURCE_MOTION_PROFILE] skipped={p.name} error={type(exc).__name__}:{str(exc)[:120]}',flush=True)
+        return None
+    finally:
+        try:
+            shutil.rmtree(tmp,ignore_errors=True)
+        except Exception:
+            pass
+
+
 def _expand_video_clips_into_distinct_windows(video_clips, jobdir, windows_per_clip=3):
     """Split each source into valid, non-overlapping motion segments.
 
@@ -3517,6 +3580,22 @@ def _expand_video_clips_into_distinct_windows(video_clips, jobdir, windows_per_c
     outdir=Path(jobdir)/'video_windows'
     outdir.mkdir(parents=True,exist_ok=True)
     clips=[Path(p) for p in (video_clips or []) if p]
+    # Measure movement before cutting. Drop near-static candidates only when at
+    # least six other moving sources survive; otherwise preserve the pool and let
+    # semantic ranking prefer the livelier footage without breaking production.
+    profiles={str(clip):_measure_source_motion(clip) for clip in clips}
+    moving=[
+        clip for clip in clips
+        if profiles.get(str(clip)) is not None
+        and not (float(profiles[str(clip)].get('mean_diff',0))<4.0
+                 and float(profiles[str(clip)].get('low_motion_ratio',1))>=0.65)
+    ]
+    if len(moving)>=6 and len(moving)<len(clips):
+        rejected=[clip.name for clip in clips if clip not in moving]
+        clips=moving
+        print(f'[SOURCE_MOTION_FILTER] accepted={len(clips)} rejected={len(rejected)} files={",".join(rejected[:8])}',flush=True)
+    else:
+        print(f'[SOURCE_MOTION_FILTER] moving_candidates={len(moving)}/{len(clips)}; keeping full pool',flush=True)
     expanded=[]
     for ci,clip in enumerate(clips):
         try:
@@ -4385,6 +4464,10 @@ def _asset_relevance(path, title, beat_text, kind):
 # the same trailer still look like repeated shots in editorial review.
 VIDEO_SOURCE_MAX_USES=1
 
+# Perfil leve de movimento por fonte, calculado antes de cortar janelas.
+_VISUAL_SOURCE_MOTION_PROFILE = {}
+_VISUAL_SOURCE_MOTION_CACHE = {}
+
 
 def _visual_source_key(path):
     """Return the original clip stem so cropped windows cannot masquerade as new sources."""
@@ -4664,6 +4747,19 @@ def _choose_timeline_assets(video_clips, image_paths, beats, topic_title, varian
                 score += 55
                 if bi==0: score += 20
                 if bi>=2: score += 12
+                # Prefer movement inside the take, not merely hard cuts between takes.
+                motion_profile=_VISUAL_SOURCE_MOTION_PROFILE.get(source_group(p))
+                if motion_profile:
+                    mean_diff=float(motion_profile.get('mean_diff',0) or 0)
+                    low_ratio=float(motion_profile.get('low_motion_ratio',0) or 0)
+                    motion_bonus=min(26.0,max(-18.0,(mean_diff-3.0)*1.15))
+                    if low_ratio>=0.65:
+                        motion_bonus-=12.0
+                    elif low_ratio>=0.45:
+                        motion_bonus-=5.0
+                    if bi==0:
+                        motion_bonus*=1.35
+                    score+=motion_bonus
             else:
                 score -= 10
 
