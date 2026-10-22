@@ -1,6 +1,6 @@
 # Internal editorial and crop-safety follow-up.
 import struct, zlib
-import os, json, uuid, threading, time, asyncio, subprocess, shutil, re, sys, math, statistics
+import os, json, uuid, threading, time, asyncio, subprocess, shutil, re, sys, math, statistics, gzip
 from pathlib import Path
 from datetime import datetime, timezone
 from urllib.parse import urljoin, urlparse, quote, quote_plus, parse_qs
@@ -35,6 +35,33 @@ except Exception:
 
 APP = Flask(__name__)
 app = APP
+
+@APP.after_request
+def compress_api_json(response):
+    # Compress JSON responses to reduce dashboard bandwidth; leave MP4/range responses untouched.
+    accept_encoding = request.headers.get('Accept-Encoding', '').lower()
+    if (
+        request.path.startswith('/api/')
+        and response.mimetype == 'application/json'
+        and response.status_code == 200
+        and 'gzip' in accept_encoding
+        and not response.headers.get('Content-Encoding')
+    ):
+        try:
+            raw = response.get_data()
+            if len(raw) >= 1024:
+                compressed = gzip.compress(raw, compresslevel=6, mtime=0)
+                if len(compressed) < len(raw):
+                    response.set_data(compressed)
+                    response.headers['Content-Encoding'] = 'gzip'
+                    vary = [x.strip() for x in response.headers.get('Vary', '').split(',') if x.strip()]
+                    if not any(x.lower() == 'accept-encoding' for x in vary):
+                        vary.append('Accept-Encoding')
+                    response.headers['Vary'] = ', '.join(vary)
+        except Exception:
+            # A compression issue must never break the API response.
+            pass
+    return response
 BASE = Path(__file__).resolve().parent
 WORK = Path(os.getenv('GTA_WORKSPACE', str(BASE / 'workspace')))
 WORK.mkdir(parents=True, exist_ok=True)
