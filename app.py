@@ -186,7 +186,11 @@ async function loadAnalytics(force){
  document.getElementById('analyticsAdvice').textContent=d.recommendation||'Ainda não há dados suficientes para recomendações.';
  document.getElementById('analyticsVideos').innerHTML=d.videos&&d.videos.length?'<div class="table-head" style="display:grid;grid-template-columns:minmax(180px,1fr) 80px 80px 80px 80px;gap:8px"><div>VÍDEO</div><div>VIEWS</div><div>CURTIDAS</div><div>INSCRITOS</div><div>COMENT.</div></div>'+d.videos.map(v=>'<div class="row" style="grid-template-columns:minmax(180px,1fr) 80px 80px 80px 80px"><div class="title">'+esc(v.title||v.video_id)+'</div><div>'+fmt(v.views)+'</div><div>'+(v.likes_available?fmt(v.likes):'N/D')+'</div><div>'+(v.subscribers_available?fmt(v.subscribers_gained):'N/D')+'</div><div>'+(v.comments_available?fmt(v.comments):'N/D')+'</div></div>').join(''):'<div class="notice">Nenhum vídeo foi retornado pela fonte de métricas.</div>';
  }catch(e){box.textContent='Falha ao carregar o resumo. Tente atualizar novamente.'}}
-load();setInterval(load,3000);setTimeout(()=>loadAnalytics(false),1800);
+load();
+// Reduce outbound bandwidth: refresh state every 15s and pause polling while the tab is hidden.
+let statePollTimer=setInterval(()=>{if(!document.hidden)load()},15000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)load()});
+setTimeout(()=>loadAnalytics(false),1800);
 </script><section class="panel" id="liveClipperPanel" style="border-color:#2d6bff">
 <h3>✂️ CORTES DE LIVE — IA AUTÔNOMA</h3>
 <div class="notice">Aceita lives longas. O motor trabalha por blocos e procura os melhores momentos sem carregar a gravação inteira na memória.</div>
@@ -6869,7 +6873,7 @@ def output(p):
     if not str(full).startswith(str(base)):
         return 'Not found',404
     if full.exists():
-        return send_from_directory(full.parent,full.name,as_attachment=False)
+        return send_from_directory(full.parent,full.name,as_attachment=False,max_age=86400,conditional=True)
     # Render Free has ephemeral local storage. If a published MP4 was removed
     # after a restart/redeploy, recover transparently through the durable YouTube copy.
     parts=Path(p).parts
