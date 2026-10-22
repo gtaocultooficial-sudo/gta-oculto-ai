@@ -31,15 +31,19 @@ class TrendBrain:
         return " ".join(sorted(core[:14]))
 
     def _repetition_penalty(self,t,d):
+        """Hard editorial cooldown for recently published topics and identical story fingerprints."""
         key=self._key(t); fp=self._fingerprint(t); now=time.time(); penalty=0
         for v in d.get("videos",{}).values():
             age_days=(now-float(v.get("updated",now) or now))/86400
-            if age_days>14: continue
-            if v.get("topic_key")==key:
-                penalty=max(penalty,35 if age_days<3 else 20)
-            oldfp=str(v.get("fingerprint",""))
+            if age_days>30: continue
+            old_key=str(v.get("topic_key","") or "")
+            oldfp=str(v.get("fingerprint","") or "")
+            # Exact same editorial topic: block normal ranking for 14 days.
+            if key and old_key==key:
+                penalty=max(penalty,100 if age_days<14 else 65)
+            # Same core story under a different title: stronger cooldown for 14 days.
             if fp and oldfp and fp==oldfp:
-                penalty=max(penalty,45 if age_days<7 else 25)
+                penalty=max(penalty,100 if age_days<14 else 70)
         return penalty
 
     def observe(self,topics):
