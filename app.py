@@ -6873,7 +6873,7 @@ def output(p):
     if not str(full).startswith(str(base)):
         return 'Not found',404
     if full.exists():
-        return send_from_directory(full.parent,full.name,as_attachment=False)
+        return send_from_directory(full.parent,full.name,as_attachment=False,max_age=86400,conditional=True)
     # Render Free has ephemeral local storage. If a published MP4 was removed
     # after a restart/redeploy, recover transparently through the durable YouTube copy.
     parts=Path(p).parts
