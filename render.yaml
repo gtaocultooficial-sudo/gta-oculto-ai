@@ -21,6 +21,6 @@ services:
       - key: GTA_AUTO_DEPLOY
         value: "0"
       - key: YOUTUBE_AUTO_PUBLISH
-        value: "0"
+        value: "1"
       - key: YOUTUBE_ANALYTICS_ENABLED
         value: "0"
