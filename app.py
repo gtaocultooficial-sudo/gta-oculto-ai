@@ -92,7 +92,7 @@ UA = 'GTA-Oculto-AI/Cloud-Final/V55-SOURCE-RECOVERY-3'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
-BUILD_VERSION = 'V68.8-SELECTED-TOPIC-ALIGNMENT-GATE-20261019'
+BUILD_VERSION = 'V68.9-HIGGSFIELD-GUARDED-SCENE-GENERATOR-20261029'
 
 FALLBACK_TOPICS = [
     {'id':'leonida','score':96,'priority':'ALTA','title':'GTA 6: o detalhe de Leonida que pode mudar a história','source':'Rockstar Games','url':ROCKSTAR_VI,
@@ -257,6 +257,88 @@ async function pollLiveRender(id){
 </script>
 </body></html>'''
 PAGE = PAGE.replace('__OPPORTUNITIES__', ''.join(f'<div class="row"><div class="score">{o["score"]}</div><div><div class="title">{o["title"]}</div><div class="source">{o["source"]} · {o.get("content_type","CURIOSIDADE")} · confiança {o.get("confidence","-")} % · {o.get("reason","")}</div></div><div class="pill">{o["priority"]}</div><div class="pill">{o.get("status","PRODUZIR")}</div><button class="produce" onclick="createShort(\'{o["id"]}\')">PRODUZIR</button></div>' for o in FALLBACK_TOPICS))
+
+PAGE = PAGE.replace('</body></html>', r'''
+<section class="panel" id="higgsfieldPanel" style="border-color:#d6a83e">
+ <div class="radar-head"><div><h3>🎬 HIGGSFIELD — CENAS COMPLEMENTARES</h3><div class="muted" style="font-size:10px">Gere manualmente uma cena vertical curta para complementar a edição.</div></div><span class="tag" id="hfFeatureBadge">DESATIVADO</span></div>
+ <div id="hfConnection" class="notice">Verificando configuração...</div>
+ <div class="notice" style="margin-top:8px">Esta função usa saldo pré-pago da API. Perfil inicial: Wan 3.0, vertical 9:16, 480p, 3 segundos, sem áudio. A tabela do modelo indica cerca de US$ 0,15 por clipe de 3 s em 480p; o custo real pode variar. A IA principal nunca chamará esta API automaticamente.</div>
+ <div style="display:grid;grid-template-columns:minmax(180px,1fr);gap:8px;margin-top:10px">
+  <input id="hfActionToken" type="password" autocomplete="off" placeholder="Código de acesso Higgsfield (não é a chave da API)" style="background:#111721;border:1px solid #273244;border-radius:8px;color:#fff;padding:12px">
+  <textarea id="hfPrompt" rows="3" maxlength="1500" placeholder="Descreva a cena complementar (máx. 1500 caracteres)" style="width:100%;resize:vertical;background:#111721;border:1px solid #273244;border-radius:8px;color:#fff;padding:12px">Cena conceitual original de uma cidade costeira fictícia à noite, luzes neon refletindo no asfalto molhado, palmeiras e carros ao fundo, câmera avançando suavemente pela avenida, atmosfera de mistério de um videogame de mundo aberto. Sem logotipos, sem textos e sem interface de jogo; não apresentar como gameplay oficial.</textarea>
+  <label style="display:flex;gap:8px;align-items:flex-start;font-size:11px;color:#d8dfeb"><input id="hfPaidConfirm" type="checkbox" style="margin-top:2px"> Confirmo que esta ação chama a API paga e pode consumir saldo.</label>
+  <div><button class="btn red" id="hfGenerateButton" onclick="generateHiggsfieldScene()">GERAR 1 CENA (PAGA)</button></div>
+ </div>
+ <div id="hfStatus" class="notice" style="margin-top:8px">Nenhuma geração iniciada.</div>
+ <div id="hfPreview" style="margin-top:8px"></div>
+</section>
+<script>
+async function refreshHiggsfieldConfig(){
+ const box=document.getElementById("hfConnection");
+ try{
+  const r=await fetch("/api/higgsfield/config",{cache:"no-store"});
+  const d=await r.json();
+  const badge=document.getElementById("hfFeatureBadge");
+  if(badge)badge.textContent=d.ready?"PRONTO":"DESATIVADO";
+  if(!d.ready){
+   box.textContent="Higgsfield ainda não está liberado no servidor. A integração permanece fechada por segurança; depois de configurar os segredos e ativar a variável de habilitação, atualize esta tela.";
+   return;
+  }
+  box.textContent="Configuração presente. A geração continua exigindo código de acesso e confirmação de custo em cada solicitação.";
+ }catch(e){box.textContent="Não foi possível consultar a configuração de Higgsfield."}
+}
+async function generateHiggsfieldScene(){
+ const button=document.getElementById("hfGenerateButton");
+ const box=document.getElementById("hfStatus");
+ const token=document.getElementById("hfActionToken").value.trim();
+ const prompt=document.getElementById("hfPrompt").value.trim();
+ if(!token){box.textContent="Informe o código de acesso configurado no servidor.";return}
+ if(!document.getElementById("hfPaidConfirm").checked){box.textContent="Marque a confirmação de que a geração pode consumir saldo.";return}
+ if(!prompt){box.textContent="Escreva a descrição da cena.";return}
+ if(!window.confirm("Confirmar uma única geração paga de 3 segundos em 480p? O valor indicado é aproximado; confira o saldo e os preços no painel Higgsfield."))return;
+ button.disabled=true;
+ box.textContent="Enviando uma única solicitação à Higgsfield. Não feche e não clique novamente enquanto verificamos o resultado.";
+ document.getElementById("hfPreview").innerHTML="";
+ try{
+  const r=await fetch("/api/higgsfield/generate",{
+   method:"POST",headers:{"Content-Type":"application/json","X-Higgsfield-Action":token},
+   body:JSON.stringify({prompt:prompt,confirm_paid:true})
+  });
+  const d=await r.json();
+  if(!r.ok||!d.ok){
+   box.textContent=({HIGGSFIELD_FEATURE_DISABLED:"A integração está desativada no servidor.",HIGGSFIELD_API_KEY_MISSING:"Falta configurar a chave da API no ambiente do servidor.",HIGGSFIELD_ACTION_TOKEN_MISSING:"Falta configurar o código de acesso no servidor.",HIGGSFIELD_CREDENTIALS_REJECTED:"A chave de API foi rejeitada. Revise a chave rotacionada no ambiente do servidor.",HIGGSFIELD_BALANCE_OR_PAYMENT_REQUIRED:"A API informa que falta saldo ou método de pagamento.",HIGGSFIELD_RATE_LIMIT:"A API limitou as solicitações. Não tente novamente imediatamente.",SUBMIT_TIMEOUT_CHECK_REQUESTS:"O envio expirou e pode ter sido recebido. Confira Requests no painel Higgsfield antes de tentar outra vez.",HIGGSFIELD_INPUT_REJECTED:"A Higgsfield rejeitou os parâmetros desta solicitação."})[d.reason]||("Falha ao iniciar a cena: "+(d.reason||"erro sem detalhes"));
+   return;
+  }
+  box.textContent="Solicitação enviada. ID: "+d.request_id+". Acompanhando o status sem reenviar a geração...";
+  await pollHiggsfieldScene(d.request_id,token,0);
+ }catch(e){
+  box.textContent="Falha de conexão após o envio. Confira Requests no painel Higgsfield antes de tentar novamente, para evitar uma segunda cobrança.";
+ }finally{button.disabled=false}
+}
+async function pollHiggsfieldScene(id,token,attempt){
+ if(attempt>=90){document.getElementById("hfStatus").textContent="A geração continua sem estado terminal após vários minutos. Confira o painel Requests da Higgsfield; não vamos reenviar automaticamente.";return}
+ try{
+  const r=await fetch("/api/higgsfield/request/"+encodeURIComponent(id),{headers:{"X-Higgsfield-Action":token},cache:"no-store"});
+  const d=await r.json();
+  if(!r.ok||!d.ok){document.getElementById("hfStatus").textContent="Não foi possível consultar o estado ("+(d.reason||r.status)+"). Confira Requests na Higgsfield.";return}
+  if(d.video_url){
+   document.getElementById("hfStatus").textContent="Cena pronta. Abra o vídeo para assistir ou salvar; a Higgsfield mantém os arquivos por tempo limitado.";
+   document.getElementById("hfPreview").innerHTML='<video controls playsinline style="width:min(360px,100%);max-height:640px;background:#000;border-radius:10px" src="'+esc(d.video_url)+'"></video><div style="margin-top:8px"><a style="color:#7dc7ff;font-weight:900" target="_blank" rel="noopener" href="'+esc(d.video_url)+'">↗ ABRIR / BAIXAR CENA</a></div>';
+   return;
+  }
+  if(["failed","canceled","cancelled","nsfw"].includes(d.status)){
+   document.getElementById("hfStatus").textContent=d.message||"A geração terminou sem vídeo. Confira Requests na Higgsfield.";
+   return;
+  }
+  document.getElementById("hfStatus").textContent="Higgsfield: "+d.status+". Consultando novamente...";
+  setTimeout(()=>pollHiggsfieldScene(id,token,attempt+1),5000);
+ }catch(e){
+  document.getElementById("hfStatus").textContent="Falha ao consultar o status. A geração não será reenviada automaticamente; confira Requests no painel Higgsfield.";
+ }
+}
+refreshHiggsfieldConfig();
+</script>
+</body></html>''')
 
 def now_iso(): return datetime.now(timezone.utc).isoformat()
 
@@ -6781,6 +6863,61 @@ def youtube_status():
         privacy=os.getenv('YOUTUBE_PRIVACY','private'),
         analytics_enabled=bool(getattr(getattr(AUTONOMOUS_ENGINE,'analytics',None),'enabled',False)),
     )
+
+@APP.get('/api/higgsfield/config')
+def higgsfield_config():
+    from higgsfield_api import feature_status
+    cfg=feature_status()
+    # Never return credentials, even partially.
+    return jsonify(ok=True,ready=cfg['ready'],enabled=cfg['enabled'],
+                   key_present=cfg['key_present'],
+                   action_guard_present=cfg['action_guard_present'],
+                   model=cfg['model'],duration_seconds=cfg['duration_seconds'],
+                   resolution=cfg['resolution'],aspect_ratio=cfg['aspect_ratio'])
+
+
+@APP.post('/api/higgsfield/generate')
+def higgsfield_generate():
+    from higgsfield_api import feature_status, action_token_valid, submit_scene
+    cfg=feature_status()
+    if not cfg['enabled']:
+        return jsonify(ok=False,reason='HIGGSFIELD_FEATURE_DISABLED'),503
+    if not cfg['key_present']:
+        return jsonify(ok=False,reason='HIGGSFIELD_API_KEY_MISSING'),503
+    if not cfg['action_guard_present']:
+        return jsonify(ok=False,reason='HIGGSFIELD_ACTION_TOKEN_MISSING'),503
+    if not action_token_valid(request.headers.get('X-Higgsfield-Action')):
+        return jsonify(ok=False,reason='HIGGSFIELD_ACTION_TOKEN_INVALID'),403
+    data=request.get_json(silent=True) or {}
+    if data.get('confirm_paid') is not True:
+        return jsonify(ok=False,reason='PAID_GENERATION_NOT_CONFIRMED'),400
+    prompt=str(data.get('prompt') or '').strip()
+    result=submit_scene(prompt)
+    if result.get('ok'):
+        return jsonify(result),202
+    reason=str(result.get('reason') or 'HIGGSFIELD_REQUEST_FAILED')
+    status=503 if reason in {'HIGGSFIELD_FEATURE_DISABLED','HIGGSFIELD_API_KEY_MISSING',
+                            'HIGGSFIELD_ACTION_TOKEN_MISSING'} else (400 if reason in {
+                                'PROMPT_REQUIRED','PROMPT_TOO_LONG','HIGGSFIELD_INPUT_REJECTED'
+                            } else 502)
+    return jsonify(result),status
+
+
+@APP.get('/api/higgsfield/request/<request_id>')
+def higgsfield_request_status(request_id):
+    from higgsfield_api import feature_status, action_token_valid, request_status
+    cfg=feature_status()
+    if not cfg['ready']:
+        return jsonify(ok=False,reason='HIGGSFIELD_NOT_READY'),503
+    if not action_token_valid(request.headers.get('X-Higgsfield-Action')):
+        return jsonify(ok=False,reason='HIGGSFIELD_ACTION_TOKEN_INVALID'),403
+    result=request_status(request_id)
+    if not result.get('ok'):
+        reason=str(result.get('reason') or 'HIGGSFIELD_STATUS_FAILED')
+        status=400 if reason=='INVALID_REQUEST_ID' else (502 if 'NETWORK' in reason or 'TIMEOUT' in reason else 502)
+        return jsonify(result),status
+    return jsonify(result)
+
 
 @APP.post('/api/publish/<jid>')
 def publish_existing(jid):
