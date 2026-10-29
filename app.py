@@ -92,7 +92,7 @@ UA = 'GTA-Oculto-AI/Cloud-Final/V55-SOURCE-RECOVERY-3'
 ROCKSTAR_VI = 'https://www.rockstargames.com/VI'
 ROCKSTAR_NEWS = 'https://www.rockstargames.com/newswire/article/4k138k8okkk483/grand-theft-auto-vi-an-extended-look-now-playing'
 ROCKSTAR_VIDEO_ZIP = 'https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Videos.zip'
-BUILD_VERSION = 'V68.8-SELECTED-TOPIC-ALIGNMENT-GATE-20261019'
+BUILD_VERSION = 'V68.9-HIGGSFIELD-GUARDED-SCENE-GENERATOR-20261029'
 
 FALLBACK_TOPICS = [
     {'id':'leonida','score':96,'priority':'ALTA','title':'GTA 6: o detalhe de Leonida que pode mudar a história','source':'Rockstar Games','url':ROCKSTAR_VI,
@@ -260,7 +260,7 @@ PAGE = PAGE.replace('__OPPORTUNITIES__', ''.join(f'<div class="row"><div class="
 
 PAGE = PAGE.replace('</body></html>', r'''
 <section class="panel" id="higgsfieldPanel" style="border-color:#d6a83e">
- <div class="radar-head"><div><h3>🎬 HIGGSFIELD — CENAS COMPLEMENTARES</h3><div class="muted" style="font-size:10px">Gere manualmente uma cena vertical curta para complementar a edição.</div></div><span class="tag">DESATIVADO ATÉ CONFIGURAR</span></div>
+ <div class="radar-head"><div><h3>🎬 HIGGSFIELD — CENAS COMPLEMENTARES</h3><div class="muted" style="font-size:10px">Gere manualmente uma cena vertical curta para complementar a edição.</div></div><span class="tag" id="hfFeatureBadge">DESATIVADO</span></div>
  <div id="hfConnection" class="notice">Verificando configuração...</div>
  <div class="notice" style="margin-top:8px">Esta função usa saldo pré-pago da API. Perfil inicial: Wan 3.0, vertical 9:16, 480p, 3 segundos, sem áudio. A tabela do modelo indica cerca de US$ 0,15 por clipe de 3 s em 480p; o custo real pode variar. A IA principal nunca chamará esta API automaticamente.</div>
  <div style="display:grid;grid-template-columns:minmax(180px,1fr);gap:8px;margin-top:10px">
@@ -278,6 +278,8 @@ async function refreshHiggsfieldConfig(){
  try{
   const r=await fetch("/api/higgsfield/config",{cache:"no-store"});
   const d=await r.json();
+  const badge=document.getElementById("hfFeatureBadge");
+  if(badge)badge.textContent=d.ready?"PRONTO":"DESATIVADO";
   if(!d.ready){
    box.textContent="Higgsfield ainda não está liberado no servidor. A integração permanece fechada por segurança; depois de configurar os segredos e ativar a variável de habilitação, atualize esta tela.";
    return;
