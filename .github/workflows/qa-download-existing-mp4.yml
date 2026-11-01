@@ -1,0 +1,69 @@
+name: Validate existing GTA Oculto MP4
+on:
+  push:
+    branches:
+      - qa/download-existing-gta-mp4
+    paths:
+      - '.github/workflows/qa-download-existing-mp4.yml'
+permissions:
+  contents: read
+jobs:
+  validate-existing-mp4:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download the already-produced MP4 from Render
+        env:
+          BASE_URL: https://gta-oculto-ai.onrender.com
+          JOB_ID: 07549b63c9
+        run: |
+          set -euo pipefail
+          curl -fL --retry 2 --connect-timeout 20 --max-time 240 \
+            "$BASE_URL/output/$JOB_ID/GTA_OCULTO_SHORT.mp4" \
+            -o GTA_OCULTO_SHORT.mp4
+          test -s GTA_OCULTO_SHORT.mp4
+          test "$(stat -c%s GTA_OCULTO_SHORT.mp4)" -gt 1000000
+
+      - name: Validate codecs, audio, vertical dimensions and duration
+        run: |
+          set -euo pipefail
+          command -v ffprobe
+          ffprobe -v error \
+            -show_entries format=duration,size:stream=codec_type,codec_name,width,height \
+            -of json GTA_OCULTO_SHORT.mp4 > media-validation.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          d=json.loads(Path("media-validation.json").read_text())
+          streams=d.get("streams", [])
+          video=next((s for s in streams if s.get("codec_type")=="video"), None)
+          audio=next((s for s in streams if s.get("codec_type")=="audio"), None)
+          duration=float(d.get("format",{}).get("duration",0))
+          size=int(d.get("format",{}).get("size",0))
+          assert video, "missing video stream"
+          assert audio, "missing audio stream"
+          assert int(video.get("height",0)) > int(video.get("width",0)), "video is not vertical"
+          assert 10 <= duration <= 65, f"duration out of range: {duration}"
+          assert size > 1_000_000, f"unexpectedly small MP4: {size}"
+          print(json.dumps({
+            "duration_seconds": duration,
+            "size_bytes": size,
+            "video": video,
+            "audio": audio,
+            "download": "HTTP 200 / complete"
+          }, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Create a preview frame
+        run: |
+          ffmpeg -loglevel error -y -ss 2 -i GTA_OCULTO_SHORT.mp4 -frames:v 1 -vf scale=270:480 preview.jpg
+
+      - name: Upload temporary QA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gta-oculto-mp4-qa-07549b63c9
+          path: |
+            GTA_OCULTO_SHORT.mp4
+            preview.jpg
+            media-validation.json
+          retention-days: 1
