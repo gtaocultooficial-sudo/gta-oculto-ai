@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -16,6 +17,10 @@ class OfficialVideoPoolTests(unittest.TestCase):
             for index in range(8):
                 clip = cache / f"rockstar_real_v251_{index}.mp4"
                 clip.write_bytes(b"x" * 25001)
+                clip.with_suffix(".json").write_text(
+                    json.dumps({"source": "rockstar_cdn", "start": 72.0 + index * 30}),
+                    encoding="utf-8",
+                )
                 expected.append(clip)
 
             with (
@@ -61,7 +66,7 @@ class OfficialVideoPoolTests(unittest.TestCase):
             self.assertTrue(all(Path(p).stat().st_size > 4000 for p in actual))
             self.assertTrue(all(Path(p).name.startswith("official_frame_") for p in actual))
 
-    def test_downloads_four_safe_official_clips_when_cache_is_short(self):
+    def test_combines_safe_zip_clips_with_cdn_fallback_when_cache_is_short(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             entries = [
@@ -76,6 +81,13 @@ class OfficialVideoPoolTests(unittest.TestCase):
             def write_proxy(command, timeout=240):
                 Path(command[-1]).write_bytes(b"p" * 30000)
 
+            cdn_fallback = []
+            for index in range(9):
+                clip = root / "official_cache" / f"cdn_{index}.mp4"
+                clip.parent.mkdir(parents=True, exist_ok=True)
+                clip.write_bytes(b"c" * 30000)
+                cdn_fallback.append(clip)
+
             with (
                 patch.object(app, "WORK", root),
                 patch.object(app, "_remote_zip_entries", return_value=(120000, entries)),
@@ -86,11 +98,13 @@ class OfficialVideoPoolTests(unittest.TestCase):
                 patch.object(app, "_ffmpeg_executable", return_value="ffmpeg"),
                 patch.object(app, "run_cmd", side_effect=write_proxy),
                 patch.object(app, "_video_contains_rating_disclaimer", return_value=False),
+                patch.object(app, "_download_official_rockstar_cdn_proxies", return_value=cdn_fallback),
             ):
                 actual = app.download_official_video_clips(root / "job")
 
-            self.assertEqual(len(actual), 4)
-            self.assertEqual(len({Path(p).name for p in actual}), 4)
+            self.assertEqual(len(actual), 13)
+            self.assertEqual(len({Path(p).name for p in actual}), 13)
+            self.assertEqual(sum(Path(p).name.startswith("rockstar_real_v251_") for p in actual), 4)
             self.assertTrue(all(Path(p).stat().st_size > 20000 for p in actual))
 
 
