@@ -36,7 +36,7 @@ class TrendBrainTests(unittest.TestCase):
             with (
                 patch.dict(os.environ, {
                     "GTA_SUPABASE_URL": "https://gta-test.supabase.co",
-                    "GTA_SUPABASE_SERVICE_ROLE_KEY": "test-server-secret",
+                    "GTA_SUPABASE_SERVICE_ROLE_KEY": "sb_secret_test-key",
                 }),
                 patch("trend_brain.requests.get", return_value=get_response) as remote_get,
                 patch("trend_brain.requests.post", return_value=post_response) as remote_post,
@@ -51,10 +51,20 @@ class TrendBrainTests(unittest.TestCase):
 
                 self.assertTrue(remote_get.called)
                 self.assertTrue(remote_post.called)
+                request_headers = remote_post.call_args.kwargs["headers"]
+                self.assertEqual(request_headers["apikey"], "sb_secret_test-key")
+                self.assertNotIn("Authorization", request_headers)
                 sent = remote_post.call_args.kwargs["json"]["data"]
                 self.assertIn("remembered-topic", sent["topics"])
                 self.assertEqual(len(sent["videos"]), 1)
                 self.assertTrue(brain.status()["persistent_storage"]["connected"])
+
+    def test_legacy_service_role_jwt_keeps_bearer_header(self):
+        brain = object.__new__(TrendBrain)
+        brain.supabase_key = "eyJ.legacy-service-role-jwt"
+        headers = brain._remote_headers()
+        self.assertEqual(headers["apikey"], brain.supabase_key)
+        self.assertEqual(headers["Authorization"], f"Bearer {brain.supabase_key}")
 
     def test_rank_is_deterministic_and_adds_signal(self):
         with tempfile.TemporaryDirectory() as td:
