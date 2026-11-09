@@ -1,3 +1,4 @@
+import app
 import json
 import tempfile
 import unittest
@@ -7,6 +8,11 @@ from trend_brain import TrendBrain
 
 
 class TrendBrainTests(unittest.TestCase):
+    def test_radar_and_autonomous_engine_share_one_editorial_brain(self):
+        if app.AUTONOMOUS_ENGINE is None or app.TREND_BRAIN is None:
+            self.skipTest("Autonomous engine or TrendBrain unavailable in this test environment")
+        self.assertIs(app.AUTONOMOUS_ENGINE.trend_brain, app.TREND_BRAIN)
+
     def test_rank_is_deterministic_and_adds_signal(self):
         with tempfile.TemporaryDirectory() as td:
             brain = TrendBrain(td)
