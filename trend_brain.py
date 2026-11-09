@@ -25,24 +25,75 @@ class TrendBrain:
         return " ".join([w for w in words if len(w)>3][:10]) or str(t.get("id","unknown"))
 
     def _fingerprint(self,t):
-        words=re.findall(r"[a-z0-9áéíóúãõç]+",str(t.get("title","")).lower())
-        stop={"gta","gta6","gtaiv","rockstar","games","novo","jogo","detalhes","confirmou","confirmados"}
+        """Fingerprint editorial que considera a pauta e o conteúdo efetivamente narrado."""
+        if isinstance(t,dict):
+            parts=[t.get(k,"") for k in (
+                "title","selected_topic_title","story_text","narration",
+                "description","editorial_text"
+            )]
+        else:
+            parts=[t]
+        text=" ".join(str(x or "") for x in parts).lower()
+        words=re.findall(r"[a-z0-9áéíóúãõç]+",text)
+        stop={
+            "gta","gta6","gtaiv","grand","theft","auto","rockstar","games",
+            "novo","nova","novos","novas","jogo","jogos","detalhe","detalhes",
+            "confirmou","confirmados","confirmada","revelou","revela","sobre",
+            "pode","ser","sera","será","para","como","mais","muito","ainda"
+        }
         core=[w for w in words if len(w)>3 and w not in stop]
-        return " ".join(sorted(core[:14]))
+        return " ".join(sorted(set(core[:40])))
+
+    def _story_similarity(self,a,b):
+        """Compara a pauta por conceitos e palavras, não só pela manchete literal."""
+        def signature(value):
+            low=str(value or "").lower()
+            words=set(
+                w for w in re.findall(r"[a-z0-9áéíóúãõç]+",low)
+                if len(w)>3 and w not in {
+                    "gta","gta6","gtaiv","grand","theft","auto","rockstar","games",
+                    "novo","nova","novos","novas","jogo","jogos","detalhe","detalhes",
+                    "confirmou","confirmados","confirmada","revelou","revela","sobre",
+                    "pode","ser","sera","será","para","como","mais","muito","ainda",
+                    "the","and","for","with","from","this","that"
+                }
+            )
+            concepts=set()
+            if "jason" in low and "lucia" in low: concepts.add("jason-lucia")
+            if "vice city" in low or "miami" in low: concepts.add("vice-city")
+            if "leonida" in low: concepts.add("leonida")
+            if any(x in low for x in ("cloud gaming","xbox cloud","jogar na nuvem","jogos na nuvem")): concepts.add("cloud-gaming")
+            if any(x in low for x in ("tamanho do mapa","mapa de gta 6","mapa gta 6","mapa maior")): concepts.add("mapa-tamanho")
+            if any(x in low for x in ("pré-venda","pre-venda","pre-order","preorder")): concepts.add("pre-venda")
+            if any(x in low for x in ("trilha sonora","soundtrack","álbum","album")): concepts.add("trilha-sonora")
+            if "ps5 pro" in low: concepts.add("ps5-pro")
+            if "discord" in low: concepts.add("discord")
+            return concepts,words
+
+        ca,wa=signature(a); cb,wb=signature(b)
+        if ca and cb and (ca & cb):
+            similarity=len(ca & cb)/max(1,len(ca | cb))
+            if similarity >= 0.5:
+                return max(0.72,similarity)
+            return 0.58
+        if not wa or not wb:
+            return 0.0
+        return len(wa & wb)/max(1,len(wa | wb))
 
     def _repetition_penalty(self,t,d):
-        """Hard editorial cooldown for recently published topics and identical story fingerprints."""
+        """Bloqueia por 14 dias histórias já produzidas, mesmo com outra manchete."""
         key=self._key(t); fp=self._fingerprint(t); now=time.time(); penalty=0
+        story_text=self._fingerprint(t)
         for v in d.get("videos",{}).values():
             age_days=(now-float(v.get("updated",now) or now))/86400
             if age_days>30: continue
             old_key=str(v.get("topic_key","") or "")
             oldfp=str(v.get("fingerprint","") or "")
-            # Exact same editorial topic: block normal ranking for 14 days.
+            old_story=str(v.get("story_text","") or v.get("title","") or oldfp)
+            similarity=self._story_similarity(story_text,old_story)
             if key and old_key==key:
                 penalty=max(penalty,100 if age_days<14 else 65)
-            # Same core story under a different title: stronger cooldown for 14 days.
-            if fp and oldfp and fp==oldfp:
+            elif (fp and oldfp and fp==oldfp) or similarity>=0.55:
                 penalty=max(penalty,100 if age_days<14 else 70)
         return penalty
 
@@ -110,7 +161,23 @@ class TrendBrain:
             k=self._key(topic or {})
             old=d["videos"].get(str(video_id),{})
             hook=str((metadata or {}).get("hook",(topic or {}).get("editorial_hook","")) or "")
-            d["videos"][str(video_id)]={"topic_key":k,"fingerprint":self._fingerprint(topic or {}),"title":str((topic or {}).get("title","")),"hook":hook,"hook_type":self._hook_type(hook),"content_type":str((topic or {}).get("content_type","CURIOSIDADE") or "CURIOSIDADE").upper(),"angle":str((metadata or {}).get("editorial_angle",(topic or {}).get("editorial_angle","")) or ""),"angle_type":self._angle_type((metadata or {}).get("editorial_angle",(topic or {}).get("editorial_angle","")) or ""),"title_pattern":self._title_pattern((topic or {}).get("title","")),"duration_bucket":self._duration_bucket((metadata or {}).get("duration_seconds",0)),"performance_score":old.get("performance_score",0),"publish_slot":str(publish_slot or old.get("publish_slot","")),"updated":time.time()}
+            story_text=" ".join(str(x or "") for x in (
+                (topic or {}).get("title",""),(topic or {}).get("selected_topic_title",""),
+                (metadata or {}).get("title",""),(metadata or {}).get("description",""),
+                (metadata or {}).get("editorial_text","")
+            ))[:12000]
+            d["videos"][str(video_id)]={
+                "topic_key":k,"fingerprint":self._fingerprint({"title":(topic or {}).get("title",""),"story_text":story_text}),
+                "story_text":story_text,"title":str((topic or {}).get("title","")),"hook":hook,
+                "hook_type":self._hook_type(hook),
+                "content_type":str((topic or {}).get("content_type","CURIOSIDADE") or "CURIOSIDADE").upper(),
+                "angle":str((metadata or {}).get("editorial_angle",(topic or {}).get("editorial_angle","")) or ""),
+                "angle_type":self._angle_type((metadata or {}).get("editorial_angle",(topic or {}).get("editorial_angle","")) or ""),
+                "title_pattern":self._title_pattern((topic or {}).get("title","")),
+                "duration_bucket":self._duration_bucket((metadata or {}).get("duration_seconds",0)),
+                "performance_score":old.get("performance_score",0),
+                "publish_slot":str(publish_slot or old.get("publish_slot","")),"updated":time.time()
+            }
             self._write(d)
 
     def learn(self,result,publications=None):
@@ -154,7 +221,7 @@ class TrendBrain:
                 perf=min(100,view_signal+retention_signal+watch_signal+engagement+comment_signal+subscriber_signal)
                 p=pubs.get(vid,{})
                 existing=d["videos"].get(vid,{})
-                d["videos"][vid]={"topic_key":p.get("topic_key",existing.get("topic_key","")),"title":existing.get("title",p.get("title","")),"title_pattern":existing.get("title_pattern",self._title_pattern(existing.get("title",p.get("title","")))),"hook":existing.get("hook",p.get("hook","")),"angle":existing.get("angle",p.get("angle","")),"angle_type":existing.get("angle_type",self._angle_type(existing.get("angle",p.get("angle","")))),"fingerprint":existing.get("fingerprint",""),"duration_bucket":existing.get("duration_bucket",p.get("duration_bucket","")),"hook_type":existing.get("hook_type",self._hook_type(existing.get("hook",""))),"content_type":existing.get("content_type",p.get("content_type","CURIOSIDADE")),"publish_slot":existing.get("publish_slot",p.get("publish_slot","")),"performance_score":round(perf,2),"views":views,"likes":likes,"comments":comments,"subscribers":subs,"average_view_duration":avg_duration,"estimated_minutes_watched":watched_minutes,"like_rate":round(like_rate,3),"comment_rate":round(comment_rate,3),"view_velocity":round(view_velocity,2),"analytics_observed":True,"updated":time.time()}
+                d["videos"][vid]={"topic_key":p.get("topic_key",existing.get("topic_key","")),"title":existing.get("title",p.get("title","")),"title_pattern":existing.get("title_pattern",self._title_pattern(existing.get("title",p.get("title","")))),"hook":existing.get("hook",p.get("hook","")),"angle":existing.get("angle",p.get("angle","")),"angle_type":existing.get("angle_type",self._angle_type(existing.get("angle",p.get("angle","")))),"fingerprint":existing.get("fingerprint",""),"story_text":existing.get("story_text",p.get("story_text","")),"duration_bucket":existing.get("duration_bucket",p.get("duration_bucket","")),"hook_type":existing.get("hook_type",self._hook_type(existing.get("hook",""))),"content_type":existing.get("content_type",p.get("content_type","CURIOSIDADE")),"publish_slot":existing.get("publish_slot",p.get("publish_slot","")),"performance_score":round(perf,2),"views":views,"likes":likes,"comments":comments,"subscribers":subs,"average_view_duration":avg_duration,"estimated_minutes_watched":watched_minutes,"like_rate":round(like_rate,3),"comment_rate":round(comment_rate,3),"view_velocity":round(view_velocity,2),"analytics_observed":True,"updated":time.time()}
             # Recompute slot averages from one latest record per video. Analytics
             # can return the same video every day; counting each poll as a new sample
             # would artificially inflate sample sizes and overweight older results.
@@ -279,21 +346,28 @@ class TrendBrain:
                 "confidence":min(1.0, max(0.0, (v["n"]-1)/4.0))}
 
     def record_production(self, topic, metadata=None, quality=0):
-        """Store editorial quality before publication so the brain can learn even without platform APIs."""
+        """Registra toda produção concluída, mesmo quando o upload do YouTube está desligado."""
         with self.lock:
             d=self._read(); k=self._key(topic or {})
             x=d["topics"].setdefault(k,{"seen":0,"best":0})
             x["productions"]=int(x.get("productions",0))+1
             x["quality_sum"]=float(x.get("quality_sum",0))+float(quality or 0)
             x["last_quality"]=float(quality or 0)
-            if metadata:
-                x["last_title"]=str(metadata.get("title",""))
-                x["last_hook"]=str(metadata.get("hook",metadata.get("editorial_hook","")))
-                fp=self._fingerprint({"title":metadata.get("title","")})
-                if fp:
-                    d.setdefault("videos",{})[f"production:{int(time.time()*1000)}"]={
-                        "topic_key":k,"fingerprint":fp,"performance_score":float(quality or 0),"updated":time.time()
-                    }
+            meta=metadata or {}
+            topic_title=str((topic or {}).get("title","") or "")
+            story_text=" ".join(str(x or "") for x in (
+                topic_title,(topic or {}).get("selected_topic_title",""),
+                meta.get("title",""),meta.get("description",""),
+                meta.get("editorial_text","")
+            ))[:12000]
+            x["last_title"]=str(meta.get("title","") or topic_title)
+            x["last_hook"]=str(meta.get("hook",meta.get("editorial_hook","")))
+            fp=self._fingerprint({"title":topic_title,"story_text":story_text})
+            if fp:
+                d.setdefault("videos",{})[f"production:{int(time.time()*1000)}"]={
+                    "topic_key":k,"fingerprint":fp,"story_text":story_text,
+                    "title":topic_title,"performance_score":float(quality or 0),"updated":time.time()
+                }
             self._write(d)
 
     def recommend_publish_slot(self, now=None):
