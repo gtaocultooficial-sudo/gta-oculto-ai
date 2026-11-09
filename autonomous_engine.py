@@ -114,15 +114,34 @@ class AutonomousEngine:
         result={'published':False,'analytics':None}
         print(f'[AUTONOMY {jid}] on_done start video={bool(video)} publisher_enabled={self.publisher.enabled} token_configured={bool(self.publisher.token_json)}', flush=True)
         if video:
-            # Do not reserve a future public release slot while YouTube auto-publishing
-            # is disabled. A stale publishAt value could otherwise schedule visibility
-            # unexpectedly if publishing is enabled again later.
-            if self.trend_brain and self.publisher.enabled:
+            # Registra toda produção concluída na memória editorial, mesmo sem
+            # publicação automática. Sem isso, a IA não sabe que já gerou o Short.
+            if self.trend_brain and not job.get('editorial_memory_recorded'):
                 try:
                     quality=float(job.get('score',0) or job.get('audit_score',0) or 0)
                     if isinstance(job.get('media_validation'),dict):
                         meta['duration_seconds']=float(job['media_validation'].get('duration',0) or 0)
-                    self.trend_brain.record_production(job.get('opportunity') or {}, meta, quality)
+                    script=job.get('script') or {}
+                    editorial_text=" ".join(str(x or "") for x in (
+                        script.get('narration',''),script.get('source_headline',''),
+                        script.get('selected_topic_title',''),
+                        " ".join(str(x) for x in (script.get('evidence') or []))
+                    ))[:12000]
+                    memory_meta=dict(meta)
+                    memory_meta['editorial_text']=editorial_text
+                    if not memory_meta.get('title'):
+                        memory_meta['title']=str(job.get('title','') or '')
+                    self.trend_brain.record_production(job.get('opportunity') or {}, memory_meta, quality)
+                    app_module.update_job(jid,editorial_memory_recorded=True)
+                    job['editorial_memory_recorded']=True
+                except Exception as e:
+                    self.memory.event('editorial_memory_error',str(e))
+            # Do not reserve a future public release slot while YouTube auto-publishing
+            # is disabled; keep the finished MP4 local and prevent accidental scheduling.
+            if self.trend_brain and self.publisher.enabled:
+                try:
+                    if isinstance(job.get('media_validation'),dict):
+                        meta['duration_seconds']=float(job['media_validation'].get('duration',0) or 0)
                     job['recommended_publish_slot']=self.trend_brain.reserve_publish_slot(jid)
                     if isinstance(job['recommended_publish_slot'],dict):
                         meta['publish_at']=job['recommended_publish_slot'].get('publish_at','')
