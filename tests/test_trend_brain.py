@@ -1,7 +1,9 @@
 import app
 import json
+import os
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from trend_brain import TrendBrain
@@ -12,6 +14,47 @@ class TrendBrainTests(unittest.TestCase):
         if app.AUTONOMOUS_ENGINE is None or app.TREND_BRAIN is None:
             self.skipTest("Autonomous engine or TrendBrain unavailable in this test environment")
         self.assertIs(app.AUTONOMOUS_ENGINE.trend_brain, app.TREND_BRAIN)
+
+    def test_supabase_memory_loads_and_persists_productions(self):
+        with tempfile.TemporaryDirectory() as td:
+            local_path = Path(td) / "trend_brain.json"
+            local_path.write_text(
+                json.dumps({"topics": {}, "videos": {}, "patterns": {}}),
+                encoding="utf-8",
+            )
+            remote_data = {
+                "topics": {"remembered-topic": {"seen": 1, "best": 80}},
+                "videos": {},
+                "patterns": {},
+            }
+            get_response = unittest.mock.Mock()
+            get_response.raise_for_status.return_value = None
+            get_response.json.return_value = [{"data": remote_data}]
+            post_response = unittest.mock.Mock()
+            post_response.raise_for_status.return_value = None
+
+            with (
+                patch.dict(os.environ, {
+                    "GTA_SUPABASE_URL": "https://gta-test.supabase.co",
+                    "GTA_SUPABASE_SERVICE_ROLE_KEY": "test-server-secret",
+                }),
+                patch("trend_brain.requests.get", return_value=get_response) as remote_get,
+                patch("trend_brain.requests.post", return_value=post_response) as remote_post,
+            ):
+                brain = TrendBrain(td)
+                self.assertEqual(brain._read()["topics"], remote_data["topics"])
+                brain.record_production(
+                    {"title": "A pauta persistida no Supabase"},
+                    {"editorial_text": "Uma história original para testar a persistência."},
+                    quality=90,
+                )
+
+                self.assertTrue(remote_get.called)
+                self.assertTrue(remote_post.called)
+                sent = remote_post.call_args.kwargs["json"]["data"]
+                self.assertIn("remembered-topic", sent["topics"])
+                self.assertEqual(len(sent["videos"]), 1)
+                self.assertTrue(brain.status()["persistent_storage"]["connected"])
 
     def test_rank_is_deterministic_and_adds_signal(self):
         with tempfile.TemporaryDirectory() as td:
