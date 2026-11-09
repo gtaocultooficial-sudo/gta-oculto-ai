@@ -51,7 +51,8 @@ class AutonomousEngine:
                     gta_topic=any(k in (title+' '+u) for k in ('gta 6','gta vi','grand theft auto vi','rockstar games'))
                     return bool(t.get('id') != current_id and title and title != current_title
                                 and u and 'news.google.com' not in u
-                                and 'rss' not in src and 'feed' not in src and gta_topic)
+                                and 'rss' not in src and 'feed' not in src and gta_topic
+                                and not app_module._topic_recently_used(t))
                 candidates=[t for t in topics if _editorial_candidate(t)]
                 # The live radar may return no safe alternatives; use curated direct-source
                 # GTA VI fallback topics rather than repeating the same failed production.
@@ -81,7 +82,8 @@ class AutonomousEngine:
                     u=str(t.get('url','')).lower()
                     src=str(t.get('source','')).lower()
                     return (t.get('id')!=current and u and 'news.google.com' not in u
-                            and 'rss' not in src and 'feed' not in src)
+                            and 'rss' not in src and 'feed' not in src
+                            and not app_module._topic_recently_used(t))
                 candidates=[t for t in topics if _safe_topic(t)]
                 if not candidates:
                     # Use a direct official article candidate when available.
