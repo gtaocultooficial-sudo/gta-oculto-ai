@@ -75,6 +75,12 @@ try:
     TREND_BRAIN = TrendBrain(WORK)
 except Exception:
     TREND_BRAIN = None
+
+# The dashboard/radar and autonomous completion hook must share one editorial
+# brain. Otherwise a custom GTA_WORKSPACE can split ranking and production memory.
+if AUTONOMOUS_ENGINE and TREND_BRAIN:
+    AUTONOMOUS_ENGINE.trend_brain = TREND_BRAIN
+
 WORK.mkdir(parents=True, exist_ok=True)
 STATE_FILE = WORK / 'jobs.json'
 PENDING_QUEUE_DIR = WORK / 'pending_queue'
