@@ -3490,15 +3490,16 @@ def download_official_video_clips(outdir, jid=None):
             except Exception: pass
             try: meta_path.unlink(missing_ok=True)
             except Exception: pass
-    # Prefer eight independent motion sources for Shorts. Four sources proved
-    # insufficient in real renders: extracted frames were technically distinct
-    # but kept showing the same characters/shots. Build a broader official pool
-    # before falling back to still frames or blocking the timeline.
-    # Collect a wider pool so strict scene matching can still yield up to
-    # ten unique motion sources instead of filling the last beats with stills.
+    # Eight independent motion sources are enough to start a varied Short.
+    # When the cache is smaller, build toward a broader pool of sixteen.
     target_clips = 16
-    if len(cached) >= target_clips:
+    minimum_cached_clips = 8
+    if len(cached) >= minimum_cached_clips:
         return cached[:target_clips]
+    # Keep every verified ZIP clip if the ZIP catalogue is incomplete and the
+    # CDN fallback is needed. The previous code returned only the fallback list,
+    # silently discarding clips already extracted from the ZIP.
+    safe=list(cached)
     try:
         if jid:
             update_job(jid,log='Lendo catálogo oficial da Rockstar e filtrando telas ESRB/disclaimers...')
@@ -3513,7 +3514,6 @@ def download_official_video_clips(outdir, jid=None):
         candidates=preferred+[e for e in media if e not in preferred]
 
         ff=_ffmpeg_executable()
-        safe=list(cached)
         used_names={p.name for p in safe}
         candidate_failures=[]
         next_index=0
@@ -3597,19 +3597,53 @@ def download_official_video_clips(outdir, jid=None):
                     pass
 
         safe=[p for p in safe if p.exists() and p.stat().st_size>20000]
-        if len(safe) < target_clips:
-            details=' | '.join(candidate_failures[-6:]) or 'nenhum detalhe de rejeição registrado'
-            raise RuntimeError(
-                f'Apenas {len(safe)} de {target_clips} fontes oficiais com vídeo válido foram preparadas. '
-                f'Acionando fallback para obter material em movimento. Últimas falhas: {details}'
-            )
-        return safe[:target_clips]
+        # Avoid additional network requests when the ZIP already supplied a
+        # usable pool. Six is the minimum for the strict editorial scene matcher.
+        if len(safe) >= minimum_cached_clips:
+            return safe[:target_clips]
+        details=' | '.join(candidate_failures[-6:]) or 'nenhum detalhe de rejeição registrado'
+        raise RuntimeError(
+            f'Apenas {len(safe)} de {target_clips} fontes oficiais com vídeo válido foram preparadas. '
+            f'Acionando fallback para obter material em movimento. Últimas falhas: {details}'
+        )
     except Exception as e:
         zip_error=str(e)[:900]
         print(f'[OFFICIAL_VIDEO_ZIP] insufficient valid motion clips: {zip_error}; trying Rockstar official CDN range-download fallback',flush=True)
         try:
-            return _download_official_rockstar_cdn_proxies(cache,jid=jid,limit_per_video=16)
+            proxies=_download_official_rockstar_cdn_proxies(cache,jid=jid,limit_per_video=16)
+            combined=[]
+            seen=set()
+            for raw_path in list(safe)+list(proxies):
+                path=Path(raw_path)
+                try:
+                    if not path.exists() or path.stat().st_size<=20000:
+                        continue
+                    identity=str(path.resolve())
+                    if identity in seen:
+                        continue
+                    seen.add(identity)
+                    combined.append(path)
+                    if len(combined)>=target_clips:
+                        break
+                except Exception:
+                    continue
+            if len(combined)<6:
+                raise RuntimeError(
+                    f'Pool combinado tem apenas {len(combined)} clipes válidos; mínimo operacional: 6.'
+                )
+            print(
+                f'[OFFICIAL_VIDEO_POOL] zip={len(safe)} cdn={len(proxies)} '
+                f'combined={len(combined)}',
+                flush=True
+            )
+            return combined
         except Exception as rockstar_error:
+            # A cache may still contain a usable minimum even if both remote
+            # sources temporarily fail. Never throw away already validated clips.
+            safe=[p for p in safe if p.exists() and p.stat().st_size>20000]
+            if len(safe)>=6:
+                print(f'[OFFICIAL_VIDEO_POOL] using verified ZIP cache fallback count={len(safe)}',flush=True)
+                return safe[:target_clips]
             raise RuntimeError(
                 'Não foi possível obter vídeos oficiais utilizáveis. '
                 f'Pacote de downloads: {zip_error}. Fallback CDN oficial: {str(rockstar_error)[:900]}'
