@@ -30,12 +30,18 @@ class TrendBrain:
                 self.remote_last_error=f"{type(exc).__name__}: {str(exc)[:180]}"
 
     def _remote_headers(self):
-        return {
+        # Supabase's modern opaque API keys (sb_secret_ / sb_publishable_)
+        # are not JWTs. Send them only through apikey; putting an sb_ key
+        # in Authorization: Bearer makes Supabase reject it as an invalid JWT.
+        headers={
             "apikey":self.supabase_key,
-            "Authorization":f"Bearer {self.supabase_key}",
             "Content-Type":"application/json",
             "Prefer":"resolution=merge-duplicates,return=minimal"
         }
+        # Legacy anon/service_role keys are JWTs and still require Bearer auth.
+        if not self.supabase_key.startswith("sb_"):
+            headers["Authorization"]=f"Bearer {self.supabase_key}"
+        return headers
 
     def _remote_read(self):
         response=requests.get(
