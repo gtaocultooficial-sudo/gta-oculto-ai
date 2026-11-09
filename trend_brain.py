@@ -1,24 +1,96 @@
 import json, math, os, re, time, threading
 from pathlib import Path
 
+import requests
+
+
 class TrendBrain:
-    """V59 editorial memory. It ranks radar topics and learns from YouTube Analytics."""
+    """Editorial memory with a local fallback and optional durable Supabase storage."""
     def __init__(self, workspace=None):
         self.root=Path(workspace or os.getenv("GTA_WORKSPACE","workspace"))
         self.root.mkdir(parents=True, exist_ok=True)
         self.path=self.root/"trend_brain.json"
         self.lock=threading.RLock()
+        self.supabase_url=os.getenv("GTA_SUPABASE_URL","").strip().rstrip("/")
+        self.supabase_key=os.getenv("GTA_SUPABASE_SERVICE_ROLE_KEY","").strip()
+        self.remote_configured=bool(self.supabase_url and self.supabase_key)
+        self.remote_connected=False
+        self.remote_last_error=""
         if not self.path.exists():
             self._write({"topics":{},"videos":{},"patterns":{}})
+        elif self.remote_configured:
+            # On first connection, seed the durable store with the existing
+            # local history only when the remote singleton row does not exist.
+            try:
+                remote=self._remote_read()
+                if remote is None:
+                    self._write(self._read_local())
+            except Exception as exc:
+                self.remote_connected=False
+                self.remote_last_error=f"{type(exc).__name__}: {str(exc)[:180]}"
+
+    def _remote_headers(self):
+        return {
+            "apikey":self.supabase_key,
+            "Authorization":f"Bearer {self.supabase_key}",
+            "Content-Type":"application/json",
+            "Prefer":"resolution=merge-duplicates,return=minimal"
+        }
+
+    def _remote_read(self):
+        response=requests.get(
+            f"{self.supabase_url}/rest/v1/gta_oculto_editorial_memory",
+            params={"id":"eq.primary","select":"data"},
+            headers=self._remote_headers(),
+            timeout=5
+        )
+        response.raise_for_status()
+        rows=response.json()
+        self.remote_connected=True
+        self.remote_last_error=""
+        if not rows:
+            return None
+        data=rows[0].get("data")
+        return data if isinstance(data,dict) else None
+
+    def _read_local(self):
+        try:
+            value=json.loads(self.path.read_text(encoding="utf-8"))
+            return value if isinstance(value,dict) else {"topics":{},"videos":{},"patterns":{}}
+        except Exception:
+            return {"topics":{},"videos":{},"patterns":{}}
 
     def _read(self):
-        try: return json.loads(self.path.read_text(encoding="utf-8"))
-        except Exception: return {"topics":{},"videos":{},"patterns":{}}
+        if self.remote_configured:
+            try:
+                remote=self._remote_read()
+                if remote is not None:
+                    return remote
+            except Exception as exc:
+                self.remote_connected=False
+                self.remote_last_error=f"{type(exc).__name__}: {str(exc)[:180]}"
+        return self._read_local()
 
     def _write(self,d):
+        payload=json.dumps(d,ensure_ascii=False,indent=2)
         tmp=self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(d,ensure_ascii=False,indent=2),encoding="utf-8")
+        tmp.write_text(payload,encoding="utf-8")
         os.replace(tmp,self.path)
+        if self.remote_configured:
+            try:
+                response=requests.post(
+                    f"{self.supabase_url}/rest/v1/gta_oculto_editorial_memory",
+                    json={"id":"primary","data":d},
+                    headers=self._remote_headers(),
+                    timeout=7
+                )
+                response.raise_for_status()
+                self.remote_connected=True
+                self.remote_last_error=""
+            except Exception as exc:
+                self.remote_connected=False
+                self.remote_last_error=f"{type(exc).__name__}: {str(exc)[:180]}"
+                print(f"[TREND_BRAIN] Supabase write failed; local fallback active: {self.remote_last_error}",flush=True)
 
     def _key(self,t):
         words=re.findall(r"[a-z0-9áéíóúãõç]+",str(t.get("title","")).lower())
@@ -463,4 +535,15 @@ class TrendBrain:
 
     def status(self):
         d=self._read()
-        return {"version":"V59","topics_seen":len(d["topics"]),"videos_tracked":len(d["videos"]),"editorial_learning":self.recommend_editorial_profile()}
+        return {
+            "version":"V60",
+            "topics_seen":len(d.get("topics",{})),
+            "videos_tracked":len(d.get("videos",{})),
+            "persistent_storage":{
+                "provider":"supabase" if self.remote_configured else "local",
+                "configured":self.remote_configured,
+                "connected":self.remote_connected,
+                "last_error":self.remote_last_error or None
+            },
+            "editorial_learning":self.recommend_editorial_profile()
+        }
