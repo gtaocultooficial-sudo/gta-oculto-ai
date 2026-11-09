@@ -83,7 +83,10 @@ class TrendBrain:
     def _repetition_penalty(self,t,d):
         """Bloqueia por 14 dias histórias já produzidas, mesmo com outra manchete."""
         key=self._key(t); fp=self._fingerprint(t); now=time.time(); penalty=0
-        story_text=self._fingerprint(t)
+        story_text=" ".join(str(t.get(k,"") or "") for k in (
+            "title","selected_topic_title","story_text","narration",
+            "description","editorial_text"
+        )) if isinstance(t,dict) else str(t or "")
         for v in d.get("videos",{}).values():
             age_days=(now-float(v.get("updated",now) or now))/86400
             if age_days>30: continue
