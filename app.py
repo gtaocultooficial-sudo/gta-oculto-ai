@@ -176,13 +176,13 @@ function drawState(d){
   if(rs==='WAITING') msg='⏳ '+((d&&d.radar_error)||'Radar aguardando primeira varredura real.');
   if(rs==='OK') msg='🔥 '+msg+' Fontes respondendo: '+((d&&d.radar_sources_ok)||0)+'.';
   document.getElementById('radarStatus').textContent=msg;
-  document.getElementById('oppList').innerHTML=`<div class="table-head"><div>#</div><div>SCORE</div><div>TÍTULO / ASSUNTO</div><div>TIPO</div><div>MATÉRIAS</div><div>CONFIANÇA</div><div>RELEVÂNCIA</div><div>AÇÃO</div></div>`+opportunities.map((o,idx)=>{let s=Number(o.score||0);let cls=s>=75?'':(s>=60?'mid':'low');let typ=String(o.content_type||'CURIOSIDADE').toUpperCase();let typcls=typ==='RUMOR'?'rumor':(typ==='CURIOSIDADE'?'cur':'');let rel=String(o.priority||'MÉDIA').toUpperCase();let relcls=rel==='ALTA'?'high':(rel==='BAIXA'?'low':'');let conf=Math.max(0,Math.min(100,Number(o.confidence||0)));let mats=Number(o.mentions||1);let status=String(o.status||'PRODUZIR').toUpperCase();let action=status==='OBSERVAR'?'OBSERVAR':'PRODUZIR';return `<div class="row"><div class="rank">${idx+1}</div><div><div class="scorebox ${cls}">${s}</div></div><div><div class="title">${esc(o.title)}</div><div class="tags"><span class="tag">${esc(o.source||'Fonte')}</span><span class="tag">${mats} matéria${mats===1?'':'s'}</span>${o.radar?'<span class="tag">RADAR</span>':''}</div></div><div class="type ${typcls}">${esc(typ)}</div><div class="conf">${mats}</div><div><div class="conf">${conf}%</div><div class="confbar"><i style="width:${conf}%"></i></div></div><div class="relevance ${relcls}">${esc(rel)}</div><button class="produce ${action==='OBSERVAR'?'observe':''}" onclick="createShort('${o.id}')">${action}</button></div>`}).join('');
+  document.getElementById('oppList').innerHTML=`<div class="table-head"><div>#</div><div>SCORE</div><div>TÍTULO / ASSUNTO</div><div>TIPO</div><div>MATÉRIAS</div><div>CONFIANÇA</div><div>RELEVÂNCIA</div><div>AÇÃO</div></div>`+opportunities.map((o,idx)=>{let s=Number(o.score||0);let cls=s>=75?'':(s>=60?'mid':'low');let typ=String(o.content_type||'CURIOSIDADE').toUpperCase();let typcls=typ==='RUMOR'?'rumor':(typ==='CURIOSIDADE'?'cur':'');let rel=String(o.priority||'MÉDIA').toUpperCase();let relcls=rel==='ALTA'?'high':(rel==='BAIXA'?'low':'');let conf=Math.max(0,Math.min(100,Number(o.confidence||0)));let mats=Number(o.mentions||1);let status=String(o.status||'PRODUZIR').toUpperCase();let blocked=Boolean(o.repetition_blocked)||status==='REPETIDA';let action=blocked?'JÁ PRODUZIDA':(status==='OBSERVAR'?'OBSERVAR':'PRODUZIR');return `<div class="row"><div class="rank">${idx+1}</div><div><div class="scorebox ${cls}">${s}</div></div><div><div class="title">${esc(o.title)}</div><div class="tags"><span class="tag">${esc(o.source||'Fonte')}</span><span class="tag">${mats} matéria${mats===1?'':'s'}</span>${o.radar?'<span class="tag">RADAR</span>':''}${blocked?'<span class="tag">COOLDOWN 14 DIAS</span>':''}</div></div><div class="type ${typcls}">${esc(typ)}</div><div class="conf">${mats}</div><div><div class="conf">${conf}%</div><div class="confbar"><i style="width:${conf}%"></i></div></div><div class="relevance ${relcls}">${esc(rel)}</div><button class="produce ${action==='OBSERVAR'||blocked?'observe':''}" ${blocked?'disabled title="Pauta já produzida nos últimos 14 dias"':''} onclick="createShort('${o.id}')">${action}</button></div>`}).join('');
   const ep=d&&d.editor_pick;
   if(ep){
     const decision=String(ep.editorial_decision||'PRODUZIR');
     const cls=decision==='PRODUZIR AGORA'?'now':(decision==='OBSERVAR'?'obs':'');
     let epType=String(ep.content_type||'CURIOSIDADE').toUpperCase();let epMats=Number(ep.mentions||1);let epSources=Number(ep.source_count||1);let epConf=Math.max(0,Math.min(100,Number(ep.confidence||0)));let epScore=Number(ep.score||0);let epEd=Number(ep.editorial_score||0);let decisionClass=decision==='OBSERVAR'?'obs':'';let icon=epType==='RUMOR'?'⚠️':(epType==='NOTÍCIA'?'📰':'🔎');document.getElementById('editorPick').innerHTML=`<div class="editor-shell"><div class="editor-head"><div class="editor-brand"><div class="editor-icon">🧠</div><div><h2>EDITOR-CHEFE</h2><p>Analisa o Radar, escolhe a melhor pauta e prepara a produção.</p></div></div><div class="editor-actions"><div class="editor-status">✓ PAUTA SELECIONADA</div></div></div><div class="editor-grid-main"><div class="editor-cover"><div class="editor-cover-icon">${icon}</div></div><div class="editor-content"><span class="editor-tag">${esc(epType)}</span><div class="editor-title">${esc(ep.title)}</div><div class="editor-metrics"><div class="editor-metric"><small>SCORE RADAR</small><b class="metric-green">${epScore}/100</b></div><div class="editor-metric"><small>SCORE EDITORIAL</small><b class="metric-purple">${epEd}/100</b></div><div class="editor-metric"><small>CONFIANÇA</small><b>${epConf}%</b></div><div class="editor-metric"><small>MATÉRIAS</small><b>${epMats}</b></div><div class="editor-metric"><small>FONTES</small><b>${epSources}</b></div></div><div class="editor-copy"><div class="editor-hook"><b>⚡ HOOK DO VÍDEO</b><span>${esc(ep.editorial_hook||'')}</span></div><div class="editor-angle"><b>🎯 ÂNGULO EDITORIAL</b><span>${esc(ep.editorial_angle||'')}</span></div></div><div class="script-preview"><div class="script-head"><div><b>📝 ROTEIRO AUTOMÁTICO</b><span>V31.0 · fatos → roteiro → voz → legendas</span></div><div class="script-stats">${Number((ep.script_preview||{}).word_count||0)} palavras · ~${Number((ep.script_preview||{}).estimated_seconds||0)}s</div></div><div class="script-flow"><div><small>HOOK</small><span>${esc(((ep.script_preview||{}).sections||{}).hook||ep.editorial_hook||'')}</span></div><div><small>CONTEXTO</small><span>${esc(((ep.script_preview||{}).sections||{}).context||'')}</span></div><div><small>FATO / VERIFICAÇÃO</small><span>${esc(((ep.script_preview||{}).sections||{}).proof||'')}</span></div><div><small>PAYOFF</small><span>${esc(((ep.script_preview||{}).sections||{}).payoff||ep.editorial_angle||'')}</span></div><div><small>CTA</small><span>${esc(((ep.script_preview||{}).sections||{}).cta||'')}</span></div></div></div><div class="meta">${esc(ep.editorial_reason||'')}</div></div><div class="editor-decision ${decisionClass}"><div class="decision-check">${decision==='OBSERVAR'?'◌':'✓'}</div><div class="decision-word">${esc(decision)}</div><div class="decision-reason">${esc(ep.editorial_reason||'Pauta selecionada pelo Editor-Chefe.')}</div><button class="editor-produce" onclick="createShort('${ep.id||''}')">⚡ PRODUZIR AGORA</button></div></div></div>`;
-  } else { document.getElementById('editorPick').innerHTML='Aguardando o Radar.'; }
+  } else { document.getElementById('editorPick').innerHTML='Nenhuma pauta inédita disponível nos últimos 14 dias. Atualize o Radar para buscar notícias novas.'; }
   renderJobs((d&&d.jobs)||[]);
 }
 function load(){
@@ -419,6 +419,93 @@ def _topic_similarity(a,b):
     return len(wa & wb)/max(1,len(wa | wb))
 
 
+def _recent_topic_jobs():
+    """Combina jobs concluídos e em fila para manter um histórico editorial recente."""
+    found={}
+    try:
+        for job in load_jobs().values():
+            if isinstance(job,dict) and job.get('id'):
+                found[str(job['id'])]=job
+    except Exception:
+        pass
+    try:
+        for pending_path in PENDING_QUEUE_DIR.glob('*.json'):
+            try:
+                job=json.loads(pending_path.read_text(encoding='utf-8'))
+                if isinstance(job,dict) and job.get('id'):
+                    found[str(job['id'])]=job
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return list(found.values())
+
+
+def _topic_recently_used(topic, history=None, cooldown_days=14):
+    """Bloqueia pauta já produzida ou em fila, mesmo quando a manchete muda."""
+    if not isinstance(topic,dict):
+        return False
+    if topic.get('repetition_blocked') or int(topic.get('repetition_penalty',0) or 0)>=100:
+        return True
+    try:
+        if TREND_BRAIN and TREND_BRAIN._repetition_penalty(topic,TREND_BRAIN._read())>=100:
+            return True
+    except Exception:
+        pass
+
+    target=str(topic.get('selected_topic_title') or topic.get('title') or '').strip()
+    if not target:
+        return False
+    rows=history if history is not None else _recent_topic_jobs()
+    active={'QUEUED','RUNNING'}
+    for old in rows:
+        if not isinstance(old,dict):
+            continue
+        status=str(old.get('status','')).upper()
+        if status not in active and status not in {
+            'DONE','PUBLISHED','PUBLICAÇÃO','PUBLICAÇÃO PENDENTE',
+            'PUBLICAÇÃO AGENDADA'
+        } and not old.get('video'):
+            continue
+        raw_date=old.get('updated_at') or old.get('created_at')
+        age_days=None
+        if raw_date:
+            try:
+                dt=datetime.fromisoformat(str(raw_date).replace('Z','+00:00'))
+                if dt.tzinfo is None:
+                    dt=dt.replace(tzinfo=timezone.utc)
+                age_days=max(0.0,(datetime.now(timezone.utc)-dt.astimezone(timezone.utc)).total_seconds()/86400)
+            except Exception:
+                age_days=None
+        if status not in active and age_days is not None and age_days>cooldown_days:
+            continue
+        if status not in active and age_days is None and not old.get('video'):
+            continue
+
+        opportunity=old.get('opportunity') if isinstance(old.get('opportunity'),dict) else {}
+        script=old.get('script') if isinstance(old.get('script'),dict) else {}
+        metadata=old.get('metadata') if isinstance(old.get('metadata'),dict) else {}
+        old_texts=[
+            old.get('title'),opportunity.get('title'),opportunity.get('selected_topic_title'),
+            script.get('selected_topic_title'),script.get('source_headline'),script.get('title'),
+            metadata.get('title'),script.get('narration'),
+            ' '.join(str(x) for x in (script.get('evidence') or [])),
+            metadata.get('description')
+        ]
+        for old_text in old_texts:
+            if old_text and _topic_similarity(target,str(old_text))>=0.55:
+                return True
+
+        # A mesma matéria original também não deve virar vários Shorts com títulos distintos.
+        new_url=str(topic.get('url') or '').split('?')[0].rstrip('/').lower()
+        old_url=str(opportunity.get('url') or '').split('?')[0].rstrip('/').lower()
+        if new_url and old_url and new_url==old_url and new_url not in {
+            str(ROCKSTAR_VI).lower().rstrip('/')
+        }:
+            return True
+    return False
+
+
 def _classify_content(title):
     t=(title or '').lower()
     if any(k in t for k in ('rumor','rumour','vazamento','vazou','leak','suposto','suposta','não confirmado','nao confirmado')):
@@ -619,7 +706,10 @@ def radar_scan():
         try:
             ranked=TREND_BRAIN.rank(ranked[:10])
             for item in ranked:
-                item['score']=max(int(item.get('score',0)), int(item.get('trend_score',0)))
+                item['raw_radar_score']=int(item.get('score',0) or 0)
+                item['score']=int(item.get('trend_score',item.get('score',0)) or 0)
+                if int(item.get('repetition_penalty',0) or 0)>=100:
+                    item['status']='REPETIDA'
         except Exception:
             pass
     if not ranked:
@@ -2512,13 +2602,17 @@ def _editorial_angle(topic):
             'VOCÊ PERCEBEU ESSE DETALHE NO GTA 6?')
 
 
-def editor_chief_select(topics):
-    """EDITOR-CHEFE V27: escolhe a pauta mais forte com regras editoriais explícitas."""
+def editor_chief_select(topics, history=None):
+    """EDITOR-CHEFE: escolhe a pauta mais forte que ainda não foi produzida."""
+    if not topics:
+        return None
+    recent_history=history if history is not None else _recent_topic_jobs()
+    topics=[dict(topic) for topic in topics if not _topic_recently_used(topic,recent_history)]
     if not topics:
         return None
     scored=[]
     for topic in topics:
-        base=float(topic.get('score',0) or 0)
+        base=float(topic.get('trend_score',topic.get('score',0)) or 0)
         conf=float(topic.get('confidence',70) or 70)
         sources=int(topic.get('source_count',1) or 1)
         mentions=int(topic.get('mentions',1) or 1)
@@ -6634,7 +6728,15 @@ def state():
     # readers see either the previous complete JSON or the next complete JSON.
     js=list(load_jobs().values())[-30:]
     topics,updated,radar_status,radar_error,sources_ok=current_opportunities()
-    editor_pick=editor_chief_select(topics) if topics else None
+    recent_history=_recent_topic_jobs()
+    topics=[dict(topic) for topic in topics]
+    for topic in topics:
+        if _topic_recently_used(topic,recent_history):
+            topic['repetition_blocked']=True
+            topic['status']='REPETIDA'
+            topic['reason']=str(topic.get('reason','') or '').strip()
+            topic['reason']=(topic['reason']+' · pauta já produzida nos últimos 14 dias').strip(' ·')
+    editor_pick=editor_chief_select(topics,recent_history) if topics else None
 
     # V40: NEVER execute the full editorial/source resolver inside /api/state.
     # The dashboard polls this endpoint repeatedly. make_script() can perform
@@ -6678,36 +6780,26 @@ def produce():
     custom=str(data.get('topic') or '').strip()
     if topic is None and custom:
         topic={'id':'custom','score':88,'priority':'ALTA','title':custom,'source':'Pesquisa editorial','url':ROCKSTAR_VI,'radar':False}
+    if topic is not None and requested_id and _topic_recently_used(topic):
+        return jsonify(ok=False,code='RECENT_TOPIC_DUPLICATE',
+                       error='Essa pauta já foi produzida recentemente. Escolha outro assunto ou informe uma pauta realmente nova.'),409
     if topic is None:
-        # Avoid repeatedly producing the same headline: the dashboard can queue
-        # several jobs while the radar keeps its top-ranked story unchanged.
-        # Compare both the final title and the original opportunity title.
-        try:
-            recent_jobs=list(load_jobs().values())
-        except Exception:
-            recent_jobs=[]
-        recent_titles=set()
-        for old_job in recent_jobs[-30:]:
-            if old_job.get('status') not in ('QUEUED','RUNNING','DONE'):
-                continue
-            for candidate_title in (
-                old_job.get('title'),
-                (old_job.get('opportunity') or {}).get('title')
-                    if isinstance(old_job.get('opportunity'),dict) else None,
-            ):
-                normalized=' '.join(str(candidate_title or '').casefold().split())
-                if normalized:
-                    recent_titles.add(normalized)
+        recent_history=_recent_topic_jobs()
         fresh_topics=[
             dict(x) for x in topics
-            if ' '.join(str(x.get('title','')).casefold().split()) not in recent_titles
+            if not _topic_recently_used(x,recent_history)
         ]
-        pool=fresh_topics or [dict(x) for x in topics]
-        topic=max(pool,key=lambda x:(float(x.get('trend_score',0) or 0),float(x.get('score',0) or 0)))
-        if fresh_topics:
-            print(f'[PRODUCE_API] repeat_guard skipped_recent={len(topics)-len(fresh_topics)} selected={topic.get("title","")}',flush=True)
-        else:
-            print('[PRODUCE_API] repeat_guard no unseen topics; using best available candidate',flush=True)
+        if not fresh_topics:
+            print('[PRODUCE_API] no unseen editorial topic; production blocked to avoid duplicate Shorts.',flush=True)
+            return jsonify(ok=False,code='NO_FRESH_TOPICS',
+                           error='Não encontrei uma pauta inédita para produzir. Atualize o Radar; não vou repetir um vídeo antigo só para preencher a fila.',
+                           cooldown_days=14),409
+        topic=editor_chief_select(fresh_topics,recent_history)
+        if topic is None:
+            return jsonify(ok=False,code='NO_FRESH_TOPICS',
+                           error='Todas as pautas do Radar já foram utilizadas recentemente. Atualize o Radar para buscar notícias novas.',
+                           cooldown_days=14),409
+        print(f'[PRODUCE_API] repeat_guard selected fresh topic: {topic.get("title","")}',flush=True)
     jid=uuid.uuid4().hex[:10]
     job={'id':jid,'title':topic['title'],'opportunity':topic,'status':'QUEUED','stage':'FILA','progress':0,'log':'Tarefa recebida. A produção cloud começará automaticamente.','video':None,'cover':None,'created_at':now_iso()}
     try:
