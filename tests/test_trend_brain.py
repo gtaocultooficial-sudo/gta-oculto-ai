@@ -20,6 +20,48 @@ class TrendBrainTests(unittest.TestCase):
             self.assertIn(ranked[0]["trend_signal"], {"FORTE", "MÉDIO", "FRACO"})
             self.assertGreaterEqual(ranked[0]["trend_score"], ranked[1]["trend_score"])
 
+    def test_completed_production_is_remembered_without_youtube_upload(self):
+        with tempfile.TemporaryDirectory() as td:
+            brain = TrendBrain(td)
+            topic = {
+                "id": "vice-city-story",
+                "title": "A história de GTA 6 vai muito além de Vice City",
+            }
+            metadata = {
+                "title": "Jason e Lucia trabalham para ganhar dinheiro",
+                "editorial_text": "Jason e Lucia buscam trabalhos para ganhar dinheiro em Vice City.",
+            }
+            brain.record_production(topic, metadata, quality=92)
+            data = brain._read()
+
+            production_rows = [
+                value for key, value in data["videos"].items()
+                if key.startswith("production:")
+            ]
+            self.assertEqual(len(production_rows), 1)
+            self.assertIn("Jason", production_rows[0]["story_text"])
+
+            renamed_story = {
+                "title": "Jason e Lucia procuram trabalhos e dinheiro em Vice City"
+            }
+            self.assertGreaterEqual(
+                brain._repetition_penalty(renamed_story, data),
+                100,
+            )
+
+    def test_unrelated_topic_is_not_blocked_by_story_memory(self):
+        with tempfile.TemporaryDirectory() as td:
+            brain = TrendBrain(td)
+            brain.record_production(
+                {"title": "A história de Jason e Lucia em Vice City"},
+                {"editorial_text": "Os dois protagonistas procuram trabalhos na cidade."},
+                quality=90,
+            )
+            data = brain._read()
+
+            unrelated = {"title": "GTA 6 no PS5 Pro: desempenho e resolução"}
+            self.assertEqual(brain._repetition_penalty(unrelated, data), 0)
+
     def test_publication_and_analytics_learning(self):
         with tempfile.TemporaryDirectory() as td:
             brain = TrendBrain(td)
