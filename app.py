@@ -76,6 +76,15 @@ try:
 except Exception:
     TREND_BRAIN = None
 
+# Independent serialized-fiction memory. This never enters the news/Shorts queue.
+NOVELA_ENGINE = None
+NOVELA_PAGE = ""
+try:
+    from novela_engine import NovelaEngine, NOVELA_PAGE
+    NOVELA_ENGINE = NovelaEngine(TREND_BRAIN, WORK)
+except Exception as _novela_import_error:
+    print(f"[NOVELA] module unavailable: {type(_novela_import_error).__name__}: {_novela_import_error}", flush=True)
+
 # The dashboard/radar and autonomous completion hook must share one editorial
 # brain. Otherwise a custom GTA_WORKSPACE can split ranking and production memory.
 if AUTONOMOUS_ENGINE and TREND_BRAIN:
@@ -152,7 +161,7 @@ body{margin:0;background:radial-gradient(circle at 50% -10%,#11152a 0,#07090d 42
 .job{background:#10161f;border:1px solid #253143;border-radius:10px;padding:12px;margin-top:8px}.jobhead{display:flex;justify-content:space-between;gap:12px}.bar{height:6px;background:#202a37;border-radius:10px;overflow:hidden;margin-top:9px}.bar i{display:block;height:100%;background:linear-gradient(90deg,#8b4dff,#34c8ff)}.log{font-family:monospace;color:#aab5c4;font-size:10px;margin-top:8px;white-space:pre-wrap}.result{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}.result a{color:#a976ff;text-decoration:none;font-weight:900}.meta{font-size:9px;color:#778496;margin-top:6px}
 @media(max-width:1100px){.editor-grid-main{grid-template-columns:1fr}.editor-cover{min-height:110px}.editor-decision{min-height:110px}.table-head{display:none}.row{grid-template-columns:30px 52px 1fr 70px 80px}.row>*:nth-child(4),.row>*:nth-child(5),.row>*:nth-child(6){display:none}}
 @media(max-width:800px){.hero{display:block}.buttons{margin-top:12px;flex-wrap:wrap}.stats{grid-template-columns:repeat(2,1fr)}.steps{grid-template-columns:repeat(4,1fr)}.editor-copy{grid-template-columns:1fr}.editor-metrics{grid-template-columns:repeat(2,1fr)}.row{grid-template-columns:28px 48px 1fr 72px}.row .relevance{display:none}.top{align-items:flex-start;gap:10px;flex-direction:column}}
-</style></head><body><div class="wrap"><div class="top"><div class="brand">GTA <span>OCULTO</span> AI</div><div class="status">● PRODUÇÃO CLOUD ONLINE</div></div>
+</style></head><body><div class="wrap"><div class="top"><div class="brand">GTA <span>OCULTO</span> AI</div><a href="/novelas" style="color:#d2b4ff;text-decoration:none;font-size:10px;font-weight:950;border:1px solid #594273;border-radius:9px;padding:8px 11px">🎬 NOVELAS</a><div class="status">● PRODUÇÃO CLOUD ONLINE</div></div>
 <div class="hero"><div><div class="eyebrow">PRODUTOR AUTÔNOMO</div><h1>A IA encontra o assunto. Você decide se quer produzir.</h1><div class="muted">Radar → score → Editor-Chefe → hook → roteiro → visuais → voz → edição → avaliação → Short.</div></div><div class="buttons"><button class="btn red" onclick="createShort()">⚡ CRIAR SHORT</button><button class="btn" onclick="research()">🔥 ATUALIZAR RADAR</button></div></div>
 <div class="control"><input id="topic" placeholder="Digite um assunto ou deixe a IA decidir"><button class="btn red" onclick="createShort()">PRODUZIR</button></div>
 <div class="stats"><div class="stat"><small>ASSUNTOS</small><b id="assuntos">4</b></div><div class="stat"><small>OPORTUNIDADES</small><b id="opps">4</b></div><div class="stat"><small>PRODUZIDOS</small><b id="produzidos">0</b></div><div class="stat"><small>FILA</small><b id="fila">0</b></div></div>
@@ -6749,6 +6758,49 @@ def processor_loop():
 
 @APP.get('/')
 def home(): return render_template_string(PAGE)
+
+@APP.get('/novelas')
+def novelas_page():
+    if NOVELA_ENGINE is None or not NOVELA_PAGE:
+        return 'Módulo de novelas indisponível. Consulte os logs do servidor.', 503
+    return NOVELA_PAGE
+
+@APP.get('/api/novelas/state')
+def novelas_state():
+    if NOVELA_ENGINE is None:
+        return jsonify(ok=False, error='Módulo de novelas indisponível.'), 503
+    try:
+        return jsonify(NOVELA_ENGINE.state())
+    except Exception as exc:
+        print(f'[NOVELA] state error: {type(exc).__name__}: {str(exc)[:250]}', flush=True)
+        return jsonify(ok=False, error='Não foi possível ler a memória da novela.'), 500
+
+@APP.post('/api/novelas/episodes/<int:number>/generate')
+def novelas_generate_episode(number):
+    if NOVELA_ENGINE is None:
+        return jsonify(error='Módulo de novelas indisponível.'), 503
+    try:
+        episode = NOVELA_ENGINE.generate_episode(number)
+        return jsonify(episode)
+    except ValueError as exc:
+        message = str(exc)
+        status = 409 if message.startswith('CONTINUITY_GUARD') or message.startswith('NOVELTY_GUARD') else 400
+        return jsonify(error=message), status
+    except Exception as exc:
+        print(f'[NOVELA] generation error: {type(exc).__name__}: {str(exc)[:300]}', flush=True)
+        return jsonify(error='Falha ao montar o roteiro. Nenhum vídeo foi iniciado.'), 500
+
+@APP.get('/api/novelas/episodes/<int:number>')
+def novelas_get_episode(number):
+    if NOVELA_ENGINE is None:
+        return jsonify(error='Módulo de novelas indisponível.'), 503
+    try:
+        episode = NOVELA_ENGINE.get_episode(number)
+        return jsonify(episode) if episode else (jsonify(error='Roteiro ainda não gerado.'), 404)
+    except Exception as exc:
+        print(f'[NOVELA] episode read error: {type(exc).__name__}: {str(exc)[:250]}', flush=True)
+        return jsonify(error='Não foi possível abrir o roteiro.'), 500
+
 @APP.get('/health')
 def health():
     auto=AUTONOMOUS_ENGINE.status() if AUTONOMOUS_ENGINE else {'mode':'DEGRADED'}
