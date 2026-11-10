@@ -326,7 +326,7 @@ class TrendBrain:
                 d["videos"][vid]={
                     "topic_key":existing.get("topic_key") or p.get("topic_key") or (self._key({"title":title}) if title else ""),
                     "title":title,
-                    "title_pattern":existing.get("title_pattern") or p.get("title_pattern") or self._title_pattern(title),
+                    "title_pattern":existing.get("title_pattern") or p.get("title_pattern") or (self._title_pattern(title) if row_title or existing.get("title") or p.get("title") else ""),
                     "hook":hook,
                     "hook_type":existing.get("hook_type") or p.get("hook_type") or (self._hook_type(hook) if hook else ""),
                     "angle":angle,
@@ -412,7 +412,7 @@ class TrendBrain:
             v for v in d.get("videos",{}).values()
             if v.get("analytics_observed") is True
             and float(v.get("performance_score",0) or 0)>0
-            and (v.get("hook_type") or v.get("title_pattern") or v.get("title"))
+            and (v.get("hook_type") or v.get("title_pattern"))
         ]
         if len(rows)<3:
             return {"learned":False,"sample_size":len(rows)}
