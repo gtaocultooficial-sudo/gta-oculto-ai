@@ -149,5 +149,85 @@ class TrendBrainTests(unittest.TestCase):
             self.assertTrue(data["videos"]["vid-1"]["topic_key"])
 
 
+
+    def test_editor_chief_skips_recent_story_with_a_renamed_headline(self):
+        with tempfile.TemporaryDirectory() as td:
+            brain = TrendBrain(td)
+            brain.record_production(
+                {"title": "Jason e Lucia trabalham para ganhar dinheiro em Vice City"},
+                {
+                    "editorial_text": (
+                        "Jason e Lucia procuram trabalhos para ganhar dinheiro "
+                        "em Vice City e construir uma vida melhor."
+                    )
+                },
+                quality=90,
+            )
+            candidates = [
+                {
+                    "id": "repeat",
+                    "title": "Jason e Lucia buscam empregos e dinheiro em Vice City",
+                    "score": 98,
+                    "trend_score": 98,
+                    "confidence": 95,
+                    "source_count": 3,
+                    "mentions": 4,
+                },
+                {
+                    "id": "fresh",
+                    "title": "GTA 6 no PS5 Pro: desempenho e resolução",
+                    "score": 78,
+                    "trend_score": 78,
+                    "confidence": 85,
+                    "source_count": 2,
+                    "mentions": 2,
+                },
+            ]
+
+            with patch.object(app, "TREND_BRAIN", brain):
+                selected = app.editor_chief_select(candidates, history=[])
+
+            self.assertIsNotNone(selected)
+            self.assertEqual(selected["id"], "fresh")
+
+    def test_editor_chief_returns_no_pick_when_all_topics_are_recent_repeats(self):
+        with tempfile.TemporaryDirectory() as td:
+            brain = TrendBrain(td)
+            brain.record_production(
+                {"title": "Jason e Lucia trabalham para ganhar dinheiro em Vice City"},
+                {
+                    "editorial_text": (
+                        "Jason e Lucia procuram trabalhos para ganhar dinheiro "
+                        "em Vice City."
+                    )
+                },
+                quality=90,
+            )
+            repeated = {
+                "id": "repeat",
+                "title": "Jason e Lucia buscam empregos em Vice City",
+                "score": 99,
+                "trend_score": 99,
+                "confidence": 95,
+            }
+
+            with patch.object(app, "TREND_BRAIN", brain):
+                selected = app.editor_chief_select([repeated], history=[])
+
+            self.assertIsNone(selected)
+
+    def test_manual_custom_topic_is_rejected_when_recently_used(self):
+        with (
+            patch.object(app, "_load_radar", return_value={"opportunities": []}),
+            patch.object(app, "_topic_recently_used", return_value=True),
+        ):
+            response = app.APP.test_client().post(
+                "/api/produce",
+                json={"topic": "Jason e Lucia buscam empregos em Vice City"},
+            )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.get_json()["code"], "RECENT_TOPIC_DUPLICATE")
+
 if __name__ == "__main__":
     unittest.main()
