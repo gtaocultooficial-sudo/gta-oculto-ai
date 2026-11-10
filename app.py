@@ -6820,7 +6820,8 @@ def produce():
     custom=str(data.get('topic') or '').strip()
     if topic is None and custom:
         topic={'id':'custom','score':88,'priority':'ALTA','title':custom,'source':'Pesquisa editorial','url':ROCKSTAR_VI,'radar':False}
-    if topic is not None and requested_id and _topic_recently_used(topic):
+    # Apply the same repeat guard to Radar selections and manually entered topics.
+    if topic is not None and (requested_id or custom) and _topic_recently_used(topic):
         return jsonify(ok=False,code='RECENT_TOPIC_DUPLICATE',
                        error='Essa pauta já foi produzida recentemente. Escolha outro assunto ou informe uma pauta realmente nova.'),409
     if topic is None:
