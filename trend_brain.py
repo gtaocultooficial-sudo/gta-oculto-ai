@@ -317,7 +317,7 @@ class TrendBrain:
                         published_timestamp=0.0
                 duration_seconds=0.0
                 try:
-                    match=re.fullmatch(r"PT(?:(\\d+)H)?(?:(\\d+)M)?(?:(\\d+)S)?",duration_text)
+                    match=re.fullmatch(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?",duration_text)
                     if match:
                         hours,minutes,seconds=(int(v or 0) for v in match.groups())
                         duration_seconds=hours*3600+minutes*60+seconds
@@ -410,7 +410,8 @@ class TrendBrain:
         # title packaging even when its spoken hook/script metadata is unavailable.
         rows=[
             v for v in d.get("videos",{}).values()
-            if float(v.get("performance_score",0) or 0)>0
+            if v.get("analytics_observed") is True
+            and float(v.get("performance_score",0) or 0)>0
             and (v.get("hook_type") or v.get("title_pattern") or v.get("title"))
         ]
         if len(rows)<3:
