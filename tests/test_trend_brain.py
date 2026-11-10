@@ -99,6 +99,9 @@ class TrendBrainTests(unittest.TestCase):
             ]
             self.assertEqual(len(production_rows), 1)
             self.assertIn("Jason", production_rows[0]["story_text"])
+            self.assertEqual(production_rows[0]["quality_score"], 92.0)
+            self.assertEqual(production_rows[0]["performance_score"], 0.0)
+            self.assertEqual(production_rows[0]["hook_type"], "")
 
             renamed_story = {
                 "title": "Jason e Lucia procuram trabalhos e dinheiro em Vice City"
@@ -149,6 +152,37 @@ class TrendBrainTests(unittest.TestCase):
             self.assertTrue(data["videos"]["vid-1"]["topic_key"])
 
 
+
+    def test_historical_video_titles_can_train_title_patterns_without_inventing_hooks(self):
+        with tempfile.TemporaryDirectory() as td:
+            brain = TrendBrain(td)
+            result = {
+                "ok": True,
+                "headers": [
+                    {"name": "video"}, {"name": "views"}, {"name": "likes"},
+                    {"name": "comments"}, {"name": "subscribersGained"},
+                    {"name": "averageViewDuration"}, {"name": "estimatedMinutesWatched"},
+                    {"name": "publishedAt"}, {"name": "duration"}, {"name": "title"},
+                ],
+                "rows": [
+                    ["yt-1", 15000, 700, 30, 4, 28, 800, "2026-10-01T00:00:00Z", "PT31S", "GTA 6 tem um segredo escondido?"],
+                    ["yt-2", 12000, 500, 25, 3, 27, 700, "2026-10-02T00:00:00Z", "PT32S", "GTA 6 pode revelar um detalhe secreto?"],
+                    ["yt-3", 9000, 400, 18, 2, 26, 600, "2026-10-03T00:00:00Z", "PT30S", "O que a Rockstar confirmou sobre GTA 6?"],
+                ],
+            }
+
+            learned = brain.learn(result)
+            profile = brain.recommend_editorial_profile()
+            data = brain._read()
+
+            self.assertTrue(learned["ok"])
+            self.assertTrue(profile["learned"])
+            self.assertEqual(profile["sample_size"], 3)
+            self.assertEqual(profile["preferred_title_pattern"]["pattern"], "PERGUNTA")
+            self.assertIsNone(profile["preferred_hook_type"])
+            self.assertEqual(data["videos"]["yt-1"]["hook_type"], "")
+            self.assertEqual(data["videos"]["yt-1"]["title"], "GTA 6 tem um segredo escondido?")
+            self.assertLess(data["videos"]["yt-1"]["updated"], 1790000000)
 
     def test_editor_chief_skips_recent_story_with_a_renamed_headline(self):
         with tempfile.TemporaryDirectory() as td:
