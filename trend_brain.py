@@ -257,6 +257,7 @@ class TrendBrain:
                 "title_pattern":self._title_pattern((topic or {}).get("title","")),
                 "duration_bucket":self._duration_bucket((metadata or {}).get("duration_seconds",0)),
                 "performance_score":old.get("performance_score",0),
+                "quality_score":old.get("quality_score",0),
                 "publish_slot":str(publish_slot or old.get("publish_slot","")),"updated":time.time()
             }
             self._write(d)
@@ -268,7 +269,7 @@ class TrendBrain:
         def ix(n):
             try:return headers.index(n)
             except ValueError:return -1
-        vi,vw,vl,vc,vs,vd,vm,vp=ix("video"),ix("views"),ix("likes"),ix("comments"),ix("subscribersgained"),ix("averageviewduration"),ix("estimatedminuteswatched"),ix("publishedat")
+        vi,vw,vl,vc,vs,vd,vm,vp,vt,vdur=ix("video"),ix("views"),ix("likes"),ix("comments"),ix("subscribersgained"),ix("averageviewduration"),ix("estimatedminuteswatched"),ix("publishedat"),ix("title"),ix("duration")
         with self.lock:
             d=self._read()
             pubs=publications or {}
@@ -281,6 +282,8 @@ class TrendBrain:
                 avg_duration=float(row[vd] or 0) if 0<=vd<len(row) else 0
                 published_at=str(row[vp] or "") if 0<=vp<len(row) else ""
                 watched_minutes=float(row[vm] or 0) if 0<=vm<len(row) else 0
+                row_title=str(row[vt] or "").strip() if 0<=vt<len(row) else ""
+                duration_text=str(row[vdur] or "") if 0<=vdur<len(row) else ""
                 like_rate=(likes/views*100) if views else 0
                 # Retention matters more than raw views for Shorts. Use bounded Analytics signals.
                 retention_signal=min(30,avg_duration*2.0)
@@ -302,7 +305,46 @@ class TrendBrain:
                 perf=min(100,view_signal+retention_signal+watch_signal+engagement+comment_signal+subscriber_signal)
                 p=pubs.get(vid,{})
                 existing=d["videos"].get(vid,{})
-                d["videos"][vid]={"topic_key":p.get("topic_key",existing.get("topic_key","")),"title":existing.get("title",p.get("title","")),"title_pattern":existing.get("title_pattern",self._title_pattern(existing.get("title",p.get("title","")))),"hook":existing.get("hook",p.get("hook","")),"angle":existing.get("angle",p.get("angle","")),"angle_type":existing.get("angle_type",self._angle_type(existing.get("angle",p.get("angle","")))),"fingerprint":existing.get("fingerprint",""),"story_text":existing.get("story_text",p.get("story_text","")),"duration_bucket":existing.get("duration_bucket",p.get("duration_bucket","")),"hook_type":existing.get("hook_type",self._hook_type(existing.get("hook",""))),"content_type":existing.get("content_type",p.get("content_type","CURIOSIDADE")),"publish_slot":existing.get("publish_slot",p.get("publish_slot","")),"performance_score":round(perf,2),"views":views,"likes":likes,"comments":comments,"subscribers":subs,"average_view_duration":avg_duration,"estimated_minutes_watched":watched_minutes,"like_rate":round(like_rate,3),"comment_rate":round(comment_rate,3),"view_velocity":round(view_velocity,2),"analytics_observed":True,"updated":time.time()}
+                title=str(existing.get("title") or p.get("title") or row_title or vid)
+                hook=str(existing.get("hook") or p.get("hook") or "")
+                angle=str(existing.get("angle") or p.get("angle") or "")
+                published_timestamp=0.0
+                if published_at:
+                    try:
+                        from datetime import datetime, timezone
+                        published_timestamp=datetime.fromisoformat(published_at.replace("Z","+00:00")).timestamp()
+                    except Exception:
+                        published_timestamp=0.0
+                duration_seconds=0.0
+                try:
+                    match=re.fullmatch(r"PT(?:(\\d+)H)?(?:(\\d+)M)?(?:(\\d+)S)?",duration_text)
+                    if match:
+                        hours,minutes,seconds=(int(v or 0) for v in match.groups())
+                        duration_seconds=hours*3600+minutes*60+seconds
+                except Exception:
+                    duration_seconds=0.0
+                d["videos"][vid]={
+                    "topic_key":existing.get("topic_key") or p.get("topic_key") or (self._key({"title":title}) if title else ""),
+                    "title":title,
+                    "title_pattern":existing.get("title_pattern") or p.get("title_pattern") or self._title_pattern(title),
+                    "hook":hook,
+                    "hook_type":existing.get("hook_type") or p.get("hook_type") or (self._hook_type(hook) if hook else ""),
+                    "angle":angle,
+                    "angle_type":existing.get("angle_type") or p.get("angle_type") or (self._angle_type(angle) if angle else ""),
+                    "content_type":existing.get("content_type") or p.get("content_type") or "",
+                    "fingerprint":existing.get("fingerprint") or p.get("fingerprint") or self._fingerprint({"title":title,"story_text":title}),
+                    "story_text":existing.get("story_text") or p.get("story_text") or title,
+                    "duration_bucket":existing.get("duration_bucket") or p.get("duration_bucket") or self._duration_bucket(duration_seconds),
+                    "publish_slot":existing.get("publish_slot") or p.get("publish_slot",""),
+                    "quality_score":float(existing.get("quality_score",0) or 0),
+                    "performance_score":round(perf,2),
+                    "views":views,"likes":likes,"comments":comments,"subscribers":subs,
+                    "average_view_duration":avg_duration,"estimated_minutes_watched":watched_minutes,
+                    "like_rate":round(like_rate,3),"comment_rate":round(comment_rate,3),
+                    "view_velocity":round(view_velocity,2),"published_at":published_at,
+                    "analytics_observed":True,
+                    "updated":float(existing.get("updated") or published_timestamp or time.time())
+                }
             # Recompute slot averages from one latest record per video. Analytics
             # can return the same video every day; counting each poll as a new sample
             # would artificially inflate sample sizes and overweight older results.
@@ -364,70 +406,97 @@ class TrendBrain:
 
     def recommend_editorial_profile(self):
         d=self._read()
-        rows=[v for v in d.get("videos",{}).values() if float(v.get("performance_score",0) or 0)>0 and v.get("hook_type")]
-        if len(rows)<3: return {"learned":False,"sample_size":len(rows)}
+        # Audience metrics are required. A historical channel video can teach
+        # title packaging even when its spoken hook/script metadata is unavailable.
+        rows=[
+            v for v in d.get("videos",{}).values()
+            if float(v.get("performance_score",0) or 0)>0
+            and (v.get("hook_type") or v.get("title_pattern") or v.get("title"))
+        ]
+        if len(rows)<3:
+            return {"learned":False,"sample_size":len(rows)}
+
         stats={}
         type_stats={}
         for v in rows:
-            k=str(v.get("hook_type"))
-            if k!="OUTRO":
-                x=stats.setdefault(k,{"sum":0.0,"n":0}); x["sum"]+=float(v.get("performance_score",0) or 0); x["n"]+=1
-            ct=str(v.get("content_type","CURIOSIDADE") or "CURIOSIDADE").upper()
-            x2=type_stats.setdefault(ct,{"sum":0.0,"n":0}); x2["sum"]+=float(v.get("performance_score",0) or 0); x2["n"]+=1
-        eligible={k:v for k,v in stats.items() if v["n"]>=2}
-        type_eligible={k:v for k,v in type_stats.items() if v["n"]>=2}
-        if not eligible: return {"learned":False,"sample_size":len(rows)}
-        k,v=max(eligible.items(),key=lambda kv:kv[1]["sum"]/kv[1]["n"])
-        duration_stats={}
-        for row in rows:
-            b=str(row.get("duration_bucket",""))
-            if b not in ("24-29s","30-38s"): continue
-            x=duration_stats.setdefault(b,{"sum":0.0,"n":0}); x["sum"]+=float(row.get("performance_score",0) or 0); x["n"]+=1
-        duration_eligible={a:b for a,b in duration_stats.items() if b["n"]>=2}
-        preferred_duration=None
-        if duration_eligible:
-            dk,dv=max(duration_eligible.items(),key=lambda kv:kv[1]["sum"]/kv[1]["n"])
-            preferred_duration={"bucket":dk,"score":round(dv["sum"]/dv["n"],2),"samples":dv["n"]}
+            k=str(v.get("hook_type") or "").upper()
+            if k and k!="OUTRO":
+                x=stats.setdefault(k,{"sum":0.0,"n":0})
+                x["sum"]+=float(v.get("performance_score",0) or 0); x["n"]+=1
+            ct=str(v.get("content_type","") or "").upper()
+            if ct and ct!="UNKNOWN":
+                x2=type_stats.setdefault(ct,{"sum":0.0,"n":0})
+                x2["sum"]+=float(v.get("performance_score",0) or 0); x2["n"]+=1
+
         title_stats={}
         angle_stats={}
         for row in rows:
             tp=str(row.get("title_pattern","") or self._title_pattern(row.get("title","")))
-            at=str(row.get("angle_type","") or self._angle_type(row.get("angle","")))
+            at=str(row.get("angle_type","") or "")
             if tp:
-                x=title_stats.setdefault(tp,{"sum":0.0,"n":0}); x["sum"]+=float(row.get("performance_score",0) or 0); x["n"]+=1
+                x=title_stats.setdefault(tp,{"sum":0.0,"n":0})
+                x["sum"]+=float(row.get("performance_score",0) or 0); x["n"]+=1
             if at:
-                x=angle_stats.setdefault(at,{"sum":0.0,"n":0}); x["sum"]+=float(row.get("performance_score",0) or 0); x["n"]+=1
+                x=angle_stats.setdefault(at,{"sum":0.0,"n":0})
+                x["sum"]+=float(row.get("performance_score",0) or 0); x["n"]+=1
+
+        eligible={k:v for k,v in stats.items() if v["n"]>=2}
+        type_eligible={k:v for k,v in type_stats.items() if v["n"]>=2}
+        eligible_titles={k:v for k,v in title_stats.items() if v["n"]>=2}
+        eligible_angles={k:v for k,v in angle_stats.items() if v["n"]>=2}
+        if not eligible and not eligible_titles:
+            return {"learned":False,"sample_size":len(rows)}
+
+        k,v=max(eligible.items(),key=lambda kv:kv[1]["sum"]/kv[1]["n"]) if eligible else ("",{"sum":0.0,"n":0})
+        preferred_duration=None
+        duration_stats={}
+        for row in rows:
+            bucket=str(row.get("duration_bucket",""))
+            if bucket not in ("24-29s","30-38s"): continue
+            x=duration_stats.setdefault(bucket,{"sum":0.0,"n":0})
+            x["sum"]+=float(row.get("performance_score",0) or 0); x["n"]+=1
+        duration_eligible={a:b for a,b in duration_stats.items() if b["n"]>=2}
+        if duration_eligible:
+            dk,dv=max(duration_eligible.items(),key=lambda kv:kv[1]["sum"]/kv[1]["n"])
+            preferred_duration={"bucket":dk,"score":round(dv["sum"]/dv["n"],2),"samples":dv["n"]}
+
         preferred_title=None
-        eligible_titles={a:b for a,b in title_stats.items() if b["n"]>=2}
         if eligible_titles:
             tk,tv=max(eligible_titles.items(),key=lambda kv:kv[1]["sum"]/kv[1]["n"])
             preferred_title={"pattern":tk,"score":round(tv["sum"]/tv["n"],2),"samples":tv["n"]}
         preferred_angle=None
-        eligible_angles={a:b for a,b in angle_stats.items() if b["n"]>=2}
         if eligible_angles:
             ak,av=max(eligible_angles.items(),key=lambda kv:kv[1]["sum"]/kv[1]["n"])
             preferred_angle={"type":ak,"score":round(av["sum"]/av["n"],2),"samples":av["n"]}
-        by_style={a:round(b["sum"]/b["n"],2) for a,b in stats.items()}
-        best_score=round(v["sum"]/v["n"],2)
-        # Keep the learning signal conservative: it only influences editorial
-        # ranking after at least two videos of the same hook style exist.
         preferred_content_type=None
         if type_eligible:
             ck,cv=max(type_eligible.items(),key=lambda kv:kv[1]["sum"]/kv[1]["n"])
             preferred_content_type={"type":ck,"score":round(cv["sum"]/cv["n"],2),"samples":cv["n"]}
-        return {"learned":True,"preferred_hook_type":k,"score":best_score,
-                "sample_size":len(rows),"by_style":by_style,
-                "preferred_content_type":preferred_content_type,
-                "by_content_type":{a:round(b["sum"]/b["n"],2) for a,b in type_stats.items()},
-                "preferred_duration":preferred_duration,
-                "preferred_title_pattern":preferred_title,
-                "preferred_angle_type":preferred_angle,
-                "by_title_pattern":{a:round(b["sum"]/b["n"],2) for a,b in title_stats.items()},
-                "by_angle_type":{a:round(b["sum"]/b["n"],2) for a,b in angle_stats.items()},
-                "confidence":min(1.0, max(0.0, (v["n"]-1)/4.0))}
+
+        if eligible:
+            best_score=round(v["sum"]/v["n"],2)
+            confidence=min(1.0,max(0.0,(v["n"]-1)/4.0))
+        else:
+            best_score=round(preferred_title["score"],2)
+            confidence=min(1.0,max(0.0,(preferred_title["samples"]-1)/4.0))
+        return {
+            "learned":True,
+            "preferred_hook_type":k or None,
+            "score":best_score,
+            "sample_size":len(rows),
+            "by_style":{a:round(b["sum"]/b["n"],2) for a,b in stats.items()},
+            "preferred_content_type":preferred_content_type,
+            "by_content_type":{a:round(b["sum"]/b["n"],2) for a,b in type_stats.items()},
+            "preferred_duration":preferred_duration,
+            "preferred_title_pattern":preferred_title,
+            "preferred_angle_type":preferred_angle,
+            "by_title_pattern":{a:round(b["sum"]/b["n"],2) for a,b in title_stats.items()},
+            "by_angle_type":{a:round(b["sum"]/b["n"],2) for a,b in angle_stats.items()},
+            "confidence":confidence
+        }
 
     def record_production(self, topic, metadata=None, quality=0):
-        """Registra toda produção concluída, mesmo quando o upload do YouTube está desligado."""
+        """Persist production and its editorial metadata without pretending QA is audience performance."""
         with self.lock:
             d=self._read(); k=self._key(topic or {})
             x=d["topics"].setdefault(k,{"seen":0,"best":0})
@@ -436,18 +505,29 @@ class TrendBrain:
             x["last_quality"]=float(quality or 0)
             meta=metadata or {}
             topic_title=str((topic or {}).get("title","") or "")
+            editorial_title=str(meta.get("title","") or topic_title)
+            hook=str(meta.get("hook",meta.get("editorial_hook",(topic or {}).get("editorial_hook",""))) or "")
+            angle=str(meta.get("editorial_angle",(topic or {}).get("editorial_angle","")) or "")
+            content_type=str((topic or {}).get("content_type","") or "")
             story_text=" ".join(str(x or "") for x in (
                 topic_title,(topic or {}).get("selected_topic_title",""),
-                meta.get("title",""),meta.get("description",""),
-                meta.get("editorial_text","")
+                editorial_title,meta.get("description",""),meta.get("editorial_text","")
             ))[:12000]
-            x["last_title"]=str(meta.get("title","") or topic_title)
-            x["last_hook"]=str(meta.get("hook",meta.get("editorial_hook","")))
+            x["last_title"]=editorial_title
+            x["last_hook"]=hook
             fp=self._fingerprint({"title":topic_title,"story_text":story_text})
             if fp:
                 d.setdefault("videos",{})[f"production:{int(time.time()*1000)}"]={
                     "topic_key":k,"fingerprint":fp,"story_text":story_text,
-                    "title":topic_title,"performance_score":float(quality or 0),"updated":time.time()
+                    "title":editorial_title,"hook":hook,
+                    "hook_type":self._hook_type(hook) if hook else "",
+                    "angle":angle,"angle_type":self._angle_type(angle) if angle else "",
+                    "title_pattern":self._title_pattern(editorial_title),
+                    "content_type":content_type,
+                    "duration_bucket":self._duration_bucket(meta.get("duration_seconds",0)),
+                    "quality_score":float(quality or 0),
+                    "performance_score":0.0,
+                    "updated":time.time()
                 }
             self._write(d)
 
