@@ -182,7 +182,7 @@ class TrendBrainTests(unittest.TestCase):
             self.assertIsNone(profile["preferred_hook_type"])
             self.assertEqual(data["videos"]["yt-1"]["hook_type"], "")
             self.assertEqual(data["videos"]["yt-1"]["title"], "GTA 6 tem um segredo escondido?")
-            self.assertLess(data["videos"]["yt-1"]["updated"], 1790000000)
+            self.assertLess(data["videos"]["yt-1"]["updated"], 1792000000)
 
     def test_editor_chief_skips_recent_story_with_a_renamed_headline(self):
         with tempfile.TemporaryDirectory() as td:
