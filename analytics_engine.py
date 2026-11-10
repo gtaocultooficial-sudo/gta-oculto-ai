@@ -67,10 +67,18 @@ class YouTubeAnalytics:
             headers=list(response.get('columnHeaders') or [])
             ids=[str(row[0]) for row in rows if row]
             details=self._video_details(raw,ids)
-            if rows and not any(str(h.get('name','')).lower()=='title' for h in headers if isinstance(h,dict)):
-                headers.append({'name':'title'})
-                for row in rows:
-                    row.append(details.get(str(row[0]),{}).get('title',''))
+            header_names=[
+                str(h.get('name','')).lower() if isinstance(h,dict) else str(h).lower()
+                for h in headers
+            ]
+            for field in ('title','publishedat','duration'):
+                if rows and field not in header_names:
+                    headers.append({'name':field})
+                    for row in rows:
+                        detail=details.get(str(row[0]),{})
+                        key={'publishedat':'published_at'}.get(field,field)
+                        row.append(detail.get(key,''))
+                    header_names.append(field)
             return {
                 'ok':True,
                 'rows':rows,
