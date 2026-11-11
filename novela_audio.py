@@ -8,8 +8,11 @@ from __future__ import annotations
 import asyncio
 import json
 import math
+import os
 import re
 import shutil
+import time
+from xml.sax.saxutils import escape
 import subprocess
 import wave
 from pathlib import Path
@@ -22,29 +25,13 @@ INTRO_SECONDS = 4.0
 OUTRO_SECONDS = 3.8
 MIN_DIALOGUE_GAP = 0.24
 
-# Four distinct, native pt-BR voices from Microsoft's published speech catalogue.
-# They are probed against the live Edge speech endpoint before a remix is accepted.
+# Native Azure Speech pt-BR voices. One stable voice per character.
+# The public Edge TTS endpoint does not expose four distinct pt-BR voices reliably.
 VOICE_PREFERENCES = {
-    "JASON DUVAL": [
-        "pt-BR-DonatoNeural", "pt-BR-FabioNeural", "pt-BR-JulioNeural",
-        "pt-BR-NicolauNeural", "pt-BR-ValerioNeural", "pt-BR-HumbertoNeural",
-        "pt-BR-AntonioNeural"
-    ],
-    "LUCIA CAMINOS": [
-        "pt-BR-FranciscaNeural", "pt-BR-BrendaNeural", "pt-BR-GiovannaNeural",
-        "pt-BR-LeilaNeural", "pt-BR-ManuelaNeural", "pt-BR-YaraNeural",
-        "pt-BR-ThalitaNeural", "pt-BR-ElzaNeural"
-    ],
-    "BRIAN HEDER": [
-        "pt-BR-AntonioNeural", "pt-BR-HumbertoNeural", "pt-BR-ValerioNeural",
-        "pt-BR-NicolauNeural", "pt-BR-DonatoNeural", "pt-BR-FabioNeural",
-        "pt-BR-JulioNeural"
-    ],
-    "CAL HAMPTON": [
-        "pt-BR-FabioNeural", "pt-BR-JulioNeural", "pt-BR-NicolauNeural",
-        "pt-BR-HumbertoNeural", "pt-BR-AntonioNeural", "pt-BR-ValerioNeural",
-        "pt-BR-DonatoNeural"
-    ],
+    "JASON DUVAL": ["pt-BR-DonatoNeural"],
+    "LUCIA CAMINOS": ["pt-BR-FranciscaNeural"],
+    "BRIAN HEDER": ["pt-BR-HumbertoNeural"],
+    "CAL HAMPTON": ["pt-BR-FabioNeural"],
 }
 
 # Small prosody differences reinforce character identity without caricature.
@@ -200,98 +187,115 @@ def _word_count(text):
     return len(re.findall(r"[\wÀ-ÿ'-]+", str(text or "")))
 
 
-async def _synthesize_lines(lines, out_dir: Path, progress: Callable | None = None):
-    try:
-        import edge_tts
-    except Exception as exc:
-        raise RuntimeError(
-            "Edge TTS não está instalado no servidor. Nenhuma voz local robótica será usada."
-        ) from exc
+def _azure_ssml(text: str, voice: str, prosody: dict) -> str:
+    """Build escaped SSML for one native Brazilian Portuguese Azure voice."""
+    safe_text = escape(str(text))
+    rate = escape(str(prosody.get("rate", "+0%")), {'"': "&quot;"})
+    pitch = escape(str(prosody.get("pitch", "+0Hz")), {'"': "&quot;"})
+    return (
+        '<?xml version="1.0" encoding="utf-8"?>'
+        '<speak version="1.0" xml:lang="pt-BR">'
+        f'<voice name="{voice}" xml:lang="pt-BR">'
+        f'<prosody rate="{rate}" pitch="{pitch}">{safe_text}</prosody>'
+        '</voice></speak>'
+    )
 
-    # The unofficial voice-list endpoint can be incomplete in hosted environments.
-    # Verify actual TTS by probing Microsoft's documented native pt-BR voices directly.
-    # Four different working voices are mandatory; there is no repeated-voice fallback.
+
+def _azure_synthesize_line(text: str, voice: str, prosody: dict, key: str, region: str) -> bytes:
+    """Synthesize one line through the official Azure Speech REST endpoint."""
+    import requests
+
+    ssml = _azure_ssml(text, voice, prosody)
+    endpoint = f"https://{region}.tts.speech.microsoft.com/cognitiveservices/v1"
+    headers = {
+        "Ocp-Apim-Subscription-Key": key,
+        "Content-Type": "application/ssml+xml",
+        "X-Microsoft-OutputFormat": "audio-24khz-48kbitrate-mono-mp3",
+        "User-Agent": "GTAOcultoAI-ViceCity/1.0",
+    }
+    try:
+        response = requests.post(
+            endpoint, headers=headers, data=ssml.encode("utf-8"), timeout=(15, 90)
+        )
+    except requests.RequestException as exc:
+        raise RuntimeError(f"Falha de conexão com Azure Speech: {str(exc)[:220]}") from exc
+    if response.status_code != 200:
+        detail = (response.text or "resposta vazia").replace("\\n", " ")[:350]
+        raise RuntimeError(
+            f"Azure Speech respondeu HTTP {response.status_code}: {detail}. "
+            "Confira a chave, a região e a cota F0."
+        )
+    content = response.content or b""
+    if len(content) < 1200:
+        raise RuntimeError("Azure Speech retornou áudio vazio ou inválido.")
+    return content
+
+
+async def _synthesize_lines(lines, out_dir: Path, progress: Callable | None = None):
+    """Render dialogue with four exclusive Azure neural voices, respecting F0 quotas."""
+    key = os.getenv("AZURE_SPEECH_KEY", "").strip()
+    region = os.getenv("AZURE_SPEECH_REGION", "").strip().lower()
+    if not key or not region:
+        raise RuntimeError(
+            "A dublagem exige uma chave Azure Speech no nível gratuito F0. "
+            "Configure AZURE_SPEECH_KEY e AZURE_SPEECH_REGION nas variáveis do Render. "
+            "O Edge TTS público não disponibiliza quatro vozes pt-BR exclusivas; "
+            "nenhum MP4 foi gerado."
+        )
+    if not re.fullmatch(r"[a-z0-9-]{2,30}", region):
+        raise RuntimeError("AZURE_SPEECH_REGION inválida. Informe a região exibida no recurso Speech do Azure.")
+
+    assigned = choose_voice_assignments({
+        voice for candidates in VOICE_PREFERENCES.values() for voice in candidates
+    })
+    if len(set(assigned.values())) != 4:
+        raise RuntimeError("A dublagem foi bloqueada: são obrigatórias quatro vozes pt-BR distintas.")
+
+    present_speakers = {line["speaker"] for line in lines}
+    missing = sorted(set(VOICE_PREFERENCES) - present_speakers)
+    if missing:
+        raise RuntimeError("O roteiro não contém falas para: " + ", ".join(missing))
+
     total = len(lines)
     rendered = [None] * total
+    out_dir.mkdir(parents=True, exist_ok=True)
+    # Azure Speech F0: 20 standard-voice transactions per 60 seconds.
+    # Stay below the ceiling to avoid HTTP 429 at the rolling-window boundary.
+    request_times = []
     completed = 0
-    probe_phrase = "Esta é uma verificação de voz em português brasileiro."
-    assigned = {}
-    used = set()
-    probe_dir = out_dir / "voice_probes"
-    probe_dir.mkdir(parents=True, exist_ok=True)
-
-    for speaker, preferences in VOICE_PREFERENCES.items():
-        chosen = None
-        errors = []
-        for candidate in preferences:
-            if candidate in used:
-                continue
-            probe_path = probe_dir / f"{re.sub(r'[^a-z0-9]+', '_', speaker.lower())}_{candidate}.mp3"
-            probe_path.unlink(missing_ok=True)
-            try:
-                await edge_tts.Communicate(
-                    text=probe_phrase,
-                    voice=candidate
-                ).save(str(probe_path))
-                if not probe_path.exists() or probe_path.stat().st_size < 1200:
-                    raise RuntimeError("o serviço não entregou um arquivo de áudio válido")
-                chosen = candidate
-                used.add(candidate)
-                break
-            except Exception as exc:
-                errors.append(f"{candidate}: {str(exc).replace(chr(10), ' ')[:160]}")
-                probe_path.unlink(missing_ok=True)
-        if not chosen:
-            raise RuntimeError(
-                f"Não consegui validar uma voz pt-BR exclusiva para {speaker}. "
-                f"Vozes testadas: {' | '.join(errors[-6:])}. "
-                "Nenhum MP4 foi finalizado com vozes repetidas."
-            )
-        assigned[speaker] = chosen
-
-    if len(set(assigned.values())) != 4:
-        raise RuntimeError("A validação não encontrou quatro vozes brasileiras distintas.")
-    shutil.rmtree(probe_dir, ignore_errors=True)
-
-    by_speaker = {}
     for index, line in enumerate(lines):
-        by_speaker.setdefault(line["speaker"], []).append((index, line))
+        now = time.monotonic()
+        request_times = [stamp for stamp in request_times if now - stamp < 60.0]
+        if len(request_times) >= 18:
+            await asyncio.sleep(max(0.5, 60.1 - (now - request_times[0])))
+            now = time.monotonic()
+            request_times = [stamp for stamp in request_times if now - stamp < 60.0]
 
-    async def synthesize_character(speaker, indexed_lines):
-        nonlocal completed
+        speaker = line["speaker"]
         voice = assigned[speaker]
-        prosody = VOICE_PROSODY[speaker]
-        for index, line in indexed_lines:
-            mp3 = out_dir / f"line_{index + 1:02d}.mp3"
-            try:
-                # If character prosody causes a service error, retry the same
-                # neural identity with default settings. Do not change character voice.
-                try:
-                    await edge_tts.Communicate(
-                        text=line["text"], voice=voice,
-                        rate=prosody["rate"], pitch=prosody["pitch"]
-                    ).save(str(mp3))
-                except Exception:
-                    mp3.unlink(missing_ok=True)
-                    await edge_tts.Communicate(
-                        text=line["text"], voice=voice
-                    ).save(str(mp3))
-                if not mp3.exists() or mp3.stat().st_size < 1200:
-                    raise RuntimeError("serviço concluiu sem entregar áudio válido")
-                rendered[index] = mp3
-            except Exception as exc:
-                raise RuntimeError(
-                    f"Falha ao sintetizar a fala {index + 1} de {speaker} "
-                    f"com {voice}: {str(exc)[:240]}"
-                ) from exc
-            completed += 1
-            if progress:
-                progress("synthesis", completed, total)
+        mp3 = out_dir / f"line_{index + 1:02d}.mp3"
+        mp3.unlink(missing_ok=True)
+        request_times.append(time.monotonic())
+        try:
+            content = await asyncio.to_thread(
+                _azure_synthesize_line, line["text"], voice,
+                VOICE_PROSODY[speaker], key, region
+            )
+            mp3.write_bytes(content)
+            if not mp3.exists() or mp3.stat().st_size < 1200:
+                raise RuntimeError("o arquivo de áudio sintetizado ficou inválido")
+            rendered[index] = mp3
+        except Exception as exc:
+            mp3.unlink(missing_ok=True)
+            raise RuntimeError(
+                f"Falha na fala {index + 1}/{total} de {speaker} com {voice}: {str(exc)[:320]}"
+            ) from exc
+        completed += 1
+        if progress:
+            progress("synthesis", completed, total)
 
-    await asyncio.gather(*(
-        synthesize_character(speaker, indexed_lines)
-        for speaker, indexed_lines in by_speaker.items()
-    ))
+    if any(path is None for path in rendered):
+        raise RuntimeError("A síntese não produziu todas as falas; nenhum MP4 será exportado.")
     return rendered, assigned
 
 
@@ -548,6 +552,6 @@ def render_voice_remix(
         "spoken_words": sum(_word_count(x["text"]) for x in lines),
         "voices": voice_assignments,
         "subtitle_entries": len(subtitle_entries),
-        "audio_engine": "Microsoft Edge Neural TTS",
+        "audio_engine": "Microsoft Azure Speech Neural (F0)",
         "sample_rate": SAMPLE_RATE,
     }

@@ -6,6 +6,7 @@ from novela_audio import (
     voice_candidates_for_speaker,
     _srt_time,
     _word_count,
+    _azure_ssml,
     supported_portuguese_voices,
     collect_dialogue_lines,
 )
@@ -27,7 +28,7 @@ class NovelaAudioTests(unittest.TestCase):
         self.assertEqual(len(set(selected.values())), 4)
         self.assertEqual(selected["JASON DUVAL"], "pt-BR-DonatoNeural")
         self.assertEqual(selected["LUCIA CAMINOS"], "pt-BR-FranciscaNeural")
-        self.assertEqual(selected["BRIAN HEDER"], "pt-BR-AntonioNeural")
+        self.assertEqual(selected["BRIAN HEDER"], "pt-BR-HumbertoNeural")
         self.assertEqual(selected["CAL HAMPTON"], "pt-BR-FabioNeural")
 
     def test_catalogue_filter_rejects_non_brazilian_multilingual_voices(self):
@@ -54,17 +55,8 @@ class NovelaAudioTests(unittest.TestCase):
             choose_voice_assignments(available)
 
     def test_fallback_order_is_character_specific_and_stays_within_live_catalogue(self):
-        available = {"pt-BR-FabioNeural", "pt-BR-JulioNeural", "pt-BR-NicolauNeural"}
-        candidates = voice_candidates_for_speaker("CAL HAMPTON", available)
-        self.assertEqual(candidates, [
-            "pt-BR-FabioNeural",
-            "pt-BR-JulioNeural",
-            "pt-BR-NicolauNeural",
-        ])
-        self.assertEqual(
-            voice_candidates_for_speaker("CAL HAMPTON", available, current="pt-BR-JulioNeural"),
-            ["pt-BR-JulioNeural", "pt-BR-FabioNeural", "pt-BR-NicolauNeural"],
-        )
+        self.assertEqual(voice_candidates_for_speaker("CAL HAMPTON"), ["pt-BR-FabioNeural"])
+        self.assertEqual(voice_candidates_for_speaker("BRIAN HEDER"), ["pt-BR-HumbertoNeural"])
 
     def test_full_cinematic_screenplay_has_all_six_scenes_and_at_least_35_dialogue_lines(self):
         episode = {
@@ -79,6 +71,22 @@ class NovelaAudioTests(unittest.TestCase):
             set(VOICE_PREFERENCES),
         )
         self.assertGreaterEqual(sum(len(line["text"].split()) for line in lines), 280)
+
+    def test_azure_ssml_escapes_dialogue_and_uses_brazilian_locale(self):
+        ssml = _azure_ssml(
+            'Jason disse: "Pare & volte <agora>."',
+            "pt-BR-DonatoNeural",
+            {"rate": "-4%", "pitch": "-2Hz"},
+        )
+        self.assertIn('xml:lang="pt-BR"', ssml)
+        self.assertIn('name="pt-BR-DonatoNeural"', ssml)
+        self.assertIn("Pare &amp; volte &lt;agora&gt;.", ssml)
+        self.assertNotIn("<agora>", ssml)
+
+    def test_voice_map_has_four_distinct_native_brazilian_voices(self):
+        selected = choose_voice_assignments(set().union(*VOICE_PREFERENCES.values()))
+        self.assertEqual(len(set(selected.values())), 4)
+        self.assertEqual(selected["BRIAN HEDER"], "pt-BR-HumbertoNeural")
 
     def test_short_draft_is_rejected_before_voice_render(self):
         short_episode = {
@@ -110,6 +118,7 @@ class NovelaAudioTests(unittest.TestCase):
         source = inspect.getsource(novela_audio)
         self.assertNotIn("espeak", source.lower())
         self.assertNotIn("gtts", source.lower())
+        self.assertIn("Azure Speech REST", source)
         for candidates in VOICE_PREFERENCES.values():
             self.assertTrue(candidates)
             self.assertTrue(all(name.startswith("pt-BR-") for name in candidates))
