@@ -1,7 +1,7 @@
 """Neural, character-specific dialogue rendering for the Vice City fan series.
 
-This module deliberately has no eSpeak or gTTS fallback. A failed neural TTS call
-raises an actionable error rather than silently returning robotic audio.
+A failed neural TTS call raises an actionable error rather than silently
+returning low-quality synthesized speech.
 """
 from __future__ import annotations
 
