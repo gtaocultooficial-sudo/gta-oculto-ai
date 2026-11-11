@@ -22,23 +22,29 @@ INTRO_SECONDS = 4.0
 OUTRO_SECONDS = 3.8
 MIN_DIALOGUE_GAP = 0.24
 
-# Prefer distinct pt-BR neural voices, not pitch-shifted copies of one voice.
+# The Edge catalogue has only a small set of regional pt-BR voices.
+# These four are actually listed by Microsoft Edge TTS and support Brazilian Portuguese.
+# Andrew and Brian are multilingual voices whose primary locale is en-US; their
+# multilingual models explicitly support pt-BR text as well.
+MULTILINGUAL_PT_BR_COMPATIBLE = {
+    "en-US-AndrewMultilingualNeural",
+    "en-US-BrianMultilingualNeural",
+    "en-US-AvaMultilingualNeural",
+    "en-US-EmmaMultilingualNeural",
+}
 VOICE_PREFERENCES = {
     "JASON DUVAL": [
-        "pt-BR-DonatoNeural", "pt-BR-FabioNeural",
-        "pt-BR-MacerioMultilingualNeural", "pt-BR-AntonioNeural"
+        "pt-BR-AntonioNeural", "en-US-AndrewMultilingualNeural"
     ],
     "LUCIA CAMINOS": [
         "pt-BR-ThalitaMultilingualNeural", "pt-BR-FranciscaNeural",
-        "pt-BR-BrendaNeural", "pt-BR-LeilaNeural"
+        "en-US-AvaMultilingualNeural", "en-US-EmmaMultilingualNeural"
     ],
     "BRIAN HEDER": [
-        "pt-BR-AntonioNeural", "pt-BR-HumbertoNeural",
-        "pt-BR-NicolauNeural", "pt-BR-ValerioNeural"
+        "en-US-BrianMultilingualNeural", "pt-BR-AntonioNeural"
     ],
     "CAL HAMPTON": [
-        "pt-BR-JulioNeural", "pt-BR-FabioNeural",
-        "pt-BR-NicolauNeural", "pt-BR-MacerioMultilingualNeural"
+        "en-US-AndrewMultilingualNeural", "pt-BR-AntonioNeural"
     ],
 }
 
@@ -51,8 +57,19 @@ VOICE_PROSODY = {
 }
 
 
+def supported_portuguese_voices(catalogue):
+    """Return only pt-BR voices plus multilingual voices verified for pt-BR."""
+    found = set()
+    for item in catalogue or []:
+        short_name = str(item.get("ShortName") or "").strip()
+        locale = str(item.get("Locale") or "").strip().lower()
+        if short_name and (locale == "pt-br" or short_name in MULTILINGUAL_PT_BR_COMPATIBLE):
+            found.add(short_name)
+    return found
+
+
 def choose_voice_assignments(available_names):
-    """Choose four distinct neural pt-BR voices from the live Edge TTS catalogue."""
+    """Choose four distinct, catalogue-backed neural voices that can speak pt-BR."""
     available = set(available_names or [])
     assigned = {}
     used = set()
@@ -62,9 +79,13 @@ def choose_voice_assignments(available_names):
             None
         )
         if selected is None:
+            missing = ", ".join(
+                voice for voice in preferences if voice not in available
+            ) or "nenhuma"
+            present = ", ".join(sorted(available)) or "nenhuma voz compatível"
             raise RuntimeError(
-                "O catálogo Edge TTS não disponibilizou quatro vozes brasileiras "
-                "distintas. Vozes necessárias: " + ", ".join(VOICE_PREFERENCES)
+                f"Voz neural compatível não encontrada para {speaker}. "
+                f"Preferências ausentes: {missing}. Catálogo compatível recebido: {present}."
             )
         assigned[speaker] = selected
         used.add(selected)
@@ -132,11 +153,12 @@ async def _synthesize_lines(lines, out_dir: Path, progress: Callable | None = No
             + str(exc)[:300]
         ) from exc
 
-    available = {
-        str(item.get("ShortName", ""))
-        for item in catalogue
-        if str(item.get("Locale", "")).lower() == "pt-br"
-    }
+    available = supported_portuguese_voices(catalogue)
+    if not available:
+        raise RuntimeError(
+            "O catálogo Edge TTS não retornou vozes pt-BR compatíveis. "
+            "Verifique a conexão do Render com o serviço de voz da Microsoft."
+        )
     voices = choose_voice_assignments(available)
     semaphore = asyncio.Semaphore(3)
     completed = 0
