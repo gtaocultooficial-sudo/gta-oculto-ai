@@ -81,8 +81,10 @@ NOVELA_ENGINE = None
 NOVELA_PAGE = ""
 try:
     from novela_engine import NovelaEngine, NOVELA_PAGE
+    from novela_cinematic import expand_episode as expand_cinematic_episode
     NOVELA_ENGINE = NovelaEngine(TREND_BRAIN, WORK)
 except Exception as _novela_import_error:
+    expand_cinematic_episode = None
     print(f"[NOVELA] module unavailable: {type(_novela_import_error).__name__}: {_novela_import_error}", flush=True)
 
 # The dashboard/radar and autonomous completion hook must share one editorial
@@ -6789,6 +6791,21 @@ def novelas_generate_episode(number):
     except Exception as exc:
         print(f'[NOVELA] generation error: {type(exc).__name__}: {str(exc)[:300]}', flush=True)
         return jsonify(error='Falha ao montar o roteiro. Nenhum vídeo foi iniciado.'), 500
+
+@APP.post('/api/novelas/episodes/<int:number>/cinematic')
+def novelas_cinematic_episode(number):
+    if NOVELA_ENGINE is None or expand_cinematic_episode is None:
+        return jsonify(error='Expansão cinematográfica indisponível.'), 503
+    try:
+        episode = expand_cinematic_episode(NOVELA_ENGINE, number)
+        return jsonify(episode)
+    except ValueError as exc:
+        message = str(exc)
+        status = 404 if message.startswith('EPISODE_NOT_FOUND') else 400
+        return jsonify(error=message), status
+    except Exception as exc:
+        print(f'[NOVELA] cinematic expansion error: {type(exc).__name__}: {str(exc)[:300]}', flush=True)
+        return jsonify(error='Falha ao expandir o roteiro. Nenhum vídeo foi iniciado.'), 500
 
 @APP.get('/api/novelas/episodes/<int:number>')
 def novelas_get_episode(number):
