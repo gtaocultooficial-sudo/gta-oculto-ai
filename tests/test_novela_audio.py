@@ -7,7 +7,10 @@ from novela_audio import (
     _srt_time,
     _word_count,
     supported_portuguese_voices,
+    collect_dialogue_lines,
 )
+from novela_cinematic import EPISODE_1_CINEMATIC
+
 
 
 class NovelaAudioTests(unittest.TestCase):
@@ -45,11 +48,10 @@ class NovelaAudioTests(unittest.TestCase):
         self.assertNotIn("en-US-AndrewMultilingualNeural", available)
         self.assertNotIn("en-US-BrianMultilingualNeural", available)
 
-    def test_catalogue_shortage_reuses_native_voice_instead_of_switching_language(self):
+    def test_catalogue_shortage_fails_instead_of_reusing_same_voice_for_characters(self):
         available = {"pt-BR-AntonioNeural", "pt-BR-FranciscaNeural"}
-        selected = choose_voice_assignments(available)
-        self.assertEqual(set(selected), set(VOICE_PREFERENCES))
-        self.assertEqual(set(selected.values()), available)
+        with self.assertRaisesRegex(RuntimeError, "quatro vozes neurais brasileiras distintas"):
+            choose_voice_assignments(available)
 
     def test_fallback_order_is_character_specific_and_stays_within_live_catalogue(self):
         available = {"pt-BR-FabioNeural", "pt-BR-JulioNeural", "pt-BR-NicolauNeural"}
@@ -63,6 +65,31 @@ class NovelaAudioTests(unittest.TestCase):
             voice_candidates_for_speaker("CAL HAMPTON", available, current="pt-BR-JulioNeural"),
             ["pt-BR-JulioNeural", "pt-BR-FabioNeural", "pt-BR-NicolauNeural"],
         )
+
+    def test_full_cinematic_screenplay_has_all_six_scenes_and_at_least_35_dialogue_lines(self):
+        episode = {
+            "cinematic_ready": True,
+            "scenes": EPISODE_1_CINEMATIC["scenes"],
+        }
+        lines = collect_dialogue_lines(episode)
+        self.assertEqual(len(EPISODE_1_CINEMATIC["scenes"]), 6)
+        self.assertGreaterEqual(len(lines), 35)
+        self.assertEqual(
+            {line["speaker"] for line in lines},
+            set(VOICE_PREFERENCES),
+        )
+        self.assertGreaterEqual(sum(len(line["text"].split()) for line in lines), 280)
+
+    def test_short_draft_is_rejected_before_voice_render(self):
+        short_episode = {
+            "cinematic_ready": False,
+            "scenes": [
+                {"dialogue": [["JASON DUVAL", "Teste"]]}
+                for _ in range(4)
+            ],
+        }
+        with self.assertRaisesRegex(RuntimeError, "expandido para a versão cinematográfica"):
+            collect_dialogue_lines(short_episode)
 
     def test_unknown_character_has_no_voice_assignment(self):
         with self.assertRaisesRegex(RuntimeError, "sem mapa de voz"):
