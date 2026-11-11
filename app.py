@@ -6901,6 +6901,23 @@ def novelas_voice_remix_start():
     if not episode:
         return jsonify(error="O roteiro do episódio 01 ainda não existe."), 404
 
+    # Upgrade older short drafts automatically before any voice-render job starts.
+    # The previous release accepted a 4-scene/10-line draft, causing one voice to
+    # be reused for most characters and leaving most of the episode without dialogue.
+    try:
+        if not episode.get("cinematic_ready") or len(episode.get("scenes") or []) < 6:
+            if expand_cinematic_episode is None:
+                return jsonify(error="A expansão cinematográfica não está disponível."), 503
+            episode = expand_cinematic_episode(NOVELA_ENGINE, 1)
+        from novela_audio import collect_dialogue_lines
+        checked_lines = collect_dialogue_lines(episode)
+    except Exception as exc:
+        print(f"[NOVELA_VOICE] screenplay validation error: {type(exc).__name__}: {str(exc)[:300]}", flush=True)
+        return jsonify(error="O roteiro completo ainda não está pronto para dublagem: " + str(exc)[:350]), 409
+
+    if len(checked_lines) < 35:
+        return jsonify(error=f"O roteiro tem somente {len(checked_lines)} falas. A dublagem exige o roteiro completo."), 409
+
     upload = request.files.get("video")
     if upload is None or not upload.filename:
         return jsonify(error="Selecione o MP4 atual do episódio 01."), 400
