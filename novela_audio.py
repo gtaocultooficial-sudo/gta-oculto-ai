@@ -22,29 +22,29 @@ INTRO_SECONDS = 4.0
 OUTRO_SECONDS = 3.8
 MIN_DIALOGUE_GAP = 0.24
 
-# The Edge catalogue has only a small set of regional pt-BR voices.
-# These four are actually listed by Microsoft Edge TTS and support Brazilian Portuguese.
-# Andrew and Brian are multilingual voices whose primary locale is en-US; their
-# multilingual models explicitly support pt-BR text as well.
-MULTILINGUAL_PT_BR_COMPATIBLE = {
-    "en-US-AndrewMultilingualNeural",
-    "en-US-BrianMultilingualNeural",
-    "en-US-AvaMultilingualNeural",
-    "en-US-EmmaMultilingualNeural",
-}
+# Stick to Microsoft's native Brazilian Portuguese neural voices.
+# Cross-locale multilingual voices are deliberately excluded from the dubbing path.
 VOICE_PREFERENCES = {
     "JASON DUVAL": [
-        "pt-BR-AntonioNeural", "en-US-AndrewMultilingualNeural"
+        "pt-BR-DonatoNeural", "pt-BR-FabioNeural",
+        "pt-BR-JulioNeural", "pt-BR-NicolauNeural",
+        "pt-BR-ValerioNeural", "pt-BR-AntonioNeural"
     ],
     "LUCIA CAMINOS": [
-        "pt-BR-ThalitaMultilingualNeural", "pt-BR-FranciscaNeural",
-        "en-US-AvaMultilingualNeural", "en-US-EmmaMultilingualNeural"
+        "pt-BR-FranciscaNeural", "pt-BR-BrendaNeural",
+        "pt-BR-GiovannaNeural", "pt-BR-LeilaNeural",
+        "pt-BR-ManuelaNeural", "pt-BR-YaraNeural",
+        "pt-BR-ThalitaNeural", "pt-BR-ElzaNeural"
     ],
     "BRIAN HEDER": [
-        "en-US-BrianMultilingualNeural", "pt-BR-AntonioNeural"
+        "pt-BR-AntonioNeural", "pt-BR-HumbertoNeural",
+        "pt-BR-ValerioNeural", "pt-BR-NicolauNeural",
+        "pt-BR-DonatoNeural", "pt-BR-FabioNeural"
     ],
     "CAL HAMPTON": [
-        "en-US-AndrewMultilingualNeural", "pt-BR-AntonioNeural"
+        "pt-BR-FabioNeural", "pt-BR-JulioNeural",
+        "pt-BR-NicolauNeural", "pt-BR-HumbertoNeural",
+        "pt-BR-AntonioNeural", "pt-BR-ValerioNeural"
     ],
 }
 
@@ -58,34 +58,46 @@ VOICE_PROSODY = {
 
 
 def supported_portuguese_voices(catalogue):
-    """Return only pt-BR voices plus multilingual voices verified for pt-BR."""
+    """Return only native voices whose catalogue locale is Portuguese (Brazil)."""
     found = set()
     for item in catalogue or []:
         short_name = str(item.get("ShortName") or "").strip()
         locale = str(item.get("Locale") or "").strip().lower()
-        if short_name and (locale == "pt-br" or short_name in MULTILINGUAL_PT_BR_COMPATIBLE):
+        if short_name and locale == "pt-br" and short_name.startswith("pt-BR-"):
             found.add(short_name)
     return found
 
 
+def voice_candidates_for_speaker(speaker, available_names, current=None):
+    """Ordered native pt-BR fallbacks for one character."""
+    preferences = VOICE_PREFERENCES.get(speaker)
+    if not preferences:
+        raise RuntimeError(f"Personagem sem mapa de voz neural: {speaker}")
+    available = set(available_names or [])
+    ordered = []
+    if current and current in available:
+        ordered.append(current)
+    ordered.extend(v for v in preferences if v in available and v not in ordered)
+    return ordered
+
+
 def choose_voice_assignments(available_names):
-    """Choose four distinct, catalogue-backed neural voices that can speak pt-BR."""
+    """Prefer four distinct native pt-BR voices; reuse only if the live catalogue is short."""
     available = set(available_names or [])
     assigned = {}
     used = set()
     for speaker, preferences in VOICE_PREFERENCES.items():
-        selected = next(
-            (voice for voice in preferences if voice in available and voice not in used),
-            None
-        )
+        candidates = [voice for voice in preferences if voice in available]
+        selected = next((voice for voice in candidates if voice not in used), None)
+        if selected is None and candidates:
+            # Last resort when this server's catalogue has fewer voices than characters:
+            # keep Brazilian pronunciation and differentiate by character prosody.
+            selected = candidates[0]
         if selected is None:
-            missing = ", ".join(
-                voice for voice in preferences if voice not in available
-            ) or "nenhuma"
-            present = ", ".join(sorted(available)) or "nenhuma voz compatível"
+            present = ", ".join(sorted(available)) or "nenhuma voz pt-BR"
             raise RuntimeError(
-                f"Voz neural compatível não encontrada para {speaker}. "
-                f"Preferências ausentes: {missing}. Catálogo compatível recebido: {present}."
+                f"Nenhuma voz neural nativa pt-BR disponível para {speaker}. "
+                f"Catálogo recebido: {present}."
             )
         assigned[speaker] = selected
         used.add(selected)
@@ -149,49 +161,81 @@ async def _synthesize_lines(lines, out_dir: Path, progress: Callable | None = No
         catalogue = await edge_tts.list_voices()
     except Exception as exc:
         raise RuntimeError(
-            "Não foi possível acessar o serviço de vozes neurais da Microsoft: "
+            "Não foi possível acessar o catálogo de vozes da Microsoft: "
             + str(exc)[:300]
         ) from exc
 
     available = supported_portuguese_voices(catalogue)
     if not available:
         raise RuntimeError(
-            "O catálogo Edge TTS não retornou vozes pt-BR compatíveis. "
-            "Verifique a conexão do Render com o serviço de voz da Microsoft."
+            "O catálogo Edge TTS não retornou vozes neurais nativas pt-BR. "
+            "Nenhuma voz de outro idioma será usada como substituta."
         )
     voices = choose_voice_assignments(available)
-    semaphore = asyncio.Semaphore(3)
-    completed = 0
     total = len(lines)
+    completed = 0
     rendered = [None] * total
+    failures = []
+    # One worker per character keeps the same voice throughout that character's
+    # entire performance while allowing four characters to synthesize in parallel.
+    by_speaker = {}
+    for index, line in enumerate(lines):
+        by_speaker.setdefault(line["speaker"], []).append((index, line))
 
-    async def one(index, line):
+    async def synthesize_character(speaker, indexed_lines):
         nonlocal completed
-        speaker = line["speaker"]
         voice = voices[speaker]
-        prosody = VOICE_PROSODY[speaker]
-        mp3 = out_dir / f"line_{index + 1:02d}.mp3"
-        async with semaphore:
-            try:
-                communicate = edge_tts.Communicate(
-                    text=line["text"],
-                    voice=voice,
-                    rate=prosody["rate"],
-                    pitch=prosody["pitch"],
-                    volume=prosody["volume"],
-                )
-                await communicate.save(str(mp3))
-            except Exception as exc:
+        preferred_style = VOICE_PROSODY[speaker]
+        for index, line in indexed_lines:
+            mp3 = out_dir / f"line_{index + 1:02d}.mp3"
+            candidates = voice_candidates_for_speaker(speaker, available, current=voice)
+            if not candidates:
                 raise RuntimeError(
-                    f"Falha na voz neural de {speaker} ({voice}): {str(exc)[:280]}"
-                ) from exc
-        if not mp3.exists() or mp3.stat().st_size < 1500:
-            raise RuntimeError(f"A voz neural de {speaker} não gerou áudio válido.")
-        rendered[index] = mp3
-        completed += 1
-        if progress:
-            progress("synthesis", completed, total)
-    await asyncio.gather(*(one(i, item) for i, item in enumerate(lines)))
+                    f"Não há voz nativa pt-BR disponível para {speaker}. "
+                    + "; ".join(failures[-8:])
+                )
+            success = False
+            tried = []
+            for candidate in candidates:
+                # First attempt with the character's prosody. If the service rejects
+                # these parameters, retry the same native voice with default prosody.
+                attempts = [
+                    {"rate": preferred_style["rate"], "pitch": preferred_style["pitch"]},
+                    {}
+                ]
+                for attempt_index, prosody in enumerate(attempts):
+                    try:
+                        mp3.unlink(missing_ok=True)
+                        kwargs = {"text": line["text"], "voice": candidate}
+                        kwargs.update(prosody)
+                        communicate = edge_tts.Communicate(**kwargs)
+                        await communicate.save(str(mp3))
+                        if not mp3.exists() or mp3.stat().st_size < 1500:
+                            raise RuntimeError("serviço concluiu sem entregar áudio válido")
+                        voice = candidate
+                        voices[speaker] = candidate
+                        rendered[index] = mp3
+                        success = True
+                        break
+                    except Exception as exc:
+                        detail = str(exc).replace("\\n", " ")[:180]
+                        tried.append(f"{candidate} ({'prosódia' if attempt_index == 0 else 'padrão'}): {detail}")
+                        mp3.unlink(missing_ok=True)
+                if success:
+                    break
+            if not success:
+                raise RuntimeError(
+                    f"Falha na fala {index + 1} de {speaker}. Tentativas: "
+                    + " | ".join(tried[-8:])
+                )
+            completed += 1
+            if progress:
+                progress("synthesis", completed, total)
+
+    await asyncio.gather(*(
+        synthesize_character(speaker, indexed_lines)
+        for speaker, indexed_lines in by_speaker.items()
+    ))
     return rendered, voices
 
 
