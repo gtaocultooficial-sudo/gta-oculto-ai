@@ -471,14 +471,47 @@ const shots=Array.isArray(c.shot_list)?c.shot_list:[];
 const voices=c.voice_direction||{};
 const continuity=c.continuity_rules||[];
 const audio=c.audio_direction||{};
-const cinematicPanel=e.cinematic_ready?'<div class="notice"><b>STORYBOARD CINEMATOGRÁFICO</b><br>Duração-alvo: '+Math.floor((c.duration_target_seconds||0)/60)+'m '+String((c.duration_target_seconds||0)%60).padStart(2,'0')+'s · Formato '+esc(c.format||'9:16')+' · '+shots.length+' planos<br><b>Áudio:</b> '+esc(audio.music||'')+'<br><b>Mixagem:</b> '+esc(audio.mix||'')+'</div><div class="scene"><h3>PLANOS DE CÂMERA</h3>'+shots.map(s=>'<div class="line"><b>'+esc(s.id)+' · Cena '+esc(s.scene)+' · '+esc(s.duration_seconds)+'s — '+esc(s.framing)+'</b><br><span class="muted">Câmera: '+esc(s.camera)+'</span><br>'+esc(s.visual)+'</div>').join('')+'</div><div class="scene"><h3>DIREÇÃO DE VOZ</h3>'+Object.keys(voices).map(k=>'<div class="line"><b>'+esc(k)+':</b> '+esc(voices[k])+'</div>').join('')+'</div><div class="scene"><h3>REGRAS DE CONTINUIDADE</h3>'+continuity.map(v=>'<div class="line">• '+esc(v)+'</div>').join('')+'</div><div class="notice"><b>PRÓXIMO PASSO:</b> storyboard e preparação de mídia. Ainda não existem arquivos de vídeo, imagens, vozes ou trilha renderizados.</div>':'<div class="notice"><b>PRÓXIMO PASSO:</b> expandir este roteiro para cenas cinematográficas, planos, direção de voz e continuidade.'+(e.number===1?' <button class="btn small" onclick="cinematizeEpisode(1)">CINEMATIZAR EPISÓDIO 01</button>':'')+'</div>';
-document.getElementById('scriptBody').innerHTML='<div class="notice"><b>CONFLITO:</b> '+esc(e.conflict)+'<br><b>REVELAÇÃO:</b> '+esc(e.revelation)+'<br><b>GANCHO FINAL:</b> '+esc(e.cliffhanger)+'</div>'+cinematicPanel+e.scenes.map(s=>'<div class="scene"><h3>'+esc(s.heading)+(s.duration_seconds?' · '+esc(s.duration_seconds)+'s':'')+'</h3><p>'+esc(s.action)+'</p>'+s.dialogue.map(d=>'<div class="line"><b>'+esc(d[0])+':</b> '+esc(d[1])+'</div>').join('')+'</div>').join('');
+const cinematicPanel=e.cinematic_ready?'<div class="notice"><b>STORYBOARD CINEMATOGRÁFICO</b><br>Duração-alvo: '+Math.floor((c.duration_target_seconds||0)/60)+'m '+String((c.duration_target_seconds||0)%60).padStart(2,'0')+'s · Formato '+esc(c.format||'9:16')+' · '+shots.length+' planos<br><b>Áudio de referência:</b> '+esc(audio.music||'')+'<br><b>Mixagem planejada:</b> '+esc(audio.mix||'')+'</div><div class="scene"><h3>PLANOS DE CÂMERA</h3>'+shots.map(s=>'<div class="line"><b>'+esc(s.id)+' · Cena '+esc(s.scene)+' · '+esc(s.duration_seconds)+'s — '+esc(s.framing)+'</b><br><span class="muted">Câmera: '+esc(s.camera)+'</span><br>'+esc(s.visual)+'</div>').join('')+'</div><div class="scene"><h3>DIREÇÃO DE VOZ</h3>'+Object.keys(voices).map(k=>'<div class="line"><b>'+esc(k)+':</b> '+esc(voices[k])+'</div>').join('')+'</div><div class="scene"><h3>REGRAS DE CONTINUIDADE</h3>'+continuity.map(v=>'<div class="line">• '+esc(v)+'</div>').join('')+'</div>':'<div class="notice"><b>PRÓXIMO PASSO:</b> expandir este roteiro para cenas cinematográficas, planos, direção de voz e continuidade.'+(e.number===1?' <button class="btn small" onclick="cinematizeEpisode(1)">CINEMATIZAR EPISÓDIO 01</button>':'')+'</div>';
+const voicePanel=e.number===1?'<div class="scene"><h3>REFAZER DIÁLOGOS COM VOZES NEURAIS</h3><p>Envie o MP4 atual do episódio. O GTA Oculto vai substituir a faixa de áudio por quatro vozes neurais brasileiras diferentes, sincronizadas às seis cenas. A faixa robótica antiga será descartada; não haverá fallback para eSpeak.</p><p class="muted">Jason · voz masculina grave | Lucia · voz feminina | Brian · voz masculina madura | Cal · voz masculina mais jovem. Nenhuma voz de ator será clonada.</p><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><input id="voiceSourceVideo" type="file" accept="video/mp4,.mp4" style="max-width:100%;color:#dbe4f0"><button class="btn" id="voiceRemixBtn" onclick="startVoiceRemix()">GERAR NOVA VERSÃO COM VOZES NEURAIS</button></div><div id="voiceRemixStatus" class="notice" style="margin-top:10px">Selecione o MP4 que você recebeu e inicie a substituição da narração.</div></div>':'';
+document.getElementById('scriptBody').innerHTML='<div class="notice"><b>CONFLITO:</b> '+esc(e.conflict)+'<br><b>REVELAÇÃO:</b> '+esc(e.revelation)+'<br><b>GANCHO FINAL:</b> '+esc(e.cliffhanger)+'</div>'+cinematicPanel+voicePanel+e.scenes.map(s=>'<div class="scene"><h3>'+esc(s.heading)+(s.duration_seconds?' · '+esc(s.duration_seconds)+'s':'')+'</h3><p>'+esc(s.action)+'</p>'+s.dialogue.map(d=>'<div class="line"><b>'+esc(d[0])+':</b> '+esc(d[1])+'</div>').join('')+'</div>').join('');
 document.getElementById('preview').scrollIntoView({behavior:'smooth',block:'start'});
 }
 async function cinematizeEpisode(n){
 const m=document.getElementById('message');m.textContent='Expandindo o roteiro, detalhando planos e gravando a continuidade na memória…';
 try{const r=await fetch('/api/novelas/episodes/'+n+'/cinematic',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});const d=await r.json();if(!r.ok)throw new Error(d.error||'Falha na expansão cinematográfica.');await loadState();showEpisode(d);m.innerHTML='<span class="good">Roteiro cinematográfico e storyboard salvos na memória persistente. Nenhum vídeo foi iniciado.</span>';}
 catch(e){m.innerHTML='<span class="error">'+esc(e.message)+'</span>';}
+}
+async function startVoiceRemix(){
+const input=document.getElementById('voiceSourceVideo');
+const button=document.getElementById('voiceRemixBtn');
+const status=document.getElementById('voiceRemixStatus');
+const file=input&&input.files?input.files[0]:null;
+if(!file){status.innerHTML='<span class="error">Selecione o MP4 do episódio 01 primeiro.</span>';return;}
+if(!file.name.toLowerCase().endsWith('.mp4')){status.innerHTML='<span class="error">O arquivo precisa ser MP4.</span>';return;}
+const form=new FormData();form.append('video',file,file.name);
+button.disabled=true;status.textContent='Enviando o MP4 para o servidor…';
+try{
+ const r=await fetch('/api/novelas/episodes/1/voice-remix',{method:'POST',body:form});
+ const d=await r.json();if(!r.ok)throw new Error(d.error||'Não foi possível iniciar a dublagem neural.');
+ status.textContent='Dublagem iniciada. O servidor está sintetizando cada fala separadamente…';
+ pollVoiceRemix(d.job_id);
+}catch(e){status.innerHTML='<span class="error">'+esc(e.message)+'</span>';button.disabled=false;}
+}
+async function pollVoiceRemix(jobId){
+const status=document.getElementById('voiceRemixStatus');
+const button=document.getElementById('voiceRemixBtn');
+try{
+ const r=await fetch('/api/novelas/voice-remix/'+jobId,{cache:'no-store'});
+ const d=await r.json();if(!r.ok)throw new Error(d.error||'Não foi possível consultar o trabalho.');
+ if(d.status==='COMPLETED'){
+   const voices=d.result&&d.result.voices?Object.keys(d.result.voices).map(k=>'<div class="line"><b>'+esc(k)+':</b> '+esc(d.result.voices[k])+'</div>').join(''):'';
+   status.innerHTML='<span class="good"><b>MP4 COM VOZES NEURAIS PRONTO.</b></span><br>'+esc(d.result.spoken_lines)+' falas · '+esc(d.result.spoken_words)+' palavras · '+esc(d.result.duration_seconds)+'s<br><div class="scene">'+voices+'</div><a class="btn" href="'+esc(d.download_url)+'">BAIXAR VÍDEO COM NOVAS VOZES</a> <a class="btn small" href="'+esc(d.subtitles_url)+'">BAIXAR LEGENDAS SRT</a>';
+   button.disabled=false;return;
+ }
+ if(d.status==='ERROR'){throw new Error(d.error||d.message||'A síntese neural falhou. O áudio original não foi alterado.');}
+ status.textContent=(d.stage||'PROCESSANDO')+' · '+(d.progress||0)+'% — '+(d.message||'Gerando vozes neurais…');
+ setTimeout(()=>pollVoiceRemix(jobId),2500);
+}catch(e){status.innerHTML='<span class="error">'+esc(e.message)+'</span>';button.disabled=false;}
 }
 async function openEpisode(n){const r=await fetch('/api/novelas/episodes/'+n);const d=await r.json();if(!r.ok){document.getElementById('message').textContent=d.error||'Roteiro não encontrado.';return;}showEpisode(d);}
 async function generateNext(){if(!state||!state.next_episode_number)return;const n=state.next_episode_number,b=document.getElementById('nextBtn'),m=document.getElementById('message');b.disabled=true;m.textContent='Montando roteiro e verificando continuidade…';

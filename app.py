@@ -14,7 +14,7 @@ except Exception:
 import requests
 import xml.etree.ElementTree as ET
 from bs4 import BeautifulSoup
-from flask import Flask, request, jsonify, render_template_string, send_from_directory, redirect
+from flask import Flask, request, jsonify, render_template_string, send_from_directory, send_file, redirect
 from PIL import Image, ImageDraw, ImageFont, ImageEnhance, ImageChops, ImageStat
 try:
     from live_clipper import LiveClipper
@@ -86,6 +86,10 @@ try:
 except Exception as _novela_import_error:
     expand_cinematic_episode = None
     print(f"[NOVELA] module unavailable: {type(_novela_import_error).__name__}: {_novela_import_error}", flush=True)
+
+# Separate neural-dialogue jobs for the fiction module. They never enter the news/Shorts queue.
+NOVELA_VOICE_JOBS = {}
+NOVELA_VOICE_JOBS_LOCK = threading.RLock()
 
 # The dashboard/radar and autonomous completion hook must share one editorial
 # brain. Otherwise a custom GTA_WORKSPACE can split ranking and production memory.
@@ -6806,6 +6810,171 @@ def novelas_cinematic_episode(number):
     except Exception as exc:
         print(f'[NOVELA] cinematic expansion error: {type(exc).__name__}: {str(exc)[:300]}', flush=True)
         return jsonify(error='Falha ao expandir o roteiro. Nenhum vídeo foi iniciado.'), 500
+
+def _novela_voice_job_update(job_id, **values):
+    with NOVELA_VOICE_JOBS_LOCK:
+        job = NOVELA_VOICE_JOBS.get(job_id)
+        if job is not None:
+            job.update(values)
+            job["updated_at"] = now_iso()
+
+
+def _run_novela_voice_remix(job_id, episode, source_path, job_dir):
+    try:
+        from novela_audio import render_voice_remix
+
+        def progress(stage, done, total):
+            if stage == "synthesis":
+                _novela_voice_job_update(
+                    job_id, stage="GERANDO VOZES NEURAIS",
+                    progress=10 + int(65 * (done / max(1, total))),
+                    completed_lines=done, total_lines=total,
+                    message=f"Vozes neurais: {done}/{total} falas prontas."
+                )
+            elif stage == "connecting":
+                _novela_voice_job_update(
+                    job_id, stage="CONECTANDO AO EDGE TTS",
+                    progress=5, message="Consultando o catálogo de vozes brasileiras."
+                )
+            elif stage == "mixing":
+                _novela_voice_job_update(
+                    job_id, stage="SINCRONIZANDO E MIXANDO",
+                    progress=82, message="Sincronizando as falas e substituindo a faixa robótica."
+                )
+
+        _novela_voice_job_update(
+            job_id, status="RUNNING", stage="INICIANDO",
+            progress=2, message="Iniciando dublagem neural."
+        )
+        result = render_voice_remix(
+            episode=episode,
+            source_video=source_path,
+            output_dir=job_dir,
+            progress=progress
+        )
+        _novela_voice_job_update(
+            job_id, status="COMPLETED", stage="CONCLUÍDO",
+            progress=100, message="Nova versão com vozes neurais validada.",
+            output_path=result["video_path"],
+            subtitle_path=result["subtitle_path"],
+            result={k: v for k, v in result.items() if k not in ("video_path", "subtitle_path")}
+        )
+
+        # Persist metadata in the existing GTA editorial memory without changing Radar data.
+        if NOVELA_ENGINE is not None:
+            try:
+                memory_lock = NOVELA_ENGINE.memory.lock if NOVELA_ENGINE.memory is not None else NOVELA_ENGINE.lock
+                with NOVELA_ENGINE.lock:
+                    with memory_lock:
+                        root = NOVELA_ENGINE._read_root()
+                        novel = root.get("novelas", {}).get("vice_city_preco_neon", {})
+                        saved = novel.get("episodes", {}).get("1")
+                        if isinstance(saved, dict):
+                            saved["voice_render"] = {
+                                "status": "NEURAL_AUDIO_READY",
+                                "audio_engine": result["audio_engine"],
+                                "voices": result["voices"],
+                                "spoken_lines": result["spoken_lines"],
+                                "spoken_words": result["spoken_words"],
+                                "duration_seconds": result["duration_seconds"],
+                                "updated_at": now_iso()
+                            }
+                            novel["episodes"]["1"] = saved
+                            root.setdefault("novelas", {})["vice_city_preco_neon"] = novel
+                            NOVELA_ENGINE._write_root(root)
+            except Exception as memory_error:
+                print(f"[NOVELA_VOICE] metadata persistence skipped: {type(memory_error).__name__}: {str(memory_error)[:180]}", flush=True)
+    except Exception as exc:
+        print(f"[NOVELA_VOICE] job={job_id} error: {type(exc).__name__}: {str(exc)[:400]}", flush=True)
+        _novela_voice_job_update(
+            job_id, status="ERROR", stage="ERRO", progress=100,
+            message="Não foi possível gerar a dublagem neural.",
+            error=str(exc)[:700]
+        )
+
+
+@APP.post('/api/novelas/episodes/1/voice-remix')
+def novelas_voice_remix_start():
+    if NOVELA_ENGINE is None:
+        return jsonify(error="Módulo de novelas indisponível."), 503
+    episode = NOVELA_ENGINE.get_episode(1)
+    if not episode:
+        return jsonify(error="O roteiro do episódio 01 ainda não existe."), 404
+
+    upload = request.files.get("video")
+    if upload is None or not upload.filename:
+        return jsonify(error="Selecione o MP4 atual do episódio 01."), 400
+    if not upload.filename.lower().endswith(".mp4"):
+        return jsonify(error="Envie um arquivo MP4."), 400
+
+    import uuid
+    job_id = uuid.uuid4().hex
+    job_dir = WORK / "novela_voice_remix" / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+    source_path = job_dir / "source.mp4"
+    upload.save(source_path)
+    if not source_path.exists() or source_path.stat().st_size < 50_000:
+        shutil.rmtree(job_dir, ignore_errors=True)
+        return jsonify(error="O arquivo MP4 está vazio ou incompleto."), 400
+    if source_path.stat().st_size > 120 * 1024 * 1024:
+        shutil.rmtree(job_dir, ignore_errors=True)
+        return jsonify(error="O MP4 ultrapassa o limite de 120 MB."), 413
+
+    with NOVELA_VOICE_JOBS_LOCK:
+        NOVELA_VOICE_JOBS[job_id] = {
+            "job_id": job_id, "status": "QUEUED", "stage": "FILA",
+            "progress": 0, "message": "Arquivo recebido. Aguardando dublagem neural.",
+            "created_at": now_iso(), "updated_at": now_iso(),
+            "output_path": None, "subtitle_path": None, "error": None
+        }
+    worker = threading.Thread(
+        target=_run_novela_voice_remix,
+        args=(job_id, episode, source_path, job_dir),
+        daemon=True,
+        name=f"novela-voice-{job_id[:8]}"
+    )
+    worker.start()
+    return jsonify({
+        "ok": True, "job_id": job_id,
+        "status_url": f"/api/novelas/voice-remix/{job_id}",
+        "message": "Dublagem neural iniciada. Nenhuma publicação será feita."
+    }), 202
+
+
+@APP.get('/api/novelas/voice-remix/<job_id>')
+def novelas_voice_remix_status(job_id):
+    with NOVELA_VOICE_JOBS_LOCK:
+        job = NOVELA_VOICE_JOBS.get(job_id)
+        if not job:
+            return jsonify(error="Trabalho de dublagem não encontrado nesta sessão."), 404
+        data = dict(job)
+    data.pop("output_path", None)
+    data.pop("subtitle_path", None)
+    if data.get("status") == "COMPLETED":
+        data["download_url"] = f"/api/novelas/voice-remix/{job_id}/download"
+        data["subtitles_url"] = f"/api/novelas/voice-remix/{job_id}/subtitles"
+    return jsonify(data)
+
+
+@APP.get('/api/novelas/voice-remix/<job_id>/download')
+def novelas_voice_remix_download(job_id):
+    with NOVELA_VOICE_JOBS_LOCK:
+        job = NOVELA_VOICE_JOBS.get(job_id)
+        path = Path(job["output_path"]) if job and job.get("output_path") else None
+    if path is None or not path.is_file():
+        return jsonify(error="O MP4 com vozes neurais ainda não está pronto."), 404
+    return send_file(path, mimetype="video/mp4", as_attachment=True, download_name="VICE_CITY_EP01_VOZES_NEURAIS.mp4")
+
+
+@APP.get('/api/novelas/voice-remix/<job_id>/subtitles')
+def novelas_voice_remix_subtitles(job_id):
+    with NOVELA_VOICE_JOBS_LOCK:
+        job = NOVELA_VOICE_JOBS.get(job_id)
+        path = Path(job["subtitle_path"]) if job and job.get("subtitle_path") else None
+    if path is None or not path.is_file():
+        return jsonify(error="As legendas neurais ainda não estão prontas."), 404
+    return send_file(path, mimetype="application/x-subrip", as_attachment=True, download_name="VICE_CITY_EP01_LEGENDAS_NEURAIS.srt")
+
 
 @APP.get('/api/novelas/episodes/<int:number>')
 def novelas_get_episode(number):
