@@ -83,8 +83,9 @@ class NovelaAudioTests(unittest.TestCase):
         source = inspect.getsource(novela_audio)
         self.assertNotIn("espeak", source.lower())
         self.assertNotIn("gtts", source.lower())
-        self.assertNotIn("AndrewMultilingualNeural", source)
-        self.assertNotIn("BrianMultilingualNeural", source)
+        for candidates in VOICE_PREFERENCES.values():
+            self.assertTrue(candidates)
+            self.assertTrue(all(name.startswith("pt-BR-") for name in candidates))
 
 
 if __name__ == "__main__":
