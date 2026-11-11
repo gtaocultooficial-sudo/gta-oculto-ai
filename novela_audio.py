@@ -22,29 +22,28 @@ INTRO_SECONDS = 4.0
 OUTRO_SECONDS = 3.8
 MIN_DIALOGUE_GAP = 0.24
 
-# Stick to Microsoft's native Brazilian Portuguese neural voices.
-# Cross-locale multilingual voices are deliberately excluded from the dubbing path.
+# Four distinct, native pt-BR voices from Microsoft's published speech catalogue.
+# They are probed against the live Edge speech endpoint before a remix is accepted.
 VOICE_PREFERENCES = {
     "JASON DUVAL": [
-        "pt-BR-DonatoNeural", "pt-BR-FabioNeural",
-        "pt-BR-JulioNeural", "pt-BR-NicolauNeural",
-        "pt-BR-ValerioNeural", "pt-BR-AntonioNeural"
+        "pt-BR-DonatoNeural", "pt-BR-FabioNeural", "pt-BR-JulioNeural",
+        "pt-BR-NicolauNeural", "pt-BR-ValerioNeural", "pt-BR-HumbertoNeural",
+        "pt-BR-AntonioNeural"
     ],
     "LUCIA CAMINOS": [
-        "pt-BR-FranciscaNeural", "pt-BR-BrendaNeural",
-        "pt-BR-GiovannaNeural", "pt-BR-LeilaNeural",
-        "pt-BR-ManuelaNeural", "pt-BR-YaraNeural",
+        "pt-BR-FranciscaNeural", "pt-BR-BrendaNeural", "pt-BR-GiovannaNeural",
+        "pt-BR-LeilaNeural", "pt-BR-ManuelaNeural", "pt-BR-YaraNeural",
         "pt-BR-ThalitaNeural", "pt-BR-ElzaNeural"
     ],
     "BRIAN HEDER": [
-        "pt-BR-AntonioNeural", "pt-BR-HumbertoNeural",
-        "pt-BR-ValerioNeural", "pt-BR-NicolauNeural",
-        "pt-BR-DonatoNeural", "pt-BR-FabioNeural"
+        "pt-BR-AntonioNeural", "pt-BR-HumbertoNeural", "pt-BR-ValerioNeural",
+        "pt-BR-NicolauNeural", "pt-BR-DonatoNeural", "pt-BR-FabioNeural",
+        "pt-BR-JulioNeural"
     ],
     "CAL HAMPTON": [
-        "pt-BR-FabioNeural", "pt-BR-JulioNeural",
-        "pt-BR-NicolauNeural", "pt-BR-HumbertoNeural",
-        "pt-BR-AntonioNeural", "pt-BR-ValerioNeural"
+        "pt-BR-FabioNeural", "pt-BR-JulioNeural", "pt-BR-NicolauNeural",
+        "pt-BR-HumbertoNeural", "pt-BR-AntonioNeural", "pt-BR-ValerioNeural",
+        "pt-BR-DonatoNeural"
     ],
 }
 
@@ -59,49 +58,101 @@ VOICE_PROSODY = {
 
 def supported_portuguese_voices(catalogue):
     """Return only native voices whose catalogue locale is Portuguese (Brazil)."""
-    found = set()
-    for item in catalogue or []:
-        short_name = str(item.get("ShortName") or "").strip()
-        locale = str(item.get("Locale") or "").strip().lower()
-        if short_name and locale == "pt-br" and short_name.startswith("pt-BR-"):
-            found.add(short_name)
-    return found
+    return {
+        str(item.get("ShortName") or "").strip()
+        for item in (catalogue or [])
+        if str(item.get("ShortName") or "").strip().startswith("pt-BR-")
+        and str(item.get("Locale") or "").strip().lower() == "pt-br"
+    }
 
 
-def voice_candidates_for_speaker(speaker, available_names, current=None):
-    """Ordered native pt-BR fallbacks for one character."""
+def voice_candidates_for_speaker(speaker, available_names=None, current=None):
+    """Ordered native pt-BR candidates; a live catalogue is advisory, not exhaustive."""
     preferences = VOICE_PREFERENCES.get(speaker)
     if not preferences:
         raise RuntimeError(f"Personagem sem mapa de voz neural: {speaker}")
     available = set(available_names or [])
     ordered = []
-    if current and current in available:
+    if current and (not available or current in available):
         ordered.append(current)
-    ordered.extend(v for v in preferences if v in available and v not in ordered)
+    ordered.extend(
+        voice for voice in preferences
+        if voice not in ordered and (not available or voice in available)
+    )
+    # If the unofficial catalogue endpoint lists only a subset, still probe the
+    # documented Microsoft native pt-BR voices directly instead of assuming absent.
+    if not ordered:
+        ordered = list(preferences)
+    elif len(ordered) < 2:
+        ordered.extend(v for v in preferences if v not in ordered)
     return ordered
 
 
 def choose_voice_assignments(available_names):
-    """Prefer four distinct native pt-BR voices; reuse only if the live catalogue is short."""
+    """Choose four distinct voices; never silently assign one voice to several roles."""
     available = set(available_names or [])
     assigned = {}
     used = set()
     for speaker, preferences in VOICE_PREFERENCES.items():
-        candidates = [voice for voice in preferences if voice in available]
+        candidates = [v for v in preferences if not available or v in available]
         selected = next((voice for voice in candidates if voice not in used), None)
-        if selected is None and candidates:
-            # Last resort when this server's catalogue has fewer voices than characters:
-            # keep Brazilian pronunciation and differentiate by character prosody.
-            selected = candidates[0]
         if selected is None:
-            present = ", ".join(sorted(available)) or "nenhuma voz pt-BR"
             raise RuntimeError(
-                f"Nenhuma voz neural nativa pt-BR disponível para {speaker}. "
-                f"Catálogo recebido: {present}."
+                "Não há quatro vozes neurais brasileiras distintas no catálogo recebido. "
+                "A dublagem foi bloqueada para evitar repetir a mesma voz entre personagens."
             )
         assigned[speaker] = selected
         used.add(selected)
+    if len(set(assigned.values())) != 4:
+        raise RuntimeError("A seleção de vozes não ficou exclusiva por personagem.")
     return assigned
+
+
+def collect_dialogue_lines(episode):
+    """Use only the fully expanded cinematic screenplay, never the short initial draft."""
+    if not episode or not episode.get("cinematic_ready"):
+        raise RuntimeError(
+            "O roteiro ainda não foi expandido para a versão cinematográfica de seis cenas."
+        )
+    scenes = episode.get("scenes") or []
+    if len(scenes) < 6:
+        raise RuntimeError(
+            f"O roteiro salvo contém apenas {len(scenes)} cenas; são necessárias seis cenas completas."
+        )
+    lines = []
+    for scene_index, scene in enumerate(scenes, 1):
+        for line_index, pair in enumerate(scene.get("dialogue") or [], 1):
+            if not isinstance(pair, (list, tuple)) or len(pair) != 2:
+                raise RuntimeError(f"Fala inválida na cena {scene_index}.")
+            speaker, text = str(pair[0]).strip(), str(pair[1]).strip()
+            if speaker not in VOICE_PREFERENCES or not text:
+                raise RuntimeError(
+                    f"Personagem sem voz configurada ou fala vazia na cena {scene_index}: "
+                    f"{speaker or 'desconhecido'}."
+                )
+            lines.append({
+                "scene": scene_index,
+                "speaker": speaker,
+                "text": text,
+                "line": line_index
+            })
+    speakers = {line["speaker"] for line in lines}
+    expected = set(VOICE_PREFERENCES)
+    missing = sorted(expected - speakers)
+    if missing:
+        raise RuntimeError("Faltam diálogos para: " + ", ".join(missing))
+    if len(lines) < 35:
+        raise RuntimeError(
+            f"O roteiro cinematográfico tem apenas {len(lines)} falas; "
+            "a geração exige pelo menos 35 falas (alvo: 40)."
+        )
+    spoken_words = sum(_word_count(line["text"]) for line in lines)
+    if spoken_words < 280:
+        raise RuntimeError(
+            f"O roteiro tem somente {spoken_words} palavras faladas; "
+            "a geração exige no mínimo 280."
+        )
+    return lines
 
 
 def _run(cmd, timeout=180):
@@ -157,77 +208,82 @@ async def _synthesize_lines(lines, out_dir: Path, progress: Callable | None = No
             "Edge TTS não está instalado no servidor. Nenhuma voz local robótica será usada."
         ) from exc
 
-    try:
-        catalogue = await edge_tts.list_voices()
-    except Exception as exc:
-        raise RuntimeError(
-            "Não foi possível acessar o catálogo de vozes da Microsoft: "
-            + str(exc)[:300]
-        ) from exc
-
-    available = supported_portuguese_voices(catalogue)
-    if not available:
-        raise RuntimeError(
-            "O catálogo Edge TTS não retornou vozes neurais nativas pt-BR. "
-            "Nenhuma voz de outro idioma será usada como substituta."
-        )
-    voices = choose_voice_assignments(available)
+    # The unofficial voice-list endpoint can be incomplete in hosted environments.
+    # Verify actual TTS by probing Microsoft's documented native pt-BR voices directly.
+    # Four different working voices are mandatory; there is no repeated-voice fallback.
     total = len(lines)
-    completed = 0
     rendered = [None] * total
-    failures = []
-    # One worker per character keeps the same voice throughout that character's
-    # entire performance while allowing four characters to synthesize in parallel.
+    completed = 0
+    probe_phrase = "Esta é uma verificação de voz em português brasileiro."
+    assigned = {}
+    used = set()
+    probe_dir = out_dir / "voice_probes"
+    probe_dir.mkdir(parents=True, exist_ok=True)
+
+    for speaker, preferences in VOICE_PREFERENCES.items():
+        chosen = None
+        errors = []
+        for candidate in preferences:
+            if candidate in used:
+                continue
+            probe_path = probe_dir / f"{re.sub(r'[^a-z0-9]+', '_', speaker.lower())}_{candidate}.mp3"
+            probe_path.unlink(missing_ok=True)
+            try:
+                await edge_tts.Communicate(
+                    text=probe_phrase,
+                    voice=candidate
+                ).save(str(probe_path))
+                if not probe_path.exists() or probe_path.stat().st_size < 1200:
+                    raise RuntimeError("o serviço não entregou um arquivo de áudio válido")
+                chosen = candidate
+                used.add(candidate)
+                break
+            except Exception as exc:
+                errors.append(f"{candidate}: {str(exc).replace(chr(10), ' ')[:160]}")
+                probe_path.unlink(missing_ok=True)
+        if not chosen:
+            raise RuntimeError(
+                f"Não consegui validar uma voz pt-BR exclusiva para {speaker}. "
+                f"Vozes testadas: {' | '.join(errors[-6:])}. "
+                "Nenhum MP4 foi finalizado com vozes repetidas."
+            )
+        assigned[speaker] = chosen
+
+    if len(set(assigned.values())) != 4:
+        raise RuntimeError("A validação não encontrou quatro vozes brasileiras distintas.")
+    shutil.rmtree(probe_dir, ignore_errors=True)
+
     by_speaker = {}
     for index, line in enumerate(lines):
         by_speaker.setdefault(line["speaker"], []).append((index, line))
 
     async def synthesize_character(speaker, indexed_lines):
         nonlocal completed
-        voice = voices[speaker]
-        preferred_style = VOICE_PROSODY[speaker]
+        voice = assigned[speaker]
+        prosody = VOICE_PROSODY[speaker]
         for index, line in indexed_lines:
             mp3 = out_dir / f"line_{index + 1:02d}.mp3"
-            candidates = voice_candidates_for_speaker(speaker, available, current=voice)
-            if not candidates:
+            try:
+                # If character prosody causes a service error, retry the same
+                # neural identity with default settings. Do not change character voice.
+                try:
+                    await edge_tts.Communicate(
+                        text=line["text"], voice=voice,
+                        rate=prosody["rate"], pitch=prosody["pitch"]
+                    ).save(str(mp3))
+                except Exception:
+                    mp3.unlink(missing_ok=True)
+                    await edge_tts.Communicate(
+                        text=line["text"], voice=voice
+                    ).save(str(mp3))
+                if not mp3.exists() or mp3.stat().st_size < 1200:
+                    raise RuntimeError("serviço concluiu sem entregar áudio válido")
+                rendered[index] = mp3
+            except Exception as exc:
                 raise RuntimeError(
-                    f"Não há voz nativa pt-BR disponível para {speaker}. "
-                    + "; ".join(failures[-8:])
-                )
-            success = False
-            tried = []
-            for candidate in candidates:
-                # First attempt with the character's prosody. If the service rejects
-                # these parameters, retry the same native voice with default prosody.
-                attempts = [
-                    {"rate": preferred_style["rate"], "pitch": preferred_style["pitch"]},
-                    {}
-                ]
-                for attempt_index, prosody in enumerate(attempts):
-                    try:
-                        mp3.unlink(missing_ok=True)
-                        kwargs = {"text": line["text"], "voice": candidate}
-                        kwargs.update(prosody)
-                        communicate = edge_tts.Communicate(**kwargs)
-                        await communicate.save(str(mp3))
-                        if not mp3.exists() or mp3.stat().st_size < 1500:
-                            raise RuntimeError("serviço concluiu sem entregar áudio válido")
-                        voice = candidate
-                        voices[speaker] = candidate
-                        rendered[index] = mp3
-                        success = True
-                        break
-                    except Exception as exc:
-                        detail = str(exc).replace("\\n", " ")[:180]
-                        tried.append(f"{candidate} ({'prosódia' if attempt_index == 0 else 'padrão'}): {detail}")
-                        mp3.unlink(missing_ok=True)
-                if success:
-                    break
-            if not success:
-                raise RuntimeError(
-                    f"Falha na fala {index + 1} de {speaker}. Tentativas: "
-                    + " | ".join(tried[-8:])
-                )
+                    f"Falha ao sintetizar a fala {index + 1} de {speaker} "
+                    f"com {voice}: {str(exc)[:240]}"
+                ) from exc
             completed += 1
             if progress:
                 progress("synthesis", completed, total)
@@ -236,7 +292,7 @@ async def _synthesize_lines(lines, out_dir: Path, progress: Callable | None = No
         synthesize_character(speaker, indexed_lines)
         for speaker, indexed_lines in by_speaker.items()
     ))
-    return rendered, voices
+    return rendered, assigned
 
 
 def _to_wav(mp3_path: Path, wav_path: Path, ffmpeg: str):
@@ -405,28 +461,15 @@ def render_voice_remix(
         raise RuntimeError("A duração do MP4 precisa ficar entre 10 segundos e 10 minutos.")
 
     scenes = episode.get("scenes") or []
-    lines = []
-    for scene_index, scene in enumerate(scenes, 1):
-        for line_index, pair in enumerate(scene.get("dialogue") or [], 1):
-            if not isinstance(pair, (list, tuple)) or len(pair) != 2:
-                raise RuntimeError(f"Fala inválida na cena {scene_index}.")
-            speaker, text = str(pair[0]).strip(), str(pair[1]).strip()
-            if speaker not in VOICE_PREFERENCES or not text:
-                raise RuntimeError(f"Personagem sem voz configurada: {speaker or 'desconhecido'}.")
-            lines.append({
-                "scene": scene_index,
-                "speaker": speaker,
-                "text": text,
-                "line": line_index
-            })
-    if not lines:
-        raise RuntimeError("O episódio não tem diálogos para dublar.")
+    lines = collect_dialogue_lines(episode)
 
     if progress:
         progress("connecting", 0, len(lines))
     mp3_paths, voice_assignments = asyncio.run(
         _synthesize_lines(lines, out_dir, progress=progress)
     )
+    if len(set(voice_assignments.values())) != 4:
+        raise RuntimeError("A dublagem foi bloqueada: os quatro personagens precisam de vozes distintas.")
 
     wav_paths = []
     for index, mp3 in enumerate(mp3_paths, 1):

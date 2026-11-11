@@ -186,9 +186,20 @@ def expand_episode(engine, number):
             episode = state.get("episodes", {}).get(str(number))
             if not episode:
                 raise ValueError("EPISODE_NOT_FOUND: gere o roteiro do episódio antes de expandi-lo.")
-            if episode.get("cinematic", {}).get("version") == EPISODE_1_CINEMATIC["version"]:
+            existing_scenes = episode.get("scenes") or []
+            existing_dialogue_lines = sum(
+                len(scene.get("dialogue") or [])
+                for scene in existing_scenes
+            )
+            if (
+                episode.get("cinematic", {}).get("version") == EPISODE_1_CINEMATIC["version"]
+                and len(existing_scenes) >= 6
+                and existing_dialogue_lines >= 35
+                and episode.get("cinematic_ready")
+            ):
                 return deepcopy(episode)
 
+            # A stale/partial v2 marker must not prevent repairing an older 4-scene draft.
             expanded = deepcopy(episode)
             cinematic = deepcopy(EPISODE_1_CINEMATIC)
             # Set a complete 165-second coverage plan: 12 key shots plus 9 dialogue/reaction cutaways.
