@@ -7,6 +7,8 @@ from copy import deepcopy
 from datetime import datetime, timezone
 import re
 
+from novela_engine import SERIES_KEY
+
 
 EPISODE_1_CINEMATIC = {
     "version": 2,
@@ -219,6 +221,6 @@ def expand_episode(engine, number):
             expanded["video_job_created"] = False
             state.setdefault("episodes", {})[str(number)] = expanded
             state["updated_at"] = datetime.now(timezone.utc).isoformat()
-            root.setdefault("novelas", {})[engine.series_key] = state
+            root.setdefault("novelas", {})[SERIES_KEY] = state
             engine._write_root(root)
             return deepcopy(expanded)
