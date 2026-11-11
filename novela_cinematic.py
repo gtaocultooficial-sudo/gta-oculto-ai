@@ -26,12 +26,12 @@ EPISODE_1_CINEMATIC = {
                 "amassada do manifesto. Jason não pega o papel imediatamente."
             ),
             "dialogue": [
-                ("BRIAN HEDER", "O barco saiu daqui às seis e quarenta. Tripulação registrada, carga conferida. Até aí, tudo normal."),
+                ("BRIAN HEDER", "O barco saiu às seis e quarenta. Tripulação e carga estavam registradas."),
                 ("JASON DUVAL", "E depois?"),
-                ("BRIAN HEDER", "Depois, o sistema diz que ele nunca saiu. O nome da embarcação sumiu da lista e o manifesto foi substituído."),
-                ("JASON DUVAL", "Você está me entregando um papel e esperando que eu acredite que não tem nada a ver com isso."),
-                ("BRIAN HEDER", "Estou entregando porque alguém mexeu num registro que devia ficar quieto. E porque meu nome aparece perto demais dessa história."),
-                ("JASON DUVAL", "Barco não desaparece. Alguém abre caminho, alguém fecha a boca. Qual dos dois você fez?")
+                ("BRIAN HEDER", "O sistema diz que nunca saiu. O manifesto foi substituído."),
+                ("JASON DUVAL", "Você entrega esse papel e espera que eu confie em você?"),
+                ("BRIAN HEDER", "Meu nome aparece perto demais disso. Não vou esperar ser o culpado."),
+                ("JASON DUVAL", "Então me diga quem abriu caminho."),
             ],
             "transition": "Corte seco no carimbo de horário do manifesto."
         },
@@ -44,15 +44,13 @@ EPISODE_1_CINEMATIC = {
                 "de um lado para o outro. Ela segura o documento fora do alcance dele."
             ),
             "dialogue": [
-                ("LUCIA CAMINOS", "Vem olhar isso. O horário parece impresso, mas a pressão da caneta atravessa a folha."),
-                ("JASON DUVAL", "Então alguém corrigiu o documento."),
-                ("LUCIA CAMINOS", "Não corrigiu. Sobrescreveu. O seis foi transformado em oito depois que o papel já tinha sido assinado."),
-                ("JASON DUVAL", "Brian disse que era a cópia original."),
-                ("LUCIA CAMINOS", "E você acreditou porque conhece o Brian há mais tempo do que me conhece."),
-                ("JASON DUVAL", "Eu não disse que acredito nele. Disse que ele não costuma deixar prova na minha mão."),
-                ("LUCIA CAMINOS", "Talvez essa seja a prova. Alguém quer que você siga o Brian e pare de procurar quem alterou o registro."),
-                ("JASON DUVAL", "Você acha que estão colocando a gente um contra o outro?"),
-                ("LUCIA CAMINOS", "Acho que já conseguiram. Você só ainda não percebeu.")
+                ("LUCIA CAMINOS", "Olha a tinta. O horário foi sobrescrito depois da assinatura."),
+                ("JASON DUVAL", "Então alteraram a saída."),
+                ("LUCIA CAMINOS", "O seis virou oito. A pressão da caneta prova que foi feito depois."),
+                ("JASON DUVAL", "Brian jurou que era a cópia original."),
+                ("LUCIA CAMINOS", "Talvez ele esteja dizendo a verdade sobre o papel e mentindo sobre o resto."),
+                ("JASON DUVAL", "Você acha que ele está envolvido?"),
+                ("LUCIA CAMINOS", "Acho que alguém quer que a gente culpe Brian antes de olhar para a marina."),
             ],
             "transition": "A câmera acompanha Lucia virando a folha; o carimbo de saída aparece no verso."
         },
@@ -65,15 +63,13 @@ EPISODE_1_CINEMATIC = {
                 "Ele pausa, amplia o identificador da conta e chama Jason por vídeo."
             ),
             "dialogue": [
-                ("CAL HAMPTON", "Tenho uma coisa. O registro de saída foi alterado, mas o histórico de acesso continua aqui."),
-                ("JASON DUVAL", "Consegue ver quem fez?"),
-                ("CAL HAMPTON", "Consigo ver qual conta autorizou. Foi um usuário interno da marina, não uma conexão de fora."),
-                ("JASON DUVAL", "Nome."),
-                ("CAL HAMPTON", "Ainda não. O sistema registra a conta, o terminal e o horário. Não registra quem estava sentado na cadeira."),
+                ("CAL HAMPTON", "Encontrei o histórico. A alteração não apagou o acesso que a autorizou."),
+                ("JASON DUVAL", "Quem fez?"),
+                ("CAL HAMPTON", "Uma conta interna. O acesso veio da rede da marina."),
                 ("LUCIA CAMINOS", "Qual terminal?"),
-                ("CAL HAMPTON", "Escritório administrativo, estação quatro. A autorização foi criada onze minutos depois da partida."),
-                ("JASON DUVAL", "Então alguém esperou o barco sair para apagar a saída."),
-                ("CAL HAMPTON", "Ou alguém queria que parecesse assim. Tem uma segunda coisa: o arquivo foi aberto de novo ontem.")
+                ("CAL HAMPTON", "Escritório administrativo, estação quatro. Onze minutos depois da partida."),
+                ("JASON DUVAL", "Alguém esperou o barco sair para apagar a saída."),
+                ("CAL HAMPTON", "E o arquivo foi aberto outra vez ontem à noite."),
             ],
             "transition": "O cursor pisca sobre o horário da segunda abertura."
         },
@@ -88,11 +84,10 @@ EPISODE_1_CINEMATIC = {
             "dialogue": [
                 ("LUCIA CAMINOS", "A estação quatro fica naquele escritório."),
                 ("JASON DUVAL", "A gente entra, pega o nome e sai."),
-                ("LUCIA CAMINOS", "Não. Se a conta foi usada ontem, alguém ainda está monitorando o arquivo."),
-                ("JASON DUVAL", "Então vamos esperar a pessoa aparecer."),
-                ("LUCIA CAMINOS", "Você sempre acha que dá para resolver tudo chegando primeiro."),
-                ("JASON DUVAL", "E você sempre acha que esperar deixa a gente mais seguro."),
-                ("LUCIA CAMINOS", "Não deixa. Só evita que a gente entre numa armadilha com os olhos abertos.")
+                ("LUCIA CAMINOS", "Se o arquivo foi aberto ontem, alguém ainda está cuidando dele."),
+                ("JASON DUVAL", "Então esperamos essa pessoa aparecer."),
+                ("LUCIA CAMINOS", "Você chama isso de plano?"),
+                ("JASON DUVAL", "Chamo de não entrar numa armadilha sem saber quem está do outro lado."),
             ],
             "transition": "Um reflexo se move na janela do escritório; corte antes de revelar quem está lá."
         },
@@ -105,15 +100,13 @@ EPISODE_1_CINEMATIC = {
                 "de baixa resolução extraída de uma câmera externa. Jason aproxima o celular."
             ),
             "dialogue": [
-                ("LUCIA CAMINOS", "Cal mandou uma imagem. A câmera não mostra a placa, mas mostra o píer."),
+                ("LUCIA CAMINOS", "Cal mandou uma imagem. É a câmera externa do píer."),
                 ("JASON DUVAL", "Esse é o barco?"),
-                ("LUCIA CAMINOS", "É a mesma pintura no casco. E olha o relógio da câmera."),
-                ("JASON DUVAL", "Que horas?"),
-                ("LUCIA CAMINOS", "Dez e quarenta e sete. Quatro horas depois do horário em que disseram que ele tinha desaparecido."),
-                ("JASON DUVAL", "Então o barco continuou navegando."),
-                ("LUCIA CAMINOS", "Ou alguém montou uma imagem para a gente acreditar nisso."),
-                ("JASON DUVAL", "Você acha que a foto é falsa?"),
-                ("LUCIA CAMINOS", "Acho que, até agora, toda pessoa que nos entrega uma resposta também tenta escolher a próxima pergunta.")
+                ("LUCIA CAMINOS", "Olha o horário. Dez e quarenta e sete. Quatro horas depois do registro."),
+                ("JASON DUVAL", "Então ele continuou navegando."),
+                ("LUCIA CAMINOS", "Ou alguém preparou uma imagem para nos fazer acreditar nisso."),
+                ("JASON DUVAL", "Você acha que é falsa?"),
+                ("LUCIA CAMINOS", "Acho que quem mandou sabe exatamente o que estamos procurando."),
             ],
             "transition": "O celular vibra novamente; a imagem original chega como anexo."
         },
@@ -128,14 +121,13 @@ EPISODE_1_CINEMATIC = {
                 "mostra um número sem identificação."
             ),
             "dialogue": [
-                ("JASON DUVAL", "A foto foi tirada depois do registro. Não é uma imagem antiga."),
-                ("LUCIA CAMINOS", "Olha o canto. O reflexo é de uma câmera de segurança, não de um celular."),
-                ("JASON DUVAL", "Quem mandou isso tinha acesso às câmeras da marina."),
-                ("LUCIA CAMINOS", "E sabe que estamos procurando."),
+                ("JASON DUVAL", "A foto é posterior ao registro. Não é uma imagem antiga."),
+                ("LUCIA CAMINOS", "No canto, o reflexo parece ser de outra câmera."),
+                ("JASON DUVAL", "Quem enviou tinha acesso à rede da marina."),
+                ("LUCIA CAMINOS", "Então está nos observando."),
                 ("JASON DUVAL", "Talvez queira ajudar."),
                 ("LUCIA CAMINOS", "Ninguém ajuda escondendo o próprio nome."),
-                ("JASON DUVAL", "Então quer que a gente siga a pista."),
-                ("LUCIA CAMINOS", "Ou quer ver até onde você vai antes de perceber que está sendo seguido.")
+                ("JASON DUVAL", "Então quer que a gente siga a pista. E quer ver até onde vamos."),
             ],
             "transition": "Close no telefone: chamada recebida de NÚMERO DESCONHECIDO. Corte para preto antes de Jason atender."
         }
@@ -199,6 +191,20 @@ def expand_episode(engine, number):
 
             expanded = deepcopy(episode)
             cinematic = deepcopy(EPISODE_1_CINEMATIC)
+            # Set a complete 165-second coverage plan: 12 key shots plus 9 dialogue/reaction cutaways.
+            for shot in cinematic["shot_list"]:
+                shot["duration_seconds"] = 7
+            cinematic["shot_list"].extend([
+                {"id": "S13", "scene": 2, "duration_seconds": 9, "framing": "Plano médio de Lucia", "camera": "Dolly-in lento", "visual": "Lucia percebe que Jason ainda protege a confiança antiga em Brian; tensão íntima, sem melodrama."},
+                {"id": "S14", "scene": 3, "duration_seconds": 9, "framing": "Plano detalhe do terminal 04", "camera": "Pan curto até a linha do log", "visual": "A interface mostra uma conta interna e o acesso de ontem; preservar o identificador da estação administrativa quatro."},
+                {"id": "S15", "scene": 4, "duration_seconds": 9, "framing": "Plano de reação de Jason", "camera": "Push-in suave", "visual": "Jason interrompe o movimento ao notar uma sombra atrás da janela; não revelar a identidade."},
+                {"id": "S16", "scene": 5, "duration_seconds": 9, "framing": "Plano externo do carro", "camera": "Travelling lento acompanhando a chuva", "visual": "Carro parado na estrada à beira-mar; reflexos de luz no asfalto molhado, mar escuro ao fundo."},
+                {"id": "S17", "scene": 5, "duration_seconds": 9, "framing": "Insert do celular de Lucia", "camera": "Rack focus da notificação para a fotografia", "visual": "Mensagem de Cal chega com a imagem capturada pela câmera externa da marina."},
+                {"id": "S18", "scene": 5, "duration_seconds": 9, "framing": "Close alternado do casal", "camera": "Cortes de reação em ritmo crescente", "visual": "Lucia aponta o horário 22:47; Jason entende que o registro oficial não bate com a imagem."},
+                {"id": "S19", "scene": 6, "duration_seconds": 9, "framing": "Plano geral sob a cobertura do posto", "camera": "Dolly-in lento", "visual": "Jason e Lucia isolados sob luz branca, com a estrada vazia e o mar escuro ao fundo."},
+                {"id": "S20", "scene": 6, "duration_seconds": 9, "framing": "Macro do canto da fotografia", "camera": "Push-in no reflexo da câmera", "visual": "O reflexo de outra câmera aparece na fotografia; manter a composição e o horário já apresentados."},
+                {"id": "S21", "scene": 6, "duration_seconds": 9, "framing": "Close do telefone na mão de Jason", "camera": "Push-in final e corte para preto", "visual": "Chamada de número desconhecido. Jason não atende; tela vibra uma vez e a imagem corta para preto."}
+            ])
             expanded["scenes"] = cinematic["scenes"]
             lines = []
             for scene in cinematic["scenes"]:
