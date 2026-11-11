@@ -350,7 +350,10 @@ class NovelaEngine:
             "status": episode.get("status", "SCRIPT_READY"),
             "word_count": episode.get("word_count", 0),
             "created_at": episode.get("created_at"),
-            "cliffhanger": episode["cliffhanger"]
+            "cliffhanger": episode["cliffhanger"],
+            "cinematic_ready": bool(episode.get("cinematic_ready")),
+            "duration_target_seconds": episode.get("duration_target_seconds"),
+            "dialogue_word_count": episode.get("dialogue_word_count", 0)
         }
 
     def _validate_novelty(self, state, plan):
@@ -456,11 +459,27 @@ function render(){document.getElementById('storage').textContent='Memória: '+(s
 document.getElementById('progress').textContent=state.generated_count+'/8 roteiros criados';
 document.getElementById('cast').innerHTML=state.characters.map(p=>'<div class="person"><b>'+esc(p.name)+'</b><span>'+esc(p.profile)+'</span></div>').join('');
 const generated=new Map(state.episodes.map(e=>[e.number,e]));
-document.getElementById('episodes').innerHTML=Array.from({length:8},(_,i)=>{let n=i+1,e=generated.get(n),titles=['A CARGA FANTASMA','FREQUÊNCIA MORTA','VIRAL','LINHA DE CRÉDITO','A DÍVIDA DE RAUL','O ARQUIVO DE BRIAN','NOITE DE MÁSCARAS','O PREÇO DO NEON'],places=['Marina das Leonida Keys','Estação meteorológica abandonada','Estúdio da Only Raw Records','Clube de Boobie Ike','Hotel de beira de estrada','Armazém antigo no porto','Gala beneficente em Vice City','Terminal de contêineres'];return '<div class="episode"><div class="epnum">'+String(n).padStart(2,'0')+'</div><div><div class="epname">'+titles[i]+'</div><div class="epdesc">'+places[i]+'</div><div class="status">'+(e?'✓ ROTEIRO SALVO':'○ AINDA NÃO GERADO')+'</div></div>'+(e?'<button class="btn small" onclick="openEpisode('+n+')">ABRIR ROTEIRO</button>':(state.next_episode_number===n?'<button class="btn small" onclick="generateNext()">CRIAR ROTEIRO</button>':'<span class="muted">Aguardando episódio anterior</span>'))+'</div>'}).join('');
+document.getElementById('episodes').innerHTML=Array.from({length:8},(_,i)=>{let n=i+1,e=generated.get(n),titles=['A CARGA FANTASMA','FREQUÊNCIA MORTA','VIRAL','LINHA DE CRÉDITO','A DÍVIDA DE RAUL','O ARQUIVO DE BRIAN','NOITE DE MÁSCARAS','O PREÇO DO NEON'],places=['Marina das Leonida Keys','Estação meteorológica abandonada','Estúdio da Only Raw Records','Clube de Boobie Ike','Hotel de beira de estrada','Armazém antigo no porto','Gala beneficente em Vice City','Terminal de contêineres'];return '<div class="episode"><div class="epnum">'+String(n).padStart(2,'0')+'</div><div><div class="epname">'+titles[i]+'</div><div class="epdesc">'+places[i]+'</div><div class="status">'+(e?'✓ ROTEIRO SALVO':'○ AINDA NÃO GERADO')+'</div></div>'+(e?'<div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn small" onclick="openEpisode('+n+')">ABRIR ROTEIRO</button>'+(e.cinematic_ready?'<span class="pill">STORYBOARD PRONTO</span>':'<button class="btn small" onclick="cinematizeEpisode('+n+')">CINEMATIZAR</button>')+'</div>':(state.next_episode_number===n?'<button class="btn small" onclick="generateNext()">CRIAR ROTEIRO</button>':'<span class="muted">Aguardando episódio anterior</span>'))+'</div>'}).join('');
 const b=document.getElementById('nextBtn');b.disabled=state.season_complete;b.textContent=state.season_complete?'✓ TEMPORADA COMPLETA':'✍️ GERAR EPISÓDIO '+String(state.next_episode_number).padStart(2,'0');
 }
-function showEpisode(e){document.getElementById('preview').hidden=false;document.getElementById('previewTitle').textContent='EPISÓDIO '+String(e.number).padStart(2,'0')+' — '+e.title;document.getElementById('wordCount').textContent=e.word_count+' palavras · '+e.location;
-document.getElementById('scriptBody').innerHTML='<div class="notice"><b>CONFLITO:</b> '+esc(e.conflict)+'<br><b>REVELAÇÃO:</b> '+esc(e.revelation)+'<br><b>GANCHO FINAL:</b> '+esc(e.cliffhanger)+'</div>'+e.scenes.map(s=>'<div class="scene"><h3>'+esc(s.heading)+'</h3><p>'+esc(s.action)+'</p>'+s.dialogue.map(d=>'<div class="line"><b>'+esc(d[0])+':</b> '+esc(d[1])+'</div>').join('')+'</div>').join('');document.getElementById('preview').scrollIntoView({behavior:'smooth',block:'start'});}
+function showEpisode(e){
+document.getElementById('preview').hidden=false;
+document.getElementById('previewTitle').textContent='EPISÓDIO '+String(e.number).padStart(2,'0')+' — '+e.title;
+document.getElementById('wordCount').textContent=e.word_count+' palavras · '+e.location+(e.cinematic_ready?' · '+e.dialogue_word_count+' palavras faladas · '+Math.round((e.duration_target_seconds||0)/60)+' min alvo':'');
+const c=e.cinematic||{};
+const shots=Array.isArray(c.shot_list)?c.shot_list:[];
+const voices=c.voice_direction||{};
+const continuity=c.continuity_rules||[];
+const audio=c.audio_direction||{};
+const cinematicPanel=e.cinematic_ready?'<div class="notice"><b>STORYBOARD CINEMATOGRÁFICO</b><br>Duração-alvo: '+Math.floor((c.duration_target_seconds||0)/60)+'m '+String((c.duration_target_seconds||0)%60).padStart(2,'0')+'s · Formato '+esc(c.format||'9:16')+' · '+shots.length+' planos<br><b>Áudio:</b> '+esc(audio.music||'')+'<br><b>Mixagem:</b> '+esc(audio.mix||'')+'</div><div class="scene"><h3>PLANOS DE CÂMERA</h3>'+shots.map(s=>'<div class="line"><b>'+esc(s.id)+' · Cena '+esc(s.scene)+' · '+esc(s.duration_seconds)+'s — '+esc(s.framing)+'</b><br><span class="muted">Câmera: '+esc(s.camera)+'</span><br>'+esc(s.visual)+'</div>').join('')+'</div><div class="scene"><h3>DIREÇÃO DE VOZ</h3>'+Object.keys(voices).map(k=>'<div class="line"><b>'+esc(k)+':</b> '+esc(voices[k])+'</div>').join('')+'</div><div class="scene"><h3>REGRAS DE CONTINUIDADE</h3>'+continuity.map(v=>'<div class="line">• '+esc(v)+'</div>').join('')+'</div><div class="notice"><b>PRÓXIMO PASSO:</b> storyboard e preparação de mídia. Ainda não existem arquivos de vídeo, imagens, vozes ou trilha renderizados.</div>':'<div class="notice"><b>PRÓXIMO PASSO:</b> expandir este roteiro para cenas cinematográficas, planos, direção de voz e continuidade.'+(e.number===1?' <button class="btn small" onclick="cinematizeEpisode(1)">CINEMATIZAR EPISÓDIO 01</button>':'')+'</div>';
+document.getElementById('scriptBody').innerHTML='<div class="notice"><b>CONFLITO:</b> '+esc(e.conflict)+'<br><b>REVELAÇÃO:</b> '+esc(e.revelation)+'<br><b>GANCHO FINAL:</b> '+esc(e.cliffhanger)+'</div>'+cinematicPanel+e.scenes.map(s=>'<div class="scene"><h3>'+esc(s.heading)+(s.duration_seconds?' · '+esc(s.duration_seconds)+'s':'')+'</h3><p>'+esc(s.action)+'</p>'+s.dialogue.map(d=>'<div class="line"><b>'+esc(d[0])+':</b> '+esc(d[1])+'</div>').join('')+'</div>').join('');
+document.getElementById('preview').scrollIntoView({behavior:'smooth',block:'start'});
+}
+async function cinematizeEpisode(n){
+const m=document.getElementById('message');m.textContent='Expandindo o roteiro, detalhando planos e gravando a continuidade na memória…';
+try{const r=await fetch('/api/novelas/episodes/'+n+'/cinematic',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});const d=await r.json();if(!r.ok)throw new Error(d.error||'Falha na expansão cinematográfica.');await loadState();showEpisode(d);m.innerHTML='<span class="good">Roteiro cinematográfico e storyboard salvos na memória persistente. Nenhum vídeo foi iniciado.</span>';}
+catch(e){m.innerHTML='<span class="error">'+esc(e.message)+'</span>';}
+}
 async function openEpisode(n){const r=await fetch('/api/novelas/episodes/'+n);const d=await r.json();if(!r.ok){document.getElementById('message').textContent=d.error||'Roteiro não encontrado.';return;}showEpisode(d);}
 async function generateNext(){if(!state||!state.next_episode_number)return;const n=state.next_episode_number,b=document.getElementById('nextBtn'),m=document.getElementById('message');b.disabled=true;m.textContent='Montando roteiro e verificando continuidade…';
 try{const r=await fetch('/api/novelas/episodes/'+n+'/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});const d=await r.json();if(!r.ok)throw new Error(d.error||'Falha ao gerar roteiro.');await loadState();showEpisode(d);m.innerHTML='<span class="good">Roteiro salvo na memória da temporada. Nenhum vídeo foi iniciado.</span>';}catch(e){m.innerHTML='<span class="error">'+esc(e.message)+'</span>';b.disabled=false;}}
