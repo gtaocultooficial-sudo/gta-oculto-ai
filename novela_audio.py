@@ -23,8 +23,7 @@ OUTRO_SECONDS = 3.8
 MIN_DIALOGUE_GAP = 0.24
 
 # Stick to Microsoft's native Brazilian Portuguese neural voices.
-# Multilingual en-US voices are deliberately excluded after the service returned
-# "No audio was received" for AndrewMultilingualNeural.
+# Cross-locale multilingual voices are deliberately excluded from the dubbing path.
 VOICE_PREFERENCES = {
     "JASON DUVAL": [
         "pt-BR-DonatoNeural", "pt-BR-FabioNeural",
