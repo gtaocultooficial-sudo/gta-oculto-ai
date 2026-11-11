@@ -6833,8 +6833,8 @@ def _run_novela_voice_remix(job_id, episode, source_path, job_dir):
                 )
             elif stage == "connecting":
                 _novela_voice_job_update(
-                    job_id, stage="CONECTANDO AO EDGE TTS",
-                    progress=5, message="Consultando o catálogo de vozes brasileiras."
+                    job_id, stage="CONECTANDO AO AZURE SPEECH",
+                    progress=5, message="Preparando quatro vozes neurais brasileiras."
                 )
             elif stage == "mixing":
                 _novela_voice_job_update(
