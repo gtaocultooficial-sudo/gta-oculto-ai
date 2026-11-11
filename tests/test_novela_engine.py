@@ -88,8 +88,10 @@ class NovelaEngineTests(unittest.TestCase):
         expanded = expand_episode(engine, 1)
         self.assertTrue(expanded["cinematic_ready"])
         self.assertEqual(expanded["status"], "CINEMATIC_SCRIPT_READY")
-        self.assertGreaterEqual(expanded["dialogue_word_count"], 250)
-        self.assertEqual(len(expanded["cinematic"]["shot_list"]), 12)
+        self.assertGreaterEqual(expanded["dialogue_word_count"], 300)
+        self.assertLessEqual(expanded["dialogue_word_count"], 380)
+        self.assertEqual(len(expanded["cinematic"]["shot_list"]), 21)
+        self.assertEqual(sum(shot["duration_seconds"] for shot in expanded["cinematic"]["shot_list"]), 165)
         self.assertEqual(expanded["duration_target_seconds"], 165)
         self.assertFalse(expanded["video_job_created"])
 
