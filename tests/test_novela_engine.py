@@ -4,6 +4,7 @@ import threading
 import unittest
 
 from novela_engine import NovelaEngine
+from novela_cinematic import expand_episode
 
 
 class FakeMemory:
@@ -79,6 +80,33 @@ class NovelaEngineTests(unittest.TestCase):
             for scene in second["scenes"] for _, line in scene["dialogue"]
         }
         self.assertFalse(lines_a & lines_b)
+
+    def test_cinematic_expansion_adds_scriptboard_and_persists_without_video_job(self):
+        memory = FakeMemory()
+        engine = NovelaEngine(memory)
+        engine.generate_episode(1)
+        expanded = expand_episode(engine, 1)
+        self.assertTrue(expanded["cinematic_ready"])
+        self.assertEqual(expanded["status"], "CINEMATIC_SCRIPT_READY")
+        self.assertGreaterEqual(expanded["dialogue_word_count"], 250)
+        self.assertEqual(len(expanded["cinematic"]["shot_list"]), 12)
+        self.assertEqual(expanded["duration_target_seconds"], 165)
+        self.assertFalse(expanded["video_job_created"])
+
+        reloaded = NovelaEngine(memory).get_episode(1)
+        self.assertEqual(reloaded["script"], expanded["script"])
+        self.assertEqual(reloaded["cinematic"]["version"], 2)
+        self.assertFalse(reloaded["video_job_created"])
+
+    def test_cinematic_expansion_requires_existing_episode_and_is_idempotent(self):
+        engine = NovelaEngine(FakeMemory())
+        with self.assertRaisesRegex(ValueError, "EPISODE_NOT_FOUND"):
+            expand_episode(engine, 1)
+        engine.generate_episode(1)
+        first = expand_episode(engine, 1)
+        second = expand_episode(engine, 1)
+        self.assertEqual(first["script"], second["script"])
+        self.assertEqual(first["updated_at"], second["updated_at"])
 
     def test_script_creation_never_queues_video_job(self):
         engine = NovelaEngine(FakeMemory())
